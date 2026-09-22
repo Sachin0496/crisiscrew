@@ -3,7 +3,7 @@
 CrisisCrew is a Track 1 finalist in The Great Agent Hackathon (Freshworks). This page checks the project against the hackathon's published rules and the organizers' later instructions. It lists what's met and what the team still has to do before submitting.
 
 - **Checked on:** 2026-09-23
-- **Sources:** the [rules](https://the-great-agent-hackathon.devpost.com/rules) and [overview](https://the-great-agent-hackathon.devpost.com/) pages on Devpost (read on 2026-09-22), plus the organizers' email to finalists described in section 1.
+- **Sources:** the [rules](https://the-great-agent-hackathon.devpost.com/rules) and [overview](https://the-great-agent-hackathon.devpost.com/) pages on Devpost (read on 2026-09-22, and the rules re-checked on 2026-09-23), plus the organizers' email to finalists described in section 1.
 - **Caveat:** rules can change. Re-read both pages, and any new organizer email, on the morning of the event.
 
 ## Summary
@@ -12,7 +12,7 @@ CrisisCrew is a Track 1 finalist in The Great Agent Hackathon (Freshworks). This
 |---|---|---|
 | Built from scratch and unique to this hackathon | **Met** | Every line of code was written for this hackathon. The repo's first commit is on 2026-09-22, and the Stage 1 page is archived unchanged in `prototype/` |
 | When the build happens | **Met under the organizers' email** | The written rules put the build inside the on-site sprint. The organizers then told finalists they may work beforehand and that Stage 2 is mostly presentation. See section 1 |
-| A working prototype, ready to demo live | **Met** | `pnpm start` runs the whole system offline, with six replayable scenarios and live typed complaints. See the [demo script](demo-script.md) |
+| A working prototype, ready to demo live | **Met** | `pnpm start` runs the whole system offline, with six replayable scenarios and live typed complaints. See the [demo script](demo-script.md). The rules also say "built during the 24-hour window"; the organizers' email covers that (section 1) |
 | An updated project description (what was built, the stack, how it evolved) | **To do: team** | A ready-to-paste draft is in [submission.md](submission.md) |
 | A public code repository with a clear README | **To do: team** | The README is written, but the repo is still **private**. Make it public before submitting (section 2) |
 | A live demo on the Main Stage | **Ready** | [demo-script.md](demo-script.md) |
@@ -34,7 +34,7 @@ CrisisCrew is a Track 1 finalist in The Great Agent Hackathon (Freshworks). This
 
 ## 2. Submission requirements
 
-1. **A working prototype, ready to demo live.** Met. The server, API, MCP endpoint and UI run from one command, with no keys and no network once the embedding model is on disk.
+1. **A working prototype, ready to demo live.** Met. The server, API, MCP endpoint and UI run from one command, with no keys and no network once the embedding model is on disk. The rule's words are "built during the 24-hour window"; as with the from-scratch timing, the organizers' email covers building it beforehand.
 2. **An updated project description.** The team pastes the draft from [submission.md](submission.md) into Devpost. It covers what was built, the stack, how the project evolved from Stage 1, and what isn't wired yet.
 3. **A public repository with a clear README.** The README covers what CrisisCrew does, how to run it, how it works, what's real and what's sandbox, the results, and the limits. The repo is private today. To make it public (the team does this, not an agent):
    ```bash
