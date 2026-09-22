@@ -1,0 +1,941 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CrisisCrew — Autonomous Customer Incident Swarm</title>
+<meta name="description" content="CrisisCrew turns fragmented customer complaints into coordinated customer recovery using Freshworks Agent Studio, MCP and multi-agent orchestration." />
+<style>
+:root{
+  --bg:#07101c;
+  --panel:#0b1626cc;
+  --panel-solid:#0d192b;
+  --panel-2:#101f34;
+  --text:#f5f8ff;
+  --muted:#93a4bd;
+  --line:#1f334e;
+  --cyan:#5ee7ff;
+  --blue:#6d8cff;
+  --violet:#a979ff;
+  --green:#48e0a4;
+  --amber:#ffc66d;
+  --red:#ff6b7a;
+  --white:#fff;
+  --shadow:0 28px 90px rgba(0,0,0,.42);
+  --radius:24px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  min-height:100vh;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color:var(--text);
+  background:
+    radial-gradient(900px 520px at 10% -10%, rgba(63,94,251,.20), transparent 60%),
+    radial-gradient(800px 520px at 90% 10%, rgba(94,231,255,.12), transparent 56%),
+    radial-gradient(1000px 600px at 50% 100%, rgba(169,121,255,.09), transparent 60%),
+    var(--bg);
+  overflow-x:hidden;
+}
+body::before{
+  content:"";
+  position:fixed; inset:0;
+  pointer-events:none;
+  background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+  background-size:32px 32px;
+  mask-image:linear-gradient(to bottom,rgba(0,0,0,.9),transparent 95%);
+}
+button{font:inherit}
+.app{min-height:100vh;display:grid;grid-template-columns:88px 1fr}
+.rail{
+  position:sticky;top:0;height:100vh;
+  border-right:1px solid rgba(255,255,255,.07);
+  background:rgba(5,12,22,.64);
+  backdrop-filter:blur(18px);
+  padding:18px 14px;
+  display:flex;flex-direction:column;align-items:center;z-index:20
+}
+.brand{
+  width:52px;height:52px;border-radius:18px;
+  display:grid;place-items:center;
+  background:linear-gradient(145deg,#162a46,#101a2c);
+  border:1px solid rgba(255,255,255,.11);
+  box-shadow:inset 0 1px rgba(255,255,255,.08),0 12px 30px rgba(0,0,0,.25);
+  margin-bottom:28px;position:relative;overflow:hidden
+}
+.brand::after{content:"";position:absolute;inset:-30%;background:conic-gradient(from 180deg,transparent 0 35%,rgba(94,231,255,.8) 48%,transparent 60%);animation:spin 7s linear infinite}
+.brand svg{position:relative;z-index:1}
+@keyframes spin{to{transform:rotate(360deg)}}
+.railnav{display:flex;flex-direction:column;gap:10px;width:100%;align-items:center}
+.navbtn{
+  width:52px;height:52px;border-radius:16px;border:1px solid transparent;background:transparent;
+  color:#7990ae;display:grid;place-items:center;cursor:pointer;transition:.25s ease;position:relative
+}
+.navbtn:hover,.navbtn.active{color:#fff;background:#102039;border-color:#203b5d}
+.navbtn.active::before{content:"";position:absolute;left:-15px;width:3px;height:24px;border-radius:4px;background:linear-gradient(var(--cyan),var(--blue));box-shadow:0 0 18px var(--cyan)}
+.rail .bottom{margin-top:auto;display:flex;flex-direction:column;gap:10px}
+.main{padding:22px 26px 40px;min-width:0}
+.topbar{
+  display:flex;align-items:center;gap:14px;
+  position:sticky;top:0;z-index:18;
+  margin:-22px -26px 20px;padding:18px 26px;
+  background:linear-gradient(to bottom,rgba(7,16,28,.96),rgba(7,16,28,.76) 70%,transparent);
+  backdrop-filter:blur(12px);
+}
+.titlewrap{display:flex;align-items:center;gap:11px;min-width:0}
+.wordmark{font-weight:760;letter-spacing:-.03em;font-size:19px}
+.pill{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:7px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.09);
+  background:rgba(255,255,255,.035);color:var(--muted);font-size:12px;font-weight:650;white-space:nowrap
+}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 14px var(--green)}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+.btn{
+  height:42px;padding:0 15px;border-radius:13px;border:1px solid #263d5d;background:#0e1b2e;color:#dce7f6;
+  font-weight:700;font-size:13px;cursor:pointer;transition:.2s ease;display:inline-flex;align-items:center;gap:8px
+}
+.btn:hover{transform:translateY(-1px);border-color:#3c5d89}
+.btn.primary{color:#041019;background:linear-gradient(135deg,var(--cyan),#8aa7ff 68%,#b690ff);border:0;box-shadow:0 10px 34px rgba(94,231,255,.16)}
+.btn.danger{background:rgba(255,107,122,.08);border-color:rgba(255,107,122,.28);color:#ffb3bc}
+.kbd{padding:2px 6px;border-radius:6px;background:rgba(0,0,0,.25);font-size:10px;color:#a9bad0;border:1px solid rgba(255,255,255,.08)}
+.hero{
+  display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:18px;margin-bottom:18px
+}
+.card{
+  background:linear-gradient(180deg,rgba(14,28,48,.88),rgba(9,19,33,.88));
+  border:1px solid rgba(255,255,255,.075);border-radius:var(--radius);
+  box-shadow:var(--shadow);position:relative;overflow:hidden
+}
+.card::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(130deg,rgba(255,255,255,.03),transparent 25% 70%,rgba(94,231,255,.02))}
+.hero-main{padding:30px;min-height:286px}
+.eyebrow{color:var(--cyan);font-size:11px;font-weight:800;letter-spacing:.15em;text-transform:uppercase;margin-bottom:16px}
+h1{font-size:clamp(34px,4vw,62px);line-height:.98;letter-spacing:-.055em;margin:0 0 18px;max-width:940px}
+.gradient-text{background:linear-gradient(95deg,#fff 0%,#a8edff 42%,#c8b4ff 78%,#fff 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{max-width:780px;color:#a6b5ca;font-size:16px;line-height:1.65;margin:0}
+.hero-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:23px}
+.hero-stat{padding:23px;display:flex;flex-direction:column;justify-content:space-between;min-height:286px}
+.live-head{display:flex;align-items:center;justify-content:space-between}
+.live-head .label{font-size:12px;font-weight:750;color:#d8e5f6}
+.radar{
+  width:100%;height:118px;margin:10px 0 2px;position:relative;display:grid;place-items:center
+}
+.ring{position:absolute;border:1px solid rgba(94,231,255,.18);border-radius:50%;animation:pulse 3.4s ease-out infinite}
+.ring.r1{width:44px;height:44px}.ring.r2{width:78px;height:78px;animation-delay:.5s}.ring.r3{width:112px;height:112px;animation-delay:1s}
+@keyframes pulse{0%,20%{opacity:.55;transform:scale(.82)}80%,100%{opacity:.05;transform:scale(1.08)}}
+.radar-core{width:28px;height:28px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,var(--cyan) 35%,#3f6dff 75%);box-shadow:0 0 34px rgba(94,231,255,.55)}
+.big-num{font-size:42px;letter-spacing:-.05em;font-weight:760}
+.caption{font-size:12px;color:var(--muted)}
+.metric-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.metric{padding:18px 19px;min-height:116px}
+.metric .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;font-weight:800}
+.metric .v{font-size:28px;font-weight:760;letter-spacing:-.04em;margin-top:11px}
+.metric .trend{font-size:11px;margin-top:8px;color:#89a0bd}
+.metric .trend.good{color:var(--green)} .metric .trend.warn{color:var(--amber)}
+.grid2{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(330px,.85fr);gap:18px;margin-bottom:18px}
+.section-card{padding:20px}
+.cardhead{display:flex;align-items:center;gap:10px;margin-bottom:17px}
+.cardhead h2{font-size:14px;margin:0;letter-spacing:-.01em}
+.cardhead .small{margin-left:auto;color:var(--muted);font-size:11px}
+.signal-list{display:flex;flex-direction:column;gap:9px;min-height:352px}
+.signal{
+  display:grid;grid-template-columns:34px 1fr auto;gap:11px;align-items:center;padding:12px 13px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.025);
+  border-radius:14px;transition:.35s ease;opacity:.92
+}
+.signal.new{animation:signalIn .45s cubic-bezier(.2,.8,.2,1)}
+@keyframes signalIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:.92;transform:none}}
+.avatar{width:34px;height:34px;border-radius:11px;background:linear-gradient(145deg,#263e60,#12243c);display:grid;place-items:center;font-size:12px;font-weight:800;color:#c8dbf5}
+.signal .msg{font-size:12px;color:#dbe7f7}.signal .meta{font-size:10px;color:#7187a5;margin-top:3px}
+.badge{font-size:10px;font-weight:800;padding:5px 7px;border-radius:999px;border:1px solid}
+.badge.payment{color:#ffcf7a;border-color:rgba(255,198,109,.22);background:rgba(255,198,109,.06)}
+.badge.cluster{color:#8ceeff;border-color:rgba(94,231,255,.25);background:rgba(94,231,255,.07)}
+.correlation{padding:18px;border:1px solid rgba(94,231,255,.14);background:linear-gradient(180deg,rgba(23,74,99,.16),rgba(15,29,48,.24));border-radius:18px}
+.corr-top{display:flex;align-items:end;justify-content:space-between}
+.corr-label{font-size:11px;color:#8ea1ba}.corr-value{font-size:26px;font-weight:780;letter-spacing:-.04em}
+.progress{height:8px;background:#142238;border-radius:99px;margin:14px 0 10px;overflow:hidden;border:1px solid rgba(255,255,255,.05)}
+.progress>span{display:block;height:100%;width:8%;background:linear-gradient(90deg,var(--blue),var(--cyan));border-radius:inherit;box-shadow:0 0 14px rgba(94,231,255,.3);transition:width .8s cubic-bezier(.2,.8,.2,1)}
+.cluster-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.mini{padding:10px;background:rgba(255,255,255,.028);border-radius:12px;border:1px solid rgba(255,255,255,.05)}
+.mini .n{font-size:17px;font-weight:750}.mini .t{font-size:9px;color:#798faa;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
+.incident{
+  margin-top:13px;padding:15px;border-radius:16px;border:1px solid rgba(255,107,122,.22);background:rgba(255,107,122,.055);
+  opacity:.35;transform:translateY(4px);transition:.5s ease
+}
+.incident.active{opacity:1;transform:none;box-shadow:inset 0 0 40px rgba(255,107,122,.03)}
+.incident-title{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#ffc0c6}
+.incident-id{margin-left:auto;color:#8ea1b9;font-weight:700;font-size:10px}
+.incident-body{font-size:11px;color:#afbed1;line-height:1.55;margin-top:9px}
+.swarm{padding:20px}
+.agent-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:15px}
+.agent{
+  min-height:94px;padding:12px;border-radius:16px;border:1px solid rgba(255,255,255,.065);background:rgba(255,255,255,.025);position:relative;overflow:hidden;transition:.35s
+}
+.agent::after{content:"";position:absolute;inset:auto 0 0;height:2px;background:linear-gradient(90deg,transparent,#5ee7ff,transparent);transform:translateX(-100%)}
+.agent.active{border-color:rgba(94,231,255,.26);background:rgba(94,231,255,.055)}
+.agent.active::after{animation:sweep 1.4s linear infinite}
+@keyframes sweep{to{transform:translateX(100%)}}
+.agent .icon{width:28px;height:28px;border-radius:9px;background:#132942;display:grid;place-items:center;color:#b7eaff;margin-bottom:9px}
+.agent .name{font-size:10px;font-weight:800;color:#dfeafb}
+.agent .perm{font-size:8px;color:#758aa6;text-transform:uppercase;letter-spacing:.08em;margin-top:3px}
+.agent .state{position:absolute;right:9px;top:9px;width:7px;height:7px;border-radius:50%;background:#33465e}
+.agent.active .state{background:var(--green);box-shadow:0 0 12px var(--green)}
+.timeline{border-top:1px solid rgba(255,255,255,.06);padding-top:8px;max-height:310px;overflow:auto;scrollbar-width:thin}
+.event{display:grid;grid-template-columns:72px 28px 1fr;gap:10px;padding:10px 4px;border-bottom:1px solid rgba(255,255,255,.045);opacity:.9}
+.event .time{font-size:10px;color:#7288a5;padding-top:3px}
+.event .bullet{width:24px;height:24px;border-radius:8px;background:#12243a;display:grid;place-items:center;font-size:10px;border:1px solid #203651}
+.event .evtitle{font-size:11px;font-weight:770}.event .evbody{font-size:10px;color:#8499b5;margin-top:3px;line-height:1.45}
+.event.highlight{background:linear-gradient(90deg,rgba(94,231,255,.06),transparent);border-radius:12px}
+.rootcause{
+  padding:18px;min-height:255px;
+  display:flex;flex-direction:column
+}
+.root-hero{
+  flex:1;border-radius:18px;border:1px solid rgba(255,255,255,.06);background:linear-gradient(160deg,#101f34,#0b1626);
+  padding:16px;position:relative;overflow:hidden
+}
+.root-hero::before{content:"";position:absolute;width:160px;height:160px;border-radius:50%;background:rgba(109,140,255,.12);filter:blur(30px);right:-45px;top:-45px}
+.service{font-size:20px;font-weight:780;letter-spacing:-.03em;margin-top:9px}.version{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#90a6c4;font-size:11px;margin-top:5px}
+.confidence{margin-top:17px;display:flex;align-items:center;justify-content:space-between;font-size:10px;color:#8296b1}
+.root-status{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:800;color:#ffccd1}
+.root-status i{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 16px rgba(255,107,122,.55)}
+.rootdetail{font-size:10px;line-height:1.6;color:#9aacc2;margin-top:13px}
+.flow{padding:20px}
+.flowline{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:stretch}
+.step{padding:15px;border-radius:16px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.025);min-height:108px;position:relative}
+.step .num{font-size:9px;color:#6f85a2;font-weight:800;letter-spacing:.08em}.step h3{font-size:12px;margin:10px 0 6px}.step p{font-size:9px;line-height:1.5;color:#8094ae;margin:0}
+.step.done{border-color:rgba(72,224,164,.23);background:rgba(72,224,164,.045)}
+.step.current{border-color:rgba(94,231,255,.26);background:rgba(94,231,255,.05);box-shadow:inset 0 0 30px rgba(94,231,255,.025)}
+.connector{position:absolute;right:-12px;top:50%;width:13px;height:1px;background:#29425f}
+.recovery-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:18px;margin-bottom:18px}
+.plan{padding:20px}
+.actions{display:flex;flex-direction:column;gap:9px}
+.action{
+  display:grid;grid-template-columns:34px 1fr auto;gap:11px;align-items:center;padding:12px;border:1px solid rgba(255,255,255,.06);border-radius:14px;background:rgba(255,255,255,.022)
+}
+.action .check{width:30px;height:30px;border-radius:10px;background:#11283a;display:grid;place-items:center;color:#7090ac;transition:.3s}
+.action.done .check{color:#82f1c1;background:rgba(72,224,164,.10)}
+.action .aname{font-size:11px;font-weight:760}.action .adesc{font-size:9px;color:#7e93ad;margin-top:3px}.action .risk{font-size:9px;font-weight:800;padding:5px 7px;border-radius:999px}
+.risk.auto{color:#7ce6b8;background:rgba(72,224,164,.08)}.risk.approval{color:#ffd48a;background:rgba(255,198,109,.08)}
+.voice{padding:20px;display:flex;flex-direction:column}
+.voice-stage{border:1px solid rgba(255,255,255,.06);background:radial-gradient(circle at 50% 0%,rgba(109,140,255,.13),transparent 60%),#0a1627;border-radius:20px;min-height:250px;padding:18px;display:flex;flex-direction:column;justify-content:space-between}
+.voice-top{display:flex;align-items:center;justify-content:space-between}
+.voice-user{display:flex;align-items:center;gap:10px}.voice-orb{width:42px;height:42px;border-radius:50%;background:radial-gradient(circle at 35% 30%,white 0 5%,#89efff 20%,#6b75ff 68%,#151b3a);box-shadow:0 0 45px rgba(94,231,255,.27);position:relative}
+.voice-orb::after{content:"";position:absolute;inset:-8px;border:1px solid rgba(94,231,255,.22);border-radius:50%;animation:voicepulse 1.4s ease-in-out infinite}
+@keyframes voicepulse{50%{transform:scale(1.13);opacity:.3}}
+.wave{display:flex;align-items:center;justify-content:center;gap:3px;height:40px}
+.wave span{width:3px;border-radius:4px;background:linear-gradient(var(--cyan),var(--blue));height:8px;animation:wave 1s ease-in-out infinite}
+.wave span:nth-child(2){animation-delay:.1s}.wave span:nth-child(3){animation-delay:.2s}.wave span:nth-child(4){animation-delay:.3s}.wave span:nth-child(5){animation-delay:.4s}.wave span:nth-child(6){animation-delay:.5s}.wave span:nth-child(7){animation-delay:.6s}.wave span:nth-child(8){animation-delay:.7s}
+@keyframes wave{50%{height:30px}}
+.transcript{font-size:13px;line-height:1.65;color:#dce8f8;min-height:72px}
+.transcript .speaker{display:block;font-size:9px;color:#7790ac;text-transform:uppercase;letter-spacing:.1em;font-weight:800;margin-bottom:5px}
+.voice-controls{display:flex;align-items:center;justify-content:space-between;color:#7d93ae;font-size:9px}
+.approval{
+  padding:18px;border:1px solid rgba(255,198,109,.16);background:linear-gradient(180deg,rgba(255,198,109,.055),rgba(14,28,48,.85))
+}
+.approval-top{display:flex;align-items:center;gap:10px}.shield{width:36px;height:36px;border-radius:12px;background:rgba(255,198,109,.09);display:grid;place-items:center;color:#ffd38c}
+.exposure{font-size:31px;font-weight:780;letter-spacing:-.05em;margin:19px 0 4px}.subline{color:#899eb8;font-size:10px}
+.approval-list{margin:17px 0;display:grid;grid-template-columns:1fr 1fr;gap:8px}.proof{padding:9px;border:1px solid rgba(255,255,255,.055);background:rgba(255,255,255,.025);border-radius:10px;font-size:9px;color:#96aac2}
+.approval-actions{display:flex;gap:8px}.smallbtn{flex:1;padding:10px 9px;border-radius:11px;border:1px solid #29425f;background:#102039;color:#cbd8ea;font-size:10px;font-weight:780;cursor:pointer}.smallbtn.ok{background:rgba(72,224,164,.1);border-color:rgba(72,224,164,.25);color:#94efc8}
+.conclusions{display:none}
+.conclusion-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.conclusion-item{padding:15px;border-radius:16px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.025);min-height:150px;transition:.35s ease;position:relative}
+.conclusion-item .cstate{display:inline-flex;align-items:center;gap:6px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#7187a5}
+.conclusion-item .cstate::before{content:"";width:7px;height:7px;border-radius:50%;background:#33465e}
+.conclusion-item h3{font-size:12px;margin:11px 0 7px}
+.conclusion-item p{font-size:10px;line-height:1.55;color:#8499b5;margin:0}
+.conclusion-item.done{border-color:rgba(72,224,164,.24);background:rgba(72,224,164,.045)}
+.conclusion-item.done .cstate{color:#82f1c1}.conclusion-item.done .cstate::before{background:var(--green);box-shadow:0 0 12px var(--green)}
+.conclusion-item.human{border-color:rgba(255,198,109,.20);background:rgba(255,198,109,.04)}
+.conclusion-item.human .cstate{color:#ffd48a}.conclusion-item.human .cstate::before{background:var(--amber);box-shadow:0 0 12px rgba(255,198,109,.45)}
+.final-conclusion{margin-top:12px;padding:18px;border-radius:18px;border:1px solid rgba(94,231,255,.18);background:linear-gradient(135deg,rgba(94,231,255,.07),rgba(169,121,255,.06));display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center}
+.final-conclusion strong{font-size:16px;letter-spacing:-.02em}.final-conclusion p{margin:6px 0 0;color:#9fb1c8;font-size:10px;line-height:1.6}
+.final-result{font-size:12px;font-weight:800;color:#c7f7ff;white-space:nowrap}
+.conclusion-modal{
+  position:fixed;inset:0;z-index:140;display:none;place-items:center;padding:22px;
+  background:rgba(3,8,15,.72);backdrop-filter:blur(8px)
+}
+.conclusion-modal.show{display:grid}
+.conclusion-dialog{
+  width:min(1040px,calc(100vw - 44px));max-height:88vh;overflow:auto;
+  border-radius:22px;border:1px solid rgba(255,255,255,.12);
+  background:linear-gradient(180deg,#0f1e32,#091523);box-shadow:0 30px 100px rgba(0,0,0,.55);padding:28px
+}
+ .conclusion-popup-head{display:flex;align-items:flex-start;gap:16px;margin-bottom:20px}
+.conclusion-popup-head h2{margin:0;font-size:24px;line-height:1.2;letter-spacing:-.025em}
+.conclusion-popup-head p{margin:7px 0 0;color:#a8b9ce;font-size:13px;line-height:1.55}
+.modal-close{margin-left:auto;width:42px;height:42px;flex:0 0 42px;border-radius:12px;border:1px solid #29425f;background:#102039;color:#dce7f6;cursor:pointer;font-size:21px}
+.popup-conclusion-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.popup-conclusion-item{padding:18px;border-radius:15px;border:1px solid rgba(255,255,255,.075);background:rgba(255,255,255,.025)}
+.popup-conclusion-item .pcstate{font-size:11px;font-weight:850;text-transform:uppercase;letter-spacing:.075em;color:#82f1c1}
+.popup-conclusion-item h3{font-size:15px;line-height:1.35;margin:9px 0 7px}
+.popup-conclusion-item p{font-size:13px;line-height:1.62;color:#a6b7cc;margin:0}
+.popup-final{margin-top:13px;padding:18px;border-radius:16px;border:1px solid rgba(94,231,255,.18);background:linear-gradient(135deg,rgba(94,231,255,.07),rgba(169,121,255,.055))}
+.popup-final strong{font-size:16px;line-height:1.4}
+.popup-final p{font-size:13px;line-height:1.62;color:#a8b9ce;margin:8px 0 12px}
+.popup-result{font-size:14px;line-height:1.45;font-weight:850;color:#c7f7ff}
+.popup-execution{margin-top:14px;padding:18px;border-radius:16px;border:1px solid rgba(255,255,255,.085);background:rgba(255,255,255,.022)}
+.popup-execution-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:13px}
+.popup-execution-head .mini-label{font-size:11px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:#86eaff;margin-bottom:5px}
+.popup-execution-head h3{margin:0;font-size:17px;line-height:1.35}
+.popup-execution-head span{font-size:12px;color:#8298b3}
+.popup-execution-grid{display:grid;grid-template-columns:1.12fr .88fr;gap:12px}
+.execution-panel{padding:15px;border-radius:14px;border:1px solid rgba(255,255,255,.065);background:rgba(4,12,22,.28);min-width:0}
+.execution-panel h4{margin:0 0 10px;font-size:13px;letter-spacing:.01em;color:#e6f0ff}
+.execution-row{display:grid;grid-template-columns:138px 1fr;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.045);align-items:start}
+.execution-row:last-child{border-bottom:0;padding-bottom:0}
+.execution-row:first-of-type{padding-top:0}
+.execution-row strong{font-size:12.5px;line-height:1.45;color:#dce9f8}
+.execution-row span{font-size:12.5px;line-height:1.5;color:#9fb1c7}
+.stack-list{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.stack-item{padding:10px 11px;border-radius:11px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.055)}
+.stack-item strong{display:block;font-size:12.5px;color:#dfeafb}.stack-item span{display:block;margin-top:3px;font-size:12px;line-height:1.45;color:#94a8c0}
+.tool-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#8198b5;margin:12px 0 8px}
+.tool-list{display:flex;flex-wrap:wrap;gap:7px}
+.tool-chip{padding:7px 9px;border-radius:9px;border:1px solid rgba(94,231,255,.14);background:rgba(94,231,255,.045);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.35;color:#c9f6ff;overflow-wrap:anywhere}
+.action-tool-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.action-tool{padding:10px 11px;border-radius:11px;border:1px solid rgba(169,121,255,.13);background:rgba(169,121,255,.035)}
+.action-tool strong{display:block;font-size:12px;color:#e6dcff}.action-tool span{display:block;margin-top:3px;font-size:11.8px;line-height:1.45;color:#9fadc2}
+@media(max-width:640px){.popup-conclusion-grid,.popup-execution-grid,.action-tool-list{grid-template-columns:1fr}.conclusion-dialog{width:calc(100vw - 24px);max-height:88vh;padding:19px}.conclusion-modal{padding:12px}.conclusion-popup-head h2{font-size:21px}.conclusion-popup-head p,.popup-conclusion-item p,.popup-final p{font-size:12px}.popup-conclusion-item h3{font-size:14px}.popup-result{font-size:13px}.popup-execution{padding:14px}.popup-execution-head{align-items:flex-start;flex-direction:column}.execution-row{grid-template-columns:1fr;gap:2px}.execution-row strong,.execution-row span{font-size:12px}}
+.arch{padding:20px;margin-bottom:18px}
+.archrow{display:grid;grid-template-columns:1fr 40px 1fr 40px 1fr;align-items:center;gap:10px}
+.node{padding:16px;border-radius:16px;border:1px solid rgba(255,255,255,.065);background:rgba(255,255,255,.025);text-align:center;min-height:88px;display:flex;flex-direction:column;justify-content:center}
+.node strong{font-size:12px}.node span{font-size:9px;color:#8196b1;margin-top:5px;line-height:1.45}.arrow{text-align:center;color:#507299;font-size:20px}
+.sponsor-node{border-color:rgba(94,231,255,.18);background:rgba(94,231,255,.035)}
+.mcp-node{border-color:rgba(169,121,255,.20);background:rgba(169,121,255,.035)}
+.footer{
+  padding:24px 0 10px;display:flex;align-items:center;justify-content:space-between;color:#6f839d;font-size:10px
+}
+
+.demo-launcher{
+  position:fixed;top:78px;right:18px;z-index:105;display:flex;align-items:center;gap:10px;
+  padding:10px 11px 10px 12px;border-radius:15px;border:1px solid rgba(94,231,255,.22);
+  background:rgba(8,19,33,.94);backdrop-filter:blur(16px);box-shadow:0 14px 42px rgba(0,0,0,.34);
+  transition:.2s ease;max-width:260px
+}
+.demo-launcher:hover{border-color:rgba(94,231,255,.42);transform:translateY(-1px)}
+.demo-launcher-indicator{width:10px;height:10px;flex:0 0 10px;border-radius:50%;background:var(--cyan);box-shadow:0 0 0 0 rgba(94,231,255,.38);animation:demoBeacon 1.8s ease-out infinite}
+@keyframes demoBeacon{0%{box-shadow:0 0 0 0 rgba(94,231,255,.42)}70%{box-shadow:0 0 0 9px rgba(94,231,255,0)}100%{box-shadow:0 0 0 0 rgba(94,231,255,0)}}
+.demo-launcher.running .demo-launcher-indicator{background:var(--green);animation:demoBeacon 1s ease-out infinite}
+.demo-launcher.done .demo-launcher-indicator{background:var(--violet)}
+.demo-launcher-copy{min-width:0;line-height:1.15}
+.demo-launcher-copy strong{display:block;font-size:12px;color:#edf8ff;white-space:nowrap}
+.demo-launcher-copy span{display:block;margin-top:4px;font-size:10px;color:#91a6c1;white-space:nowrap}
+.demo-launcher-btn{height:34px;padding:0 11px;border-radius:10px;border:0;background:linear-gradient(135deg,var(--cyan),#8aa7ff);color:#041019;font-size:11px;font-weight:850;cursor:pointer;white-space:nowrap}
+.demo-launcher-btn:hover{filter:brightness(1.06)}
+.demo-launcher.running .demo-launcher-btn{background:#13253b;color:#a7b8ce;border:1px solid #28435f;cursor:default}
+@media(max-width:760px){
+  .demo-launcher{top:66px;right:10px;padding:9px 9px 9px 10px;max-width:230px}
+  .demo-launcher-copy span{display:none}.demo-launcher-copy strong{font-size:11px}.demo-launcher-btn{height:32px;padding:0 9px;font-size:10px}
+}
+.demo-overlay{
+  position:fixed;inset:0;z-index:80;pointer-events:none;
+  display:flex;align-items:flex-start;justify-content:center;padding-top:16px
+}
+.demo-hud{
+  pointer-events:auto;opacity:0;transform:translateY(-10px);transition:.3s;
+  display:flex;align-items:center;gap:12px;padding:10px 13px;border-radius:14px;background:rgba(7,16,28,.88);border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(16px);box-shadow:0 12px 40px rgba(0,0,0,.32)
+}
+.demo-hud.show{opacity:1;transform:none}
+.timer{font-variant-numeric:tabular-nums;font-size:12px;font-weight:800;min-width:42px}.stage{font-size:10px;color:#97abc4;min-width:190px}
+.stagebar{width:170px;height:5px;background:#17263a;border-radius:99px;overflow:hidden}.stagebar span{display:block;width:0;height:100%;background:linear-gradient(90deg,var(--cyan),var(--violet));transition:width .4s}
+.toast-wrap{position:fixed;right:22px;bottom:22px;z-index:90;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.toast{min-width:290px;max-width:370px;padding:13px 14px;border-radius:14px;background:rgba(11,22,38,.94);border:1px solid rgba(255,255,255,.09);box-shadow:0 20px 60px rgba(0,0,0,.38);backdrop-filter:blur(18px);animation:toastIn .35s ease}
+@keyframes toastIn{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+.toast b{font-size:11px}.toast p{margin:4px 0 0;font-size:9px;line-height:1.5;color:#8fa4bf}
+.highlight-ring{animation:ringFlash 1.2s ease 2}
+@keyframes ringFlash{50%{box-shadow:0 0 0 2px rgba(94,231,255,.65),0 0 45px rgba(94,231,255,.18)}}
+.stage-mode .rail{display:none}.stage-mode .app{grid-template-columns:1fr}.stage-mode .main{padding:18px 22px}.stage-mode .topbar{margin:-18px -22px 14px;padding:15px 22px}
+section[id],#workflow,#recovery,#architecture{scroll-margin-top:110px}
+@media(max-width:1100px){
+  .hero,.grid2,.recovery-grid{grid-template-columns:1fr}.metric-row{grid-template-columns:repeat(2,1fr)}.conclusion-grid{grid-template-columns:repeat(2,1fr)}
+  .agent-grid{grid-template-columns:repeat(3,1fr)}.flowline{grid-template-columns:repeat(2,1fr)}.connector{display:none}
+}
+@media(max-width:760px){
+  .app{grid-template-columns:1fr}.rail{display:none}.main{padding:14px}.topbar{margin:-14px -14px 12px;padding:12px 14px}
+  .top-actions .btn:not(.primary){display:none}.hero-main{padding:22px}.hero-stat{min-height:220px}.metric-row{grid-template-columns:1fr 1fr}
+  .agent-grid{grid-template-columns:1fr 1fr}.flowline,.archrow,.conclusion-grid,.final-conclusion{grid-template-columns:1fr}.arrow{transform:rotate(90deg)}.final-result{white-space:normal}
+  .cluster-summary{grid-template-columns:1fr 1fr 1fr}.approval-list{grid-template-columns:1fr}.voice-stage{min-height:220px}
+}
+</style>
+</head>
+<body>
+<div id="demoLauncher" class="demo-launcher" aria-label="Interactive demo launcher">
+  <span class="demo-launcher-indicator" aria-hidden="true"></span>
+  <div class="demo-launcher-copy">
+    <strong id="demoLauncherTitle">Interactive demo</strong>
+    <span id="demoLauncherStatus">12 sec guided incident run</span>
+  </div>
+  <button id="demoLauncherBtn" class="demo-launcher-btn" type="button" onclick="startDemo()">▶ Run</button>
+</div>
+<div class="demo-overlay"><div id="demoHud" class="demo-hud">
+  <div class="timer" id="timer">00:00</div>
+  <div class="stage" id="stageLabel">Ready</div>
+  <div class="stagebar"><span id="stageProgress"></span></div>
+  <button class="smallbtn" style="flex:0;padding:7px 10px" onclick="stopDemo()">Stop</button>
+</div></div>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand" title="CrisisCrew">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M6 17.5c0-5 3.4-9 8-9s8 4 8 9" stroke="#92ecff" stroke-width="2.2" stroke-linecap="round"/><circle cx="14" cy="16.8" r="3.2" fill="#6D8CFF"/><path d="M14 4v2M4.8 8.2l1.7 1M23.2 8.2l-1.7 1" stroke="#fff" stroke-opacity=".75" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </div>
+    <div class="railnav">
+      <button class="navbtn active" onclick="go('overview')" title="Overview"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="3" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.7"/><rect x="3" y="14" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="14" width="7" height="7" rx="2" stroke="currentColor" stroke-width="1.7"/></svg></button>
+      <button class="navbtn" onclick="go('signals')" title="Signals"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 16v-3m4 6V8m4 8V5m4 14v-8m4 5V9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      <button class="navbtn" onclick="go('swarm')" title="Agents"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="7" r="3" stroke="currentColor" stroke-width="1.7"/><circle cx="6" cy="17" r="2.5" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="17" r="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M10 9.5 7.5 14M14 9.5l2.5 4.5" stroke="currentColor" stroke-width="1.7"/></svg></button>
+      <button class="navbtn" onclick="go('recovery')" title="Recovery"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.3-5.6" stroke="currentColor" stroke-width="1.7"/><path d="M20 4v5h-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+      <button class="navbtn" onclick="go('architecture')" title="Architecture"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="5" rx="1.5" stroke="currentColor" stroke-width="1.7"/><rect x="3" y="16" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="16" width="7" height="5" rx="1.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 8v4m0 0H6.5v4m5.5-4h5.5v4" stroke="currentColor" stroke-width="1.7"/></svg></button>
+    </div>
+    <div class="bottom">
+      <button class="navbtn" onclick="toggleStage()" title="Stage mode"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3m13 5h3a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.7"/></svg></button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="titlewrap">
+        <div class="wordmark">CrisisCrew</div>
+        <span class="pill"><span class="dot"></span> Operations live</span>
+        <span class="pill">Track 1 · Customer Experience</span>
+      </div>
+      <div class="top-actions">
+        <button class="btn" onclick="resetDemo()">Reset</button>
+        <button class="btn" onclick="toggleStage()">Stage Mode <span class="kbd">F</span></button>
+        <button class="btn primary" onclick="startDemo()">▶ Start Fast Demo <span class="kbd">Space</span></button>
+      </div>
+    </div>
+
+    <section id="overview" class="hero">
+      <div class="card hero-main">
+        <div class="eyebrow">Autonomous Customer Incident Swarm</div>
+        <h1><span class="gradient-text">Turn fragmented complaints into coordinated recovery.</span></h1>
+        <p class="sub">CrisisCrew treats customer conversations as a real-time operational signal. It detects emerging incidents, launches specialist agents, investigates systems through MCP, proactively updates customers, and hands off only when human judgment is required.</p>
+        <div class="hero-chips">
+          <span class="pill">Freshworks Agent Studio</span><span class="pill">MCP orchestration</span><span class="pill">Multi-agent swarm</span><span class="pill">Human-in-the-loop</span><span class="pill">ElevenLabs voice</span>
+        </div>
+      </div>
+      <div class="card hero-stat">
+        <div class="live-head"><span class="label">Customer signal radar</span><span class="pill"><span class="dot"></span> monitoring</span></div>
+        <div class="radar"><div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div><div class="radar-core"></div></div>
+        <div>
+          <div class="big-num" id="signalCount">1,248</div>
+          <div class="caption">support signals observed today</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="metric-row">
+      <div class="card metric"><div class="k">Active incidents</div><div class="v" id="activeIncidents">0</div><div class="trend good" id="incTrend">No major incidents</div></div>
+      <div class="card metric"><div class="k">Customers at risk</div><div class="v" id="customersRisk">12</div><div class="trend" id="riskTrend">baseline monitoring</div></div>
+      <div class="card metric"><div class="k">Mean detect time</div><div class="v">58<span style="font-size:14px;color:#7f94af"> sec</span></div><div class="trend good">↓ 84% vs manual triage</div></div>
+      <div class="card metric"><div class="k">Duplicate work avoided</div><div class="v" id="avoided">0</div><div class="trend">this incident</div></div>
+    </section>
+
+    <section id="signals" class="grid2">
+      <div class="card section-card">
+        <div class="cardhead"><h2>Live customer signals</h2><span class="pill"><span class="dot"></span> Freshworks</span><span class="small">streaming conversations</span></div>
+        <div class="signal-list" id="signalList">
+          <div class="signal"><div class="avatar">AS</div><div><div class="msg">“Where can I update my delivery address?”</div><div class="meta">Anika S. · 19:41:28 · Chat</div></div><span class="badge cluster">normal</span></div>
+          <div class="signal"><div class="avatar">RM</div><div><div class="msg">“Need invoice copy for order #9821.”</div><div class="meta">Rohan M. · 19:41:44 · Email</div></div><span class="badge cluster">normal</span></div>
+          <div class="signal"><div class="avatar">KV</div><div><div class="msg">“How do I change my saved card?”</div><div class="meta">Kavya V. · 19:41:53 · Chat</div></div><span class="badge cluster">normal</span></div>
+        </div>
+      </div>
+
+      <div class="card section-card">
+        <div class="cardhead"><h2>Pattern Agent</h2><span class="small">semantic + temporal correlation</span></div>
+        <div class="correlation" id="correlationCard">
+          <div class="corr-top"><div><div class="corr-label">Emerging-cluster confidence</div><div style="font-size:10px;color:#687f9f;margin-top:4px">payments / checkout</div></div><div class="corr-value" id="corrVal">08%</div></div>
+          <div class="progress"><span id="corrBar"></span></div>
+          <div style="font-size:10px;color:#7890ad" id="corrDesc">No statistically meaningful customer pattern yet.</div>
+          <div class="cluster-summary">
+            <div class="mini"><div class="n" id="linkedCount">0</div><div class="t">linked cases</div></div>
+            <div class="mini"><div class="n" id="windowVal">—</div><div class="t">signal window</div></div>
+            <div class="mini"><div class="n" id="severityVal">Low</div><div class="t">severity</div></div>
+          </div>
+        </div>
+        <div class="incident" id="incidentCard">
+          <div class="incident-title"><span>⚠</span> Emerging incident detected <span class="incident-id">INC-2026-081</span></div>
+          <div class="incident-body">Multiple differently-worded complaints converge on checkout/payment failure. CrisisCrew recommends launching the incident swarm.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="swarm" class="grid2">
+      <div class="card swarm">
+        <div class="cardhead"><h2>Agent swarm</h2><span class="pill">5 specialist agents</span><span class="small">permission-scoped orchestration</span></div>
+        <div class="agent-grid">
+          <div class="agent" id="agent-pattern"><span class="state"></span><div class="icon">⌁</div><div class="name">Pattern</div><div class="perm">Read-only</div></div>
+          <div class="agent" id="agent-investigator"><span class="state"></span><div class="icon">⌕</div><div class="name">Investigator</div><div class="perm">Read-only</div></div>
+          <div class="agent" id="agent-commander"><span class="state"></span><div class="icon">✦</div><div class="name">Commander</div><div class="perm">Orchestrate</div></div>
+          <div class="agent" id="agent-recovery"><span class="state"></span><div class="icon">↻</div><div class="name">Recovery</div><div class="perm">Limited write</div></div>
+          <div class="agent" id="agent-handoff"><span class="state"></span><div class="icon">♙</div><div class="name">Handoff</div><div class="perm">Escalation</div></div>
+        </div>
+        <div class="timeline" id="timeline">
+          <div class="event"><div class="time">19:41:50</div><div class="bullet">●</div><div><div class="evtitle">System normal</div><div class="evbody">CrisisCrew is monitoring customer conversations for emerging operational patterns.</div></div></div>
+        </div>
+      </div>
+
+      <div class="card rootcause">
+        <div class="cardhead"><h2>Probable root cause</h2><span class="small">MCP investigation</span></div>
+        <div class="root-hero" id="rootHero">
+          <div class="root-status"><i></i><span id="rootStatus">No incident under investigation</span></div>
+          <div class="service" id="rootService">—</div>
+          <div class="version" id="rootVersion">awaiting evidence</div>
+          <div class="rootdetail" id="rootDetail">When an incident is detected, the Investigator Agent queries payment health, deployment history, service telemetry and customer context through MCP tools.</div>
+          <div class="confidence"><span>Root-cause confidence</span><strong id="rootConfidence">0%</strong></div>
+          <div class="progress"><span id="rootBar" style="width:0%;background:linear-gradient(90deg,var(--violet),var(--cyan))"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card flow" id="workflow">
+      <div class="cardhead"><h2>Autonomous incident workflow</h2><span class="small">from signal → diagnosis → customer recovery</span></div>
+      <div class="flowline">
+        <div class="step current" id="step1"><div class="num">01 · DETECT</div><h3>Correlate customer signals</h3><p>Cluster semantically different conversations using timing, product area, entities and error patterns.</p><div class="connector"></div></div>
+        <div class="step" id="step2"><div class="num">02 · INVESTIGATE</div><h3>Launch specialist agents</h3><p>Query payment status, deployment history and service health through controlled MCP tools.</p><div class="connector"></div></div>
+        <div class="step" id="step3"><div class="num">03 · RECOVER</div><h3>Protect affected customers</h3><p>Link tickets, suppress duplicate work, notify customers proactively and create recovery actions.</p><div class="connector"></div></div>
+        <div class="step" id="step4"><div class="num">04 · HANDOFF</div><h3>Escalate high-risk actions</h3><p>Human operators receive root cause, impact, actions taken and the recommended next decision.</p></div>
+      </div>
+    </section>
+
+    <section id="recovery" class="recovery-grid">
+      <div class="card plan">
+        <div class="cardhead"><h2>Customer recovery plan</h2><span class="small" id="planState">waiting for incident</span></div>
+        <div class="actions">
+          <div class="action" id="act1"><div class="check">✓</div><div><div class="aname">Link related Freshworks conversations</div><div class="adesc" id="act1-desc">Stop agents investigating the same failure independently.</div></div><span class="risk auto">AUTO</span></div>
+          <div class="action" id="act2"><div class="check">✓</div><div><div class="aname">Identify silently affected customers</div><div class="adesc" id="act2-desc">Find customers with failed payment events who have not contacted support.</div></div><span class="risk auto">AUTO</span></div>
+          <div class="action" id="act3"><div class="check">✓</div><div><div class="aname">Send proactive incident update</div><div class="adesc" id="act3-desc">Personalized message explains status and prevents repeated payment attempts.</div></div><span class="risk auto">AUTO</span></div>
+          <div class="action" id="act4"><div class="check">!</div><div><div class="aname">Issue service-recovery credit</div><div class="adesc" id="act4-desc">₹500 × 23 customers → financial exposure requires approval.</div></div><span class="risk approval">HUMAN</span></div>
+        </div>
+      </div>
+
+      <div class="card voice">
+        <div class="cardhead"><h2>ElevenLabs customer recovery voice</h2><span class="pill">live simulation</span></div>
+        <div class="voice-stage">
+          <div class="voice-top">
+            <div class="voice-user"><div class="voice-orb"></div><div><div style="font-size:11px;font-weight:800">CrisisCrew Voice</div><div style="font-size:9px;color:#7e94af;margin-top:3px">proactive customer update</div></div></div>
+            <div class="wave" id="wave"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          </div>
+          <div class="transcript" id="transcript"><span class="speaker">Agent</span>When customers are impacted, CrisisCrew can proactively communicate status while the incident swarm continues investigating.</div>
+          <div class="voice-controls"><span>context-aware · interruptible · policy-grounded</span><span id="voiceState">standby</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid2">
+      <div class="card approval">
+        <div class="approval-top"><div class="shield">◇</div><div><div style="font-size:12px;font-weight:800">Human approval boundary</div><div style="font-size:9px;color:#8499b4;margin-top:3px">Financial action exceeds autonomous authority</div></div></div>
+        <div class="exposure">₹11,500</div><div class="subline">proposed customer recovery exposure · ₹500 × 23 customers</div>
+        <div class="approval-list">
+          <div class="proof">✓ Root cause attached</div><div class="proof">✓ 23 affected customers</div>
+          <div class="proof">✓ Actions already taken</div><div class="proof">✓ Recommended resolution</div>
+        </div>
+        <div class="approval-actions"><button class="smallbtn ok" onclick="approve()">Approve recovery</button><button class="smallbtn" onclick="modifyRecovery()">Modify</button><button class="smallbtn" onclick="rejectRecovery()">Reject</button></div>
+      </div>
+
+      <div class="card section-card">
+        <div class="cardhead"><h2>Impact snapshot</h2><span class="small">demo scenario</span></div>
+        <div class="cluster-summary" style="grid-template-columns:1fr 1fr">
+          <div class="mini"><div class="n" id="impact1">5</div><div class="t">initial complaints</div></div>
+          <div class="mini"><div class="n" id="impact2">23</div><div class="t">customers protected</div></div>
+          <div class="mini"><div class="n" id="impact3">1</div><div class="t">coordinated incident</div></div>
+          <div class="mini"><div class="n" id="impact4">1</div><div class="t">human decision</div></div>
+        </div>
+        <div style="margin-top:15px;padding:14px;border-radius:14px;background:linear-gradient(135deg,rgba(94,231,255,.06),rgba(169,121,255,.05));border:1px solid rgba(94,231,255,.1);font-size:11px;line-height:1.65;color:#b6c5d7">
+          <strong style="color:#fff">CrisisCrew thesis:</strong> customer conversations should not just enter a queue—they should form an operational early-warning network.
+        </div>
+      </div>
+    </section>
+
+    <section id="conclusions" class="card conclusions">
+      <div class="cardhead"><h2>Action conclusions</h2><span class="pill" id="conclusionPill">live outcome</span><span class="small">what every agent action actually concluded</span></div>
+      <div class="conclusion-grid">
+        <div class="conclusion-item" id="conclusion-detect">
+          <div class="cstate" id="conclusion-detect-state">Waiting</div>
+          <h3>1 · Detection conclusion</h3>
+          <p id="conclusion-detect-text">Waiting for customer signals to form a reliable pattern.</p>
+        </div>
+        <div class="conclusion-item" id="conclusion-investigate">
+          <div class="cstate" id="conclusion-investigate-state">Waiting</div>
+          <h3>2 · Investigation conclusion</h3>
+          <p id="conclusion-investigate-text">No root-cause conclusion yet.</p>
+        </div>
+        <div class="conclusion-item" id="conclusion-recover">
+          <div class="cstate" id="conclusion-recover-state">Waiting</div>
+          <h3>3 · Recovery conclusion</h3>
+          <p id="conclusion-recover-text">Customer-protection actions have not started.</p>
+        </div>
+        <div class="conclusion-item" id="conclusion-human">
+          <div class="cstate" id="conclusion-human-state">Waiting</div>
+          <h3>4 · Human-boundary conclusion</h3>
+          <p id="conclusion-human-text">No high-risk decision has reached the approval boundary.</p>
+        </div>
+      </div>
+      <div class="final-conclusion" id="finalConclusion">
+        <div>
+          <strong id="finalConclusionTitle">Final outcome will appear here.</strong>
+          <p id="finalConclusionText">CrisisCrew will summarize the completed incident response after the demo finishes.</p>
+        </div>
+        <div class="final-result" id="finalResult">5 complaints → ?</div>
+      </div>
+    </section>
+
+    <section id="architecture" class="card arch">
+      <div class="cardhead"><h2>Freshworks-native architecture</h2><span class="small">sponsor technology is central, not decorative</span></div>
+      <div class="archrow">
+        <div class="node sponsor-node"><strong>Freshworks</strong><span>Customer conversations · ticket context · Agent Studio · human handoff</span></div>
+        <div class="arrow">→</div>
+        <div class="node"><strong>CrisisCrew Swarm</strong><span>Pattern · Investigator · Commander · Recovery · Handoff agents</span></div>
+        <div class="arrow">→</div>
+        <div class="node mcp-node"><strong>MCP Tool Layer</strong><span>Payment health · deployments · service status · customer actions</span></div>
+      </div>
+    </section>
+
+    <div class="footer"><span>CrisisCrew · The Great Agent Hackathon · Track 1</span><span>“From fragmented complaints to coordinated customer recovery.”</span></div>
+  </main>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<div class="conclusion-modal" id="conclusionModal" aria-hidden="true" onclick="if(event.target===this)hideConclusionsPopup()">
+  <div class="conclusion-dialog" role="dialog" aria-modal="true" aria-labelledby="conclusionModalTitle">
+    <div class="conclusion-popup-head">
+      <div>
+        <h2 id="conclusionModalTitle">Action conclusions</h2>
+        <p>The demo stays in dashboard view. This popup summarizes what each agent action actually concluded.</p>
+      </div>
+      <button class="modal-close" id="conclusionClose" onclick="hideConclusionsPopup()" aria-label="Close conclusions">×</button>
+    </div>
+    <div class="popup-conclusion-grid">
+      <div class="popup-conclusion-item"><div class="pcstate" id="popup-detect-state">Concluded</div><h3>1 · Detection</h3><p id="popup-detect-text"></p></div>
+      <div class="popup-conclusion-item"><div class="pcstate" id="popup-investigate-state">Concluded</div><h3>2 · Investigation</h3><p id="popup-investigate-text"></p></div>
+      <div class="popup-conclusion-item"><div class="pcstate" id="popup-recover-state">Concluded</div><h3>3 · Recovery</h3><p id="popup-recover-text"></p></div>
+      <div class="popup-conclusion-item"><div class="pcstate" id="popup-human-state">Escalated</div><h3>4 · Human boundary</h3><p id="popup-human-text"></p></div>
+    </div>
+    <div class="popup-execution">
+      <div class="popup-execution-head">
+        <div><div class="mini-label">Execution trace</div><h3>What ran during this incident</h3></div>
+        <span>agents · orchestration · MCP · customer actions</span>
+      </div>
+      <div class="popup-execution-grid">
+        <div class="execution-panel">
+          <h4>Agents used</h4>
+          <div class="execution-row"><strong>Pattern Agent</strong><span>Correlated differently-worded checkout and payment complaints into one incident pattern.</span></div>
+          <div class="execution-row"><strong>Incident Commander</strong><span>Created INC-2026-081 and orchestrated the specialist swarm.</span></div>
+          <div class="execution-row"><strong>Investigator Agent</strong><span>Used read-only MCP access to check payment health, deployments, and service telemetry.</span></div>
+          <div class="execution-row"><strong>Recovery Agent</strong><span>Linked related conversations, found silently affected customers, and prepared proactive updates.</span></div>
+          <div class="execution-row"><strong>Handoff Agent</strong><span>Escalated the ₹11,500 compensation decision because it crossed the financial authority boundary.</span></div>
+        </div>
+        <div class="execution-panel">
+          <h4>Technology / orchestration used</h4>
+          <div class="stack-list">
+            <div class="stack-item"><strong>Freshworks Agent Studio</strong><span>Customer context, orchestration, scoped actions, and human handoff.</span></div>
+            <div class="stack-item"><strong>Controlled MCP Tool Layer</strong><span>Permission-scoped access to operational systems for investigation.</span></div>
+            <div class="stack-item"><strong>ElevenLabs</strong><span>Proactive customer voice update while the swarm continues operating.</span></div>
+          </div>
+          <div class="tool-label">MCP checks used</div>
+          <div class="tool-list">
+            <span class="tool-chip">payment.health()</span>
+            <span class="tool-chip">deployments.list()</span>
+            <span class="tool-chip">service.status()</span>
+          </div>
+        </div>
+      </div>
+      <div class="tool-label">Recovery tools / actions used</div>
+      <div class="action-tool-list">
+        <div class="action-tool"><strong>Link related Freshworks conversations</strong><span>Consolidated duplicate support work into one coordinated incident.</span></div>
+        <div class="action-tool"><strong>Identify affected customers</strong><span>Found 15 additional customers before they opened support tickets.</span></div>
+        <div class="action-tool"><strong>Send proactive customer update</strong><span>Delivered consistent incident guidance instead of waiting for repeat complaints.</span></div>
+        <div class="action-tool"><strong>Request human approval</strong><span>Stopped the risky ₹11,500 recovery-credit action at the human boundary.</span></div>
+      </div>
+    </div>
+    <div class="popup-final">
+      <strong id="popup-final-title"></strong>
+      <p id="popup-final-text"></p>
+      <div class="popup-result" id="popup-final-result"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const signals = [
+  {a:"PK", msg:"“My checkout keeps loading forever.”", meta:"Priya K. · 19:42:01 · Chat"},
+  {a:"AK", msg:"“UPI isn't working. Tried twice.”", meta:"Arjun K. · 19:42:08 · Chat"},
+  {a:"SM", msg:"“Payment failed but bank shows debit.”", meta:"Sneha M. · 19:42:15 · Email"},
+  {a:"VN", msg:"“Card rejected on checkout — card is fine.”", meta:"Varun N. · 19:42:19 · Chat"},
+  {a:"RS", msg:"“Can't complete payment for my order.”", meta:"Ritika S. · 19:42:31 · Voice"}
+];
+
+const stages = [
+  {t:0, label:"The problem — fragmented customer complaints", fn:()=>{go("signals"); toast("Customer operations look normal","CrisisCrew is continuously monitoring Freshworks conversations.");}},
+  {t:0.8, label:"Five different complaints begin arriving", fn:()=>addSignals()},
+  {t:2.0, label:"Pattern Agent correlates the symptoms", fn:()=>correlate()},
+  {t:3.2, label:"Emerging incident detected", fn:()=>detectIncident()},
+  {t:4.2, label:"Specialist agents launch through Agent Studio", fn:()=>launchSwarm()},
+  {t:5.2, label:"MCP investigation checks external systems", fn:()=>investigate()},
+  {t:6.6, label:"Root cause identified: checkout-service v4.21.7", fn:()=>rootCause()},
+  {t:8.0, label:"Recovery Agent protects affected customers", fn:()=>recovery()},
+  {t:9.2, label:"ElevenLabs proactively updates a customer", fn:()=>voiceDemo()},
+  {t:10.5, label:"High-risk compensation requires human approval", fn:()=>handoff()},
+  {t:11.5, label:"One incident. 23 customers protected. One human decision.", fn:()=>finishDemo()}
+];
+
+const DEMO_DURATION=12;
+let demoRunning=false, demoStart=0, raf=null, fired=new Set(), stageMode=false;
+
+function q(id){return document.getElementById(id)}
+function setDemoLauncher(mode, detail){
+  const box=q("demoLauncher"), title=q("demoLauncherTitle"), status=q("demoLauncherStatus"), btn=q("demoLauncherBtn");
+  if(!box||!title||!status||!btn)return;
+  box.classList.remove("running","done");
+  if(mode==="running"){
+    box.classList.add("running"); title.textContent="Demo running"; status.textContent=detail||"Guided incident response in progress"; btn.textContent="Running…"; btn.disabled=true;
+  }else if(mode==="done"){
+    box.classList.add("done"); title.textContent="Demo complete"; status.textContent=detail||"Conclusions ready to review"; btn.textContent="↻ Replay"; btn.disabled=false;
+  }else{
+    title.textContent="Interactive demo"; status.textContent=detail||"12 sec guided incident run"; btn.textContent="▶ Run"; btn.disabled=false;
+  }
+}
+function go(id){
+  const el=q(id);
+  if(!el)return;
+  const topbar=document.querySelector(".topbar");
+  const navbarBuffer=(topbar?.offsetHeight||72)+20;
+  const targetTop=el.getBoundingClientRect().top+window.scrollY-navbarBuffer;
+  window.scrollTo({top:Math.max(0,targetTop),behavior:"smooth"});
+}
+function toast(title, body){
+  const d=document.createElement("div"); d.className="toast"; d.innerHTML=`<b>${title}</b><p>${body}</p>`;
+  q("toasts").appendChild(d); setTimeout(()=>d.remove(),4700);
+}
+function addEvent(time, icon, title, body, highlight=false){
+  const d=document.createElement("div"); d.className="event"+(highlight?" highlight":"");
+  d.innerHTML=`<div class="time">${time}</div><div class="bullet">${icon}</div><div><div class="evtitle">${title}</div><div class="evbody">${body}</div></div>`;
+  q("timeline").appendChild(d); q("timeline").scrollTop=q("timeline").scrollHeight;
+}
+function activateAgent(id){q(id).classList.add("active")}
+function deactivateAgents(){document.querySelectorAll(".agent").forEach(a=>a.classList.remove("active"))}
+function setConclusion(id,state,text,kind="done"){
+  const card=q("conclusion-"+id);
+  card.classList.remove("done","human");
+  if(kind)card.classList.add(kind);
+  q("conclusion-"+id+"-state").textContent=state;
+  q("conclusion-"+id+"-text").textContent=text;
+}
+function syncConclusionPopup(){
+  ["detect","investigate","recover","human"].forEach(id=>{
+    q("popup-"+id+"-state").textContent=q("conclusion-"+id+"-state").textContent;
+    q("popup-"+id+"-text").textContent=q("conclusion-"+id+"-text").textContent;
+  });
+  q("popup-final-title").textContent=q("finalConclusionTitle").textContent;
+  q("popup-final-text").textContent=q("finalConclusionText").textContent;
+  q("popup-final-result").textContent=q("finalResult").textContent;
+}
+function showConclusionsPopup(){
+  syncConclusionPopup();
+  q("conclusionModal").classList.add("show");
+  q("conclusionModal").setAttribute("aria-hidden","false");
+  setTimeout(()=>q("conclusionClose")?.focus(),0);
+}
+function hideConclusionsPopup(){
+  q("conclusionModal").classList.remove("show");
+  q("conclusionModal").setAttribute("aria-hidden","true");
+}
+function addSignals(){
+  let i=0;
+  const timer=setInterval(()=>{
+    if(i>=signals.length){clearInterval(timer);return}
+    const s=signals[i], d=document.createElement("div"); d.className="signal new";
+    d.innerHTML=`<div class="avatar">${s.a}</div><div><div class="msg">${s.msg}</div><div class="meta">${s.meta}</div></div><span class="badge payment">payment</span>`;
+    q("signalList").appendChild(d); q("signalCount").textContent=(1249+i).toLocaleString(); i++;
+  },120);
+  toast("Customer signals accelerating","Five differently-worded payment complaints arrive within 30 seconds.");
+  q("riskTrend").textContent="payment signals rising";
+}
+function correlate(){
+  activateAgent("agent-pattern");
+  q("correlationCard").classList.add("highlight-ring");
+  q("corrBar").style.width="89%"; q("corrVal").textContent="89%"; q("linkedCount").textContent="5"; q("windowVal").textContent="30s"; q("severityVal").textContent="High";
+  q("corrDesc").textContent="Semantic + temporal cluster detected across checkout and payment complaints.";
+  addEvent("19:42:33","⌁","Pattern Agent found a cluster","5 conversations share checkout/payment entities despite different wording.",true);
+  toast("89% correlation detected","Pattern Agent believes five conversations are symptoms of one emerging incident.");
+}
+function detectIncident(){
+  q("incidentCard").classList.add("active"); q("activeIncidents").textContent="1"; q("customersRisk").textContent="23"; q("incTrend").textContent="INC-2026-081 · high severity"; q("incTrend").className="trend warn";
+  q("avoided").textContent="4"; q("step1").classList.add("done"); q("step1").classList.remove("current"); q("step2").classList.add("current");
+  addEvent("19:42:36","⚠","Incident Commander created INC-2026-081","Checkout / payment failure · severity HIGH · 23 customers potentially affected.",true);
+  setConclusion("detect","Concluded","Five differently-worded complaints are one coordinated incident: INC-2026-081, not five separate cases.");
+  toast("Incident created","CrisisCrew launches a specialist swarm instead of creating five separate investigations.");
+}
+function launchSwarm(){
+  activateAgent("agent-investigator");activateAgent("agent-commander");
+  addEvent("19:42:38","✦","Incident Commander launched specialist agents","Investigator gets read-only MCP access; Recovery remains write-scoped.",false);
+  toast("Agent swarm launched","Agents are split by real enterprise trust boundaries—not just by prompts.");
+}
+function investigate(){
+  go("swarm");
+  q("rootStatus").textContent="Investigation in progress";
+  q("rootService").textContent="MCP tool calls";
+  q("rootVersion").textContent="payment.health · deployments.list · service.status";
+  q("rootDetail").textContent="Payment gateway is healthy. Investigator Agent is comparing recent deployments against the first customer signal.";
+  q("rootConfidence").textContent="47%"; q("rootBar").style.width="47%";
+  addEvent("19:42:42","↗","MCP · payment.health()","Gateway reports healthy. External provider outage ruled out.");
+  setTimeout(()=>addEvent("19:42:46","↗","MCP · deployments.list()","checkout-service v4.21.7 deployed 14 minutes before first complaint.",true),180);
+  setTimeout(()=>addEvent("19:42:49","↗","MCP · service.status()","Checkout error rate spiked 8.6× immediately after deployment."),340);
+}
+function rootCause(){
+  q("rootStatus").textContent="Probable root cause found"; q("rootService").textContent="checkout-service"; q("rootVersion").textContent="v4.21.7 · deployed 19:28";
+  q("rootDetail").textContent="Error-rate spike, deployment timing and customer symptom cluster align. Incident Commander recommends treating v4.21.7 as the root-cause candidate.";
+  q("rootConfidence").textContent="91%"; q("rootBar").style.width="91%";
+  addEvent("19:42:52","✓","Root cause candidate","checkout-service v4.21.7 · 91% confidence.",true);
+  setConclusion("investigate","Concluded","Payment provider is healthy. checkout-service v4.21.7 is the probable root cause: deployed 14 minutes before the first complaint, followed by an 8.6× error spike. Confidence: 91%.");
+  toast("Root cause found","CrisisCrew connected customer language to a specific recent deployment.");
+}
+function recovery(){
+  go("recovery"); activateAgent("agent-recovery");
+  q("step2").classList.add("done");q("step2").classList.remove("current");q("step3").classList.add("current");
+  q("planState").textContent="executing autonomous actions";
+  ["act1","act2","act3"].forEach((id,i)=>setTimeout(()=>q(id).classList.add("done"),i*150));
+  addEvent("19:42:56","↻","Recovery Agent started customer protection","Linking duplicate cases, finding silently affected customers and preparing proactive updates.");
+  setTimeout(()=>{
+    q("avoided").textContent="7";
+    q("act1-desc").textContent="Completed · 8 related Freshworks conversations linked to INC-2026-081.";
+    q("act2-desc").textContent="Completed · 15 silently affected customers identified before they contacted support.";
+    q("act3-desc").textContent="Completed · consistent proactive incident updates prepared for affected customers.";
+    q("planState").textContent="3 autonomous actions completed · 1 human decision pending";
+    setConclusion("recover","Concluded","8 related tickets linked, 15 additional silently affected customers identified, and 23 customers protected with consistent proactive updates.");
+    toast("23 customers protected","15 customers were identified before they created a support ticket.");
+  },300);
+}
+function voiceDemo(){
+  q("transcript").innerHTML='<span class="speaker">CrisisCrew Voice</span>“Hi, we detected an issue affecting checkout payments. Your payment status is safe, and our team is already working on the underlying problem. You do not need to retry your payment.”';
+  q("voiceState").textContent="speaking";
+  toast("Proactive customer recovery","ElevenLabs communicates status while the incident swarm continues operating.");
+}
+function handoff(){
+  activateAgent("agent-handoff");
+  q("step3").classList.add("done");q("step3").classList.remove("current");q("step4").classList.add("current");
+  q("act4").classList.add("highlight-ring");
+  q("act4-desc").textContent="Pending human decision · ₹11,500 exceeds the agent's configured financial authority.";
+  q("planState").textContent="autonomous recovery complete · awaiting human decision";
+  addEvent("19:43:06","♙","Human approval requested","₹11,500 recovery credit exposure exceeds autonomous financial authority.",true);
+  setConclusion("human","Escalated","₹11,500 in recovery credits is not auto-executed. The decision is handed to a human with root cause, customer impact, completed actions, and the recommended resolution attached.","human");
+  toast("Human judgment required","CrisisCrew attaches root cause, customer impact, actions taken and recommended compensation.");
+}
+function finishDemo(){
+  q("step4").classList.add("done");q("step4").classList.remove("current");
+  q("transcript").innerHTML='<span class="speaker">CrisisCrew</span><strong>From five fragmented complaints → one coordinated incident → 23 customers protected.</strong><br><span style="color:#8fa4bf">Customer conversations become an operational early-warning network.</span>';
+  q("voiceState").textContent="complete";
+  q("conclusionPill").innerHTML='<span class="dot"></span> conclusions ready';
+  q("finalConclusionTitle").textContent="Incident response concluded — only the risky money decision remains human.";
+  q("finalConclusionText").textContent="CrisisCrew converted fragmented support signals into one incident, identified the probable root cause, executed low-risk customer recovery, and stopped at the configured financial authority boundary.";
+  q("finalResult").textContent="5 complaints → 1 incident → 23 protected → 1 human decision";
+  q("demoHud").classList.remove("show");
+  setDemoLauncher("done","Conclusions ready · click Replay anytime");
+  showConclusionsPopup();
+  toast("Action conclusions ready","The concrete result of every action is summarized in the popup.");
+}
+function approve(){
+  q("act4").classList.add("done"); q("act4").classList.remove("highlight-ring");
+  q("act4-desc").textContent="Approved by human · ₹11,500 recovery credits may now execute through the controlled write action.";
+  q("planState").textContent="recovery approved · incident response complete";
+  setConclusion("human","Approved","Human approved the ₹11,500 recovery-credit action. Credits may now execute through the controlled write action.");
+  q("finalConclusionTitle").textContent="Incident response concluded — recovery approved.";
+  q("finalConclusionText").textContent="All autonomous low-risk actions completed, and the final high-risk compensation action was explicitly approved by a human.";
+  q("finalResult").textContent="5 complaints → 1 incident → 23 protected → approval complete";
+  showConclusionsPopup();
+  toast("Recovery approved","Customer credits can now be issued through the controlled write action.");
+}
+function modifyRecovery(){
+  q("act4").classList.add("done"); q("act4").classList.remove("highlight-ring");
+  q("act4-desc").textContent="Modified by human · original ₹11,500 proposal stopped; revised recovery terms require the controlled action to use the new decision.";
+  q("planState").textContent="human modified recovery · revised action ready";
+  setConclusion("human","Modified","Human changed the compensation decision. The original ₹11,500 action was not executed; the revised decision becomes the authorized recovery action.");
+  q("finalConclusionTitle").textContent="Incident response concluded — human modified the final recovery action.";
+  q("finalConclusionText").textContent="Autonomous diagnosis and customer protection completed; the high-risk financial action changed only after explicit human judgment.";
+  q("finalResult").textContent="5 complaints → 1 incident → 23 protected → human modified";
+  showConclusionsPopup();
+  toast("Recovery modified","The original financial action was stopped and replaced by the human decision.");
+}
+function rejectRecovery(){
+  q("act4").classList.add("done"); q("act4").classList.remove("highlight-ring");
+  q("act4-desc").textContent="Rejected by human · no recovery credit is executed; completed low-risk customer-protection actions remain in place.";
+  q("planState").textContent="financial action rejected · autonomous protections remain complete";
+  setConclusion("human","Rejected","Human rejected the ₹11,500 recovery-credit proposal. No credit action is executed; the completed low-risk recovery actions remain in place.");
+  q("finalConclusionTitle").textContent="Incident response concluded — financial action rejected by human.";
+  q("finalConclusionText").textContent="CrisisCrew stopped correctly at the authority boundary: diagnosis and low-risk recovery completed, while the rejected high-risk money action was never executed.";
+  q("finalResult").textContent="5 complaints → 1 incident → 23 protected → financial action rejected";
+  showConclusionsPopup();
+  toast("Recovery rejected","No financial recovery action was executed.");
+}
+function startDemo(){
+  resetDemo(false);
+  if(stageMode || document.fullscreenElement) toggleStage(false);
+  demoRunning=true; demoStart=performance.now(); fired.clear(); q("demoHud").classList.add("show");
+  setDemoLauncher("running","0 / 12 sec · detecting signals");
+  const tick=(now)=>{
+    if(!demoRunning)return;
+    const sec=(now-demoStart)/1000;
+    const elapsed=Math.min(DEMO_DURATION,Math.floor(sec));
+    const mm=String(Math.floor(elapsed/60)).padStart(2,"0");
+    const ss=String(elapsed%60).padStart(2,"0");
+    q("timer").textContent=`${mm}:${ss}`;
+    setDemoLauncher("running",`${Math.min(DEMO_DURATION,Math.floor(sec))} / ${DEMO_DURATION} sec · ${q("stageLabel").textContent}`);
+    const progress=Math.min(sec/DEMO_DURATION*100,100); q("stageProgress").style.width=progress+"%";
+    for(let i=0;i<stages.length;i++){if(sec>=stages[i].t && !fired.has(i)){fired.add(i); q("stageLabel").textContent=stages[i].label; stages[i].fn();}}
+    if(sec<DEMO_DURATION) raf=requestAnimationFrame(tick); else stopDemo(false);
+  };
+  q("timer").textContent="00:00"; raf=requestAnimationFrame(tick);
+}
+function stopDemo(hide=true){demoRunning=false;if(raf)cancelAnimationFrame(raf);if(hide){q("demoHud").classList.remove("show");setDemoLauncher("idle","Demo stopped · click Run to restart")}}
+function resetDemo(scroll=true){
+  stopDemo();
+  hideConclusionsPopup();
+  q("signalList").innerHTML=`
+    <div class="signal"><div class="avatar">AS</div><div><div class="msg">“Where can I update my delivery address?”</div><div class="meta">Anika S. · 19:41:28 · Chat</div></div><span class="badge cluster">normal</span></div>
+    <div class="signal"><div class="avatar">RM</div><div><div class="msg">“Need invoice copy for order #9821.”</div><div class="meta">Rohan M. · 19:41:44 · Email</div></div><span class="badge cluster">normal</span></div>
+    <div class="signal"><div class="avatar">KV</div><div><div class="msg">“How do I change my saved card?”</div><div class="meta">Kavya V. · 19:41:53 · Chat</div></div><span class="badge cluster">normal</span></div>`;
+  q("signalCount").textContent="1,248"; q("activeIncidents").textContent="0"; q("customersRisk").textContent="12"; q("avoided").textContent="0";
+  q("incTrend").textContent="No major incidents"; q("incTrend").className="trend good"; q("riskTrend").textContent="baseline monitoring";
+  q("corrBar").style.width="8%";q("corrVal").textContent="08%";q("linkedCount").textContent="0";q("windowVal").textContent="—";q("severityVal").textContent="Low";q("corrDesc").textContent="No statistically meaningful customer pattern yet.";q("incidentCard").classList.remove("active");
+  deactivateAgents();
+  q("timeline").innerHTML='<div class="event"><div class="time">19:41:50</div><div class="bullet">●</div><div><div class="evtitle">System normal</div><div class="evbody">CrisisCrew is monitoring customer conversations for emerging operational patterns.</div></div></div>';
+  q("rootStatus").textContent="No incident under investigation";q("rootService").textContent="—";q("rootVersion").textContent="awaiting evidence";q("rootDetail").textContent="When an incident is detected, the Investigator Agent queries payment health, deployment history, service telemetry and customer context through MCP tools.";q("rootConfidence").textContent="0%";q("rootBar").style.width="0%";
+  ["step1","step2","step3","step4"].forEach(x=>q(x).classList.remove("done","current"));q("step1").classList.add("current");
+  ["act1","act2","act3","act4"].forEach(x=>q(x).classList.remove("done","highlight-ring"));q("planState").textContent="waiting for incident";
+  q("act1-desc").textContent="Stop agents investigating the same failure independently.";
+  q("act2-desc").textContent="Find customers with failed payment events who have not contacted support.";
+  q("act3-desc").textContent="Personalized message explains status and prevents repeated payment attempts.";
+  q("act4-desc").textContent="₹500 × 23 customers → financial exposure requires approval.";
+  q("transcript").innerHTML='<span class="speaker">Agent</span>When customers are impacted, CrisisCrew can proactively communicate status while the incident swarm continues investigating.';q("voiceState").textContent="standby";
+  ["detect","investigate","recover","human"].forEach(id=>{
+    q("conclusion-"+id).classList.remove("done","human");
+    q("conclusion-"+id+"-state").textContent="Waiting";
+  });
+  q("conclusion-detect-text").textContent="Waiting for customer signals to form a reliable pattern.";
+  q("conclusion-investigate-text").textContent="No root-cause conclusion yet.";
+  q("conclusion-recover-text").textContent="Customer-protection actions have not started.";
+  q("conclusion-human-text").textContent="No high-risk decision has reached the approval boundary.";
+  q("conclusionPill").textContent="live outcome";
+  q("finalConclusionTitle").textContent="Final outcome will appear here.";
+  q("finalConclusionText").textContent="CrisisCrew will summarize the completed incident response after the demo finishes.";
+  q("finalResult").textContent="5 complaints → ?";
+  setDemoLauncher("idle","12 sec guided incident run");
+  fired.clear(); if(scroll)go("overview");
+}
+function toggleStage(force){
+  stageMode=typeof force==="boolean"?force:!stageMode;
+  document.body.classList.toggle("stage-mode",stageMode);
+  if(stageMode && document.documentElement.requestFullscreen){document.documentElement.requestFullscreen().catch(()=>{})}
+  if(!stageMode && document.fullscreenElement){document.exitFullscreen().catch(()=>{})}
+}
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape" && q("conclusionModal").classList.contains("show")){hideConclusionsPopup();return}
+  if(e.code==="Space" && e.target===document.body){e.preventDefault();startDemo()}
+  if(e.key.toLowerCase()==="f")toggleStage()
+  if(e.key.toLowerCase()==="r")resetDemo()
+});
+</script>
+</body>
+</html>

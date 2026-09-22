@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+coverage/
+
+# secrets: only .env.example is committed
+.env
+.env.*
+!.env.example
+
+# runtime data written by the server (audit log, voice clips)
+data/
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/
+*.log
