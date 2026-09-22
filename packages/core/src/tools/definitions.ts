@@ -192,6 +192,7 @@ export function createTools(): Tool[] {
         ctx.emit({ type: "incident.opened", payload: { incident } });
         return { incidentId: a.incidentId };
       },
+      summarize: (r) => `opened ${(r as { incidentId: string }).incidentId}`,
     },
     {
       name: "link_ticket_to_incident",
@@ -206,11 +207,15 @@ export function createTools(): Tool[] {
       },
       async run(args, ctx) {
         const { incidentId, ticketId } = args as { incidentId: string; ticketId: string };
-        if (incidentOf(ctx, incidentId).linkedTicketIds.includes(ticketId)) return { linked: true, alreadyLinked: true };
+        if (incidentOf(ctx, incidentId).linkedTicketIds.includes(ticketId)) return { incidentId, ticketId, alreadyLinked: true };
         const ticket = ctx.state().tickets[ticketId]!.ticket;
         await ctx.ports.ticketActions.addNote(ticket, `Linked to ${incidentId} by CrisisCrew.`);
         ctx.emit({ type: "ticket.linked", payload: { incidentId, ticketId } });
-        return { linked: true };
+        return { incidentId, ticketId, alreadyLinked: false };
+      },
+      summarize: (r) => {
+        const { incidentId, ticketId, alreadyLinked } = r as { incidentId: string; ticketId: string; alreadyLinked: boolean };
+        return alreadyLinked ? `${ticketId} was already linked to ${incidentId}` : `linked ${ticketId} to ${incidentId}, with a private note`;
       },
     },
     {
@@ -291,7 +296,12 @@ export function createTools(): Tool[] {
           ...(channel === "voice" ? { audioId: audioId ?? null } : {}),
         };
         ctx.emit({ type: "update.sent", payload: { update } });
-        return { updateId: update.id, status };
+        return { updateId: update.id, customer: name, channel, status };
+      },
+      summarize: (r) => {
+        const { updateId, customer, channel, status } = r as { updateId: string; customer: string; channel: string; status: string };
+        const how = channel === "ticket_reply" ? "ticket reply" : channel === "proactive_message" ? "proactive message" : "voice script";
+        return `${how} to ${customer} ${status === "prepared" ? "prepared (voice is off)" : "sent"} (${updateId})`;
       },
     },
     {
@@ -309,6 +319,10 @@ export function createTools(): Tool[] {
         const withinAuthority = amountInr <= ctx.policy.limits.authorityLimitInr;
         ctx.emit({ type: "credit.proposed", payload: { incidentId, amountInr, perCustomerInr, customers, withinAuthority } });
         return { amountInr, perCustomerInr, customers, withinAuthority };
+      },
+      summarize: (r) => {
+        const { amountInr, perCustomerInr, customers, withinAuthority } = r as { amountInr: number; perCustomerInr: number; customers: number; withinAuthority: boolean };
+        return `₹${perCustomerInr.toLocaleString("en-IN")} × ${customers} = ₹${amountInr.toLocaleString("en-IN")}, ${withinAuthority ? "within" : "above"} the agents' authority`;
       },
     },
     {
@@ -343,6 +357,7 @@ export function createTools(): Tool[] {
         ctx.emit({ type: "approval.requested", payload: { approval } });
         return { approvalId: approval.id };
       },
+      summarize: (r) => `${(r as { approvalId: string }).approvalId} sent to a human approver`,
     },
     {
       name: "issue_recovery_credit",
@@ -379,6 +394,10 @@ export function createTools(): Tool[] {
           payload: { incidentId, amountInr, adapter: ctx.ports.credits.adapter, creditId: id, ...(approvalId ? { approvalId } : {}) },
         });
         return { creditId: id, amountInr };
+      },
+      summarize: (r) => {
+        const { creditId, amountInr } = r as { creditId: string; amountInr: number };
+        return `₹${amountInr.toLocaleString("en-IN")} credit issued (${creditId})`;
       },
     },
   ];

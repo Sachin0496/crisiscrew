@@ -1,4 +1,4 @@
-import { SURFACE_LABELS, type Hypothesis, type IncidentView } from "@crisiscrew/contracts";
+import type { Hypothesis, IncidentView, Surface } from "@crisiscrew/contracts";
 
 export type Draft = { subject: string; body: string; voiceScript: string; source: string };
 
@@ -18,9 +18,19 @@ export function inr(amount: number): string {
 
 function causeSentence(root: Hypothesis | undefined): string {
   if (!root || root.kind === "unknown") return "We are still confirming the exact cause.";
-  if (root.kind === "deploy") return "We've found the cause, a recent change to our checkout, and our team is fixing it now.";
+  if (root.kind === "deploy") return "We've found the cause, a recent change on our side, and our team is fixing it now.";
   return `We've found the cause, a problem at our payment partner (${root.subject}), and we're working with them on it.`;
 }
+
+/** What went wrong, in the customer's words, for each product area. */
+const PROBLEM: Record<Surface, string> = {
+  checkout_payments: "some payments at checkout have been failing",
+  login_account: "some customers haven't been able to sign in",
+  delivery_orders: "some orders have run into delivery problems",
+  refunds_billing: "some refunds and charges have gone wrong",
+  app_performance: "our app has been slow or failing to load",
+  other: "some customers have hit a problem with our service",
+};
 
 /**
  * One message for every affected customer, so everyone hears the same story.
@@ -29,16 +39,16 @@ function causeSentence(root: Hypothesis | undefined): string {
  */
 export function draftUpdate(incident: IncidentView, since: number): Draft {
   const root = incident.hypotheses.find((h) => h.id === incident.rootCause?.hypothesisId);
-  const area = SURFACE_LABELS[incident.surface].toLowerCase();
   const body =
-    `Hi {name}, some payments in ${area} have been failing since about ${clockTime(since)}. ${causeSentence(root)} ` +
+    `Hi {name}, ${PROBLEM[incident.surface]} since about ${clockTime(since)}. ${causeSentence(root)} ` +
     "If money left your account for a payment that failed, your bank will reverse it automatically, so you don't need to pay again. " +
     `We're sorry for the trouble. Reference: ${incident.id}.`;
   const voiceScript =
     "Hello {name}, this is customer care. Some payments failed on our site today, including yours. " +
     `${root && root.kind !== "unknown" ? "We've found the cause and we're fixing it." : "We're looking into it now."} ` +
     "If money left your account, it will come back automatically. We're sorry, and there's nothing you need to do.";
-  return { subject: `Update on your payment (${incident.id})`, body, voiceScript, source: "template" };
+  const subject = incident.surface === "checkout_payments" ? `Update on your payment (${incident.id})` : `Update from customer care (${incident.id})`;
+  return { subject, body, voiceScript, source: "template" };
 }
 
 export function personalise(text: string, name: string): string {
@@ -54,7 +64,7 @@ export function caseSummary(incident: IncidentView, amountInr: number, perCustom
   const voice = incident.updates.filter((u) => u.channel === "voice" && u.status !== "refused").length;
   const lines = [
     root
-      ? `Root cause: ${root.label} (${Math.round((incident.rootCause?.confidence ?? 0) * 100)}% confidence). ${evidence.join("; ")}.`
+      ? `Root cause: ${root.label} (${Math.round((incident.rootCause?.confidence ?? 0) * 100)}% confidence).${evidence.length ? ` Evidence: ${evidence.join("; ")}.` : ""}`
       : "Root cause: not yet identified.",
     affected
       ? `Affected: ${affected.total} customers (${affected.ticketed.length} contacted us, ${affected.silent.length} haven't).`
