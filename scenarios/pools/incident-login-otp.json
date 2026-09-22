@@ -1,0 +1,18 @@
+[
+  "Not getting the OTP to log in.",
+  "The OTP arrives after it has already expired.",
+  "Login keeps saying invalid OTP even though I typed it right.",
+  "I can't sign in, the verification code never comes.",
+  "Stuck on the OTP screen and resend doesn't work.",
+  "The app logs me out and won't accept the login code.",
+  "The SMS code for signing in isn't being delivered.",
+  "Tried logging in five times, the OTP never shows up.",
+  "Login fails at the verification step every time.",
+  "My account won't open, the one-time password isn't arriving.",
+  "The email OTP for login never reached my inbox.",
+  "I get an error right after entering the OTP.",
+  "Can't access my account because the login OTP is missing.",
+  "The sign-in code I receive is always rejected.",
+  "The verification code for login expired before it arrived.",
+  "Login OTP is not coming on my registered number."
+]

@@ -1,0 +1,18 @@
+[
+  "UPI request keeps timing out.",
+  "Google Pay payment failed but the money is on hold.",
+  "PhonePe shows the payment as pending for a long time.",
+  "My UPI PIN was accepted but the payment still failed.",
+  "The UPI collect request never reached my phone.",
+  "Paytm UPI payment got declined twice.",
+  "Can't pay with any UPI app, all of them fail.",
+  "UPI transaction shows processing and then fails.",
+  "Scanned the QR and paid with UPI but the order failed.",
+  "The UPI app opens but the payment never completes.",
+  "BHIM UPI says the bank server is not responding.",
+  "UPI payment deducted but the order is still pending.",
+  "UPI autopay for my order failed.",
+  "Payment through UPI is stuck at waiting for approval.",
+  "My UPI payment bounced back with a technical error.",
+  "UPI isn't going through today, tried three apps."
+]
