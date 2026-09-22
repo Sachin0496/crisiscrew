@@ -2,7 +2,25 @@
 
 Written on 2026-09-22 as the spec for the Stage 2 build. The [build plan](build-plan.md) turns it into ordered tasks. The organizers told the team that work can happen before the event and that Stage 2 is mostly presentation; [compliance.md](compliance.md) records that. External APIs are designed here but not wired yet. Each one is listed in [`.env.example`](../.env.example) and reported as `planned` until its keys arrive.
 
-Every threshold and weight below is a starting value, to be calibrated on site against the scenarios in the appendix and reported by the eval in section 13.
+Every threshold and weight below was checked before the event: the model and similarity against labeled pairs ([calibration.md](calibration.md)), and the thresholds by the eval in section 13 ([eval.md](eval.md)).
+
+## As built (2026-09-23)
+
+The system described here is built and runs in sandbox mode. Where the build differs from the plan, the sections below say so. In short:
+
+- **Built:**
+  - the detection engine, the five agents, the policy gate and hash-chained audit log, and root-cause scoring
+  - the HTTP API with its event stream, the MCP server, and the React UI
+  - the replay CLI, the calibration and the eval
+- **Not wired yet:** every live adapter (Freshdesk, GitHub, Razorpay status, ElevenLabs, Claude, Sarvam, Dodo) and the Freshdesk webhook. Each is designed in section 10.5 and listed in `.env.example`. Selecting one stops the server at startup with a clear message, and `GET /api/wiring` reports it as planned.
+- **Changed after calibration:**
+  - Similarity is half meaning and half product area (section 5.2).
+  - A question-form penalty was added to the failure score (section 5.1).
+  - The model is `all-MiniLM-L6-v2` (section 5.1).
+- **Changed after testing:**
+  - An incident is made of the group's failure reports; questions in the group count toward the gates only (section 5.3).
+  - The embedding model loads from disk first, so typed tickets work with no network (section 10.5).
+- **Not built:** the dismiss and resolve operator actions, the Eval panel in the UI, and the LLM mode.
 
 ## 1. What we're building
 
@@ -22,7 +40,7 @@ Every number is computed from data while the demo runs.
 | # | What the judges see | What makes it real |
 |---|---|---|
 | 1 | Five complaints in different words become one incident | The correlation score and every gate's value and threshold are on screen, and the formulas are in section 5 |
-| 2 | A burst that looks similar but isn't an incident gets refused | The UI shows which gate failed, for example "5 of 6 are questions, not failures" |
+| 2 | A burst that looks similar but isn't an incident gets refused | The UI shows which gate failed, for example "4 of 5 are questions, not failures" |
 | 3 | The root cause names a real release | A GitHub deployment with its SHA, author and time, plus a confidence score with its evidence breakdown |
 | 4 | The payment gateway is ruled out | A live call to Razorpay's public status API |
 | 5 | 8 linked tickets, 15 silent customers, 23 affected in total | Computed from the ticket stream and the orders data |
@@ -31,6 +49,8 @@ Every number is computed from data while the demo runs.
 | 8 | "Prove the read-only agent can't write" | An MCP client using the Pattern Agent's token is refused, and the refusal appears in the audit log |
 | 9 | Nothing is hidden | A badge fed by `GET /api/wiring` shows which ports are live and which are sandbox |
 | 10 | It isn't tuned to one example | Precision and recall over labeled scenarios, reported on a held-out split |
+
+As built, rows 3 to 6 run against the scenario's sandbox world: the release, the gateway status, the orders and the updates are simulated. The live calls named in the right-hand column are designed (section 10.5) but not wired.
 
 ### 1.2 Out of scope
 
@@ -60,13 +80,14 @@ crisiscrew/
 │   │                     the event reducer that turns events into UI state
 │   ├── core/             pure logic, no I/O: enrichment, correlation, lifecycle,
 │   │                     agents, root-cause scoring, policy gate, audit chain; ports
-│   └── adapters/         sandbox implementations of every port, plus live adapters:
-│                         freshdesk, github, razorpay-status, elevenlabs, anthropic,
-│                         embeddings (transformers.js)
+│   └── adapters/         sandbox implementations of every port, and the embedders
+│                         (local model via transformers.js, cache, hash). Live adapters
+│                         (freshdesk, github, razorpay-status, elevenlabs, anthropic)
+│                         are designed in section 10.5, not written yet
 ├── apps/
 │   ├── server/           composition root and the only process: config → adapters →
-│   │                     engine; Hono API, SSE, Freshdesk webhook, MCP at /mcp,
-│   │                     replay CLI, eval runner, serves the built web app
+│   │                     engine; Hono API, SSE, MCP at /mcp, replay CLI, eval runner,
+│   │                     serves the built web app (Freshdesk webhook: designed, not built)
 │   └── web/              React + Vite UI in the Stage 1 visual style
 └── scenarios/            replayable worlds (JSON) and their cached embeddings
 ```
@@ -74,7 +95,7 @@ crisiscrew/
 **The dependency rule:** `contracts ← core ← adapters ← apps/server`, and `apps/web` depends only on `contracts`. `core` imports no SDK and does no I/O. Tickets, deployments, payment status, metrics, orders, voice, the LLM, the embedding model and the clock all reach `core` through ports, meaning interfaces that `core` defines and adapters implement.
 
 **Toolchain:** Node 24 LTS (24.21.0) and pnpm 10.
-- **Libraries:** TypeScript 5.9 in strict mode, Vitest 5, zod 4, Hono 4.13 with @hono/node-server 2, @modelcontextprotocol/sdk 1.30, @anthropic-ai/sdk 0.128, @huggingface/transformers 4.3, React 19 and Vite 8.
+- **Libraries:** TypeScript 5.9 in strict mode, Vitest 5, zod 4, Hono 4.13 with @hono/node-server 2, @modelcontextprotocol/sdk 1.30, @huggingface/transformers 4.3, React 19 and Vite 8. The Anthropic SDK joins when `LLM=anthropic` is wired.
 - **Why Node 24:** Vitest 5 doesn't support Node 25, the version installed on the demo laptop.
 - **Why TypeScript 5.9 over 7:** TypeScript 7 is the new native compiler, and a 24-hour build is no place for toolchain surprises.
 - **No build step:** internal packages export their TypeScript source directly. The server runs under tsx, while Vite and Vitest compile TypeScript themselves.
@@ -83,7 +104,7 @@ crisiscrew/
 
 One Node process (`apps/server`) holds the engine and its in-memory state. It serves:
 - the JSON API and the SSE stream for the web UI
-- the Freshdesk webhook
+- the Freshdesk webhook (designed, not built yet)
 - the MCP endpoint at `/mcp`
 - the built web app
 
@@ -129,7 +150,7 @@ Each port has one switch. An unset switch means sandbox, so the whole system run
 | credits | `CREDITS` | an in-memory ledger | `dodo`: Dodo Payments test mode (stretch) |
 | translate | `TRANSLATE` | `off` | `sarvam`: translate Indic-language tickets before embedding (stretch) |
 
-`GET /api/wiring` lists every port's mode and adapter, and the UI badge reads it. If a live adapter is selected but its credentials are missing, the server refuses to start and names the missing variable. The full list of variables is in [`.env.example`](../.env.example).
+`GET /api/wiring` lists every port's mode and adapter, and the UI badge reads it. If a live adapter is selected but its credentials are missing, the server refuses to start and names the missing variable. As built, no live option is wired yet: selecting one stops startup with `adapter "<name>" is not wired yet`, and the wiring report lists it as planned. The full list of variables is in [`.env.example`](../.env.example).
 
 ### 3.4 Deployment
 
@@ -144,7 +165,7 @@ These are the shapes shared by the server, the web app and the MCP tools. Each g
 |---|---|
 | Ticket | id, source (`freshdesk`, `sandbox`), externalId, customerRef (email or id), customerName, channel (`chat`, `email`, `phone`, `portal`), subject, body, receivedAt, language |
 | Signal | ticketId, embedding (384 numbers, kept server-side and never sent to the UI), surface and its score, failureScore, entities (payment method, amount, order id) |
-| Cluster | id, memberTicketIds, cohesion, gate results (each with value, threshold and pass), firstAt, lastAt, dominantSurface |
+| Cluster | id, memberTicketIds, reportTicketIds (the members that report a failure), cohesion and its meaning and area parts, gate results (each with value, threshold, pass and a plain reason), firstAt, lastAt, dominantSurface |
 | Incident | id (`INC-2026-001` onward), status, severity, openedAt, clusterId, linkedTicketIds, hypotheses, affected (ticketed, silent), updates, approvals, credit |
 | Hypothesis | id, kind (`deploy`, `provider`, `unknown`), subject (for example `checkout-service@4.21.7`), prior, evidence list, score, confidence |
 | Evidence | tool, observation (structured result), likelihood ratio, explanation, adapter mode (live or sandbox) |
@@ -161,18 +182,21 @@ Each ticket is enriched as it arrives:
 
 - **Text.** The text is the subject plus the body, with whitespace collapsed, capped at 1,000 characters.
 - **Embedding.** A 384-dimension sentence embedding, mean-pooled and L2-normalised, so the dot product equals cosine similarity.
-  - Default model: `Xenova/paraphrase-multilingual-MiniLM-L12-v2`, 118 MB quantized. It was trained for paraphrase similarity in 50+ languages, including Hindi.
-  - Fallback: `Xenova/all-MiniLM-L6-v2`, 23 MB, English only.
-  - Which model wins is decided on site by the separation check in the build plan.
+  - **Chosen model:** `Xenova/all-MiniLM-L6-v2`, 23 MB quantized, English only. It separated labeled pairs best of five candidates and is the smallest ([calibration.md](calibration.md)).
+  - **Planned first:** `Xenova/paraphrase-multilingual-MiniLM-L12-v2` (118 MB). It covers Hindi, but it misplaced checkout complaints in calibration. It stays the candidate for Hindi and Hinglish tickets, with Sarvam translation.
 - **Surface.** The product area, found by comparing the embedding with a few short prototype sentences per surface. There are no keyword lists. The surfaces are `checkout_payments`, `login_account`, `delivery_orders`, `refunds_billing`, `app_performance` and `other`. A ticket gets the surface with the highest prototype similarity, or `other` below 0.35.
 - **Failure score.** Similarity to failure-report prototypes ("it's not working", "payment failed", "stuck loading", "money deducted but order not placed") minus similarity to question prototypes ("how do I", "can I", "what is your policy"). A positive score means the ticket reports something broken.
+  - **Question form:** a ticket phrased as a question has `questionPenalty` (0.3) subtracted. That covers a closing "?", an opening "how", "what" or "where", or an opening "can", "is" or "do" (but not "can't"). It's a soft penalty, so "Why does my payment keep failing?" still counts as a failure. Calibration added this, because embeddings alone scored "How do I apply a coupon code…?" as a failure.
 - **Entities**, for evidence display only: payment method (UPI, card, net banking, wallet), amount, order id.
 
 A ticket that describes a failure without sharing any keywords with another ticket still lands near it in embedding space. That's the inference the Stage 1 story claimed and now actually performs.
 
 ### 5.2 Similarity and clustering
 
-- **Similarity** between two tickets is the cosine of their embeddings.
+- **Similarity** between two tickets = `semanticWeight` × *meaning* + (1 − `semanticWeight`) × *product area*, with `semanticWeight` = 0.5.
+  - *Meaning* is the cosine of their embeddings.
+  - *Product area* is the cosine of their area profiles: a softmax (temperature 0.03) over each ticket's similarity to the surface prototypes. A ticket far from every surface gets an empty profile and is matched on meaning alone.
+  - Why: plain embedding cosine scored short complaints about the same failure at about 0.44, below the 0.55 gate, so the hero incident didn't fire. The hybrid lifts labeled pairs from AUC 0.94 to 1.00 ([calibration.md](calibration.md)).
 - **Active window:** every ticket received in the last `window` minutes (default 15), questions included. Questions stay in so the failure-share gate can refuse a question-heavy burst visibly, rather than the burst never appearing at all.
 - **Edges:** when a signal arrives, it's compared with every active signal. Pairs with similarity at or above `edgeThreshold` (default 0.50) are joined by union-find. The candidate cluster is the connected component containing the new signal.
 - **Cohesion** is the mean pairwise similarity inside the cluster. It guards against chaining, where A resembles B and B resembles C but A and C are unrelated.
@@ -191,11 +215,13 @@ A cluster opens an incident only when every gate passes. The UI shows each gate 
 
 **The correlation score** on screen is the cluster's cohesion, shown as a percentage, with a threshold marker on the bar. It isn't a probability, and the UI labels it "similarity". Each gate's result is shown next to it.
 
+**Membership:** the incident is made of the group's failure reports (`reportTicketIds`). Questions in the group count toward the size and failure-share gates, but they aren't linked, messaged or counted as affected. Rehearsal found the need for this: a question typed during a burst was being sent an outage update.
+
 If an incident is already open, a new failure report joins it instead of starting a second one. It joins when its similarity to the incident's centroid (the mean of member embeddings) is at least `joinThreshold` (default 0.50). The Recovery Agent then links it (section 8.1).
 
 ### 5.4 Baseline and the burst test
 
-- **Baseline.** For each surface, the engine keeps a rate λ of failure reports per minute. It's an exponentially weighted average of what it has observed, floored at a prior of 0.05 per minute (3 an hour). The floor stops an empty history from making everything look unusual.
+- **Baseline.** For each surface, the normal rate λ of failure reports is the higher of two numbers: the world's stated normal volume for that surface (never below the floor of 3 an hour, or 0.05 a minute), and the failure reports actually seen in the hour before the group started. The floor stops an empty history from making everything look unusual.
 - **The test.** For a cluster with n failure reports spanning t minutes (minimum 1), p = P(N ≥ n) under a Poisson distribution with mean λ·t.
 - **Worked example.** Five failures in 30 seconds on a surface that normally sees 3 an hour gives p ≈ 2.5 × 10⁻⁹.
 - **Display.** The UI turns p into plain words: "about 1 in 400 million under normal volume".
@@ -205,9 +231,9 @@ This is a simple model, and the doc says so. The eval (section 13) measures how 
 ### 5.5 What the UI shows for a refused cluster
 
 Restraint is part of the product. The correlation panel always shows the strongest current cluster, even a pair, with all four gates, so a refusal is as visible as a detection. Failing gates are shown in amber with a plain reason:
-- "5 of 6 are questions, not failures"
+- "4 of 5 are questions, not failures"
 - "these complaints are about different things (similarity 0.31, needs 0.55)"
-- "only 2 similar tickets (needs 4)"
+- "only 2 tickets in this group (needs 4)"
 
 ## 6. Incident lifecycle and agents
 
@@ -219,9 +245,9 @@ Two exits skip the normal path:
 - `dismissed`: an operator marks a false positive. It's recorded and counted in the eval.
 - If no action needs approval, `recovering` goes straight to `mitigated`.
 
-`resolved` is set manually by the operator.
+`resolved` is set manually by the operator. As built, there's no operator action for `dismissed` or `resolved` yet; a session ends at `mitigated` or `awaiting_approval`.
 
-Severity follows a documented rule. It's `high` when the surface is `checkout_payments` or more than 20 customers are affected, and `medium` otherwise.
+Severity follows a documented rule, set when the incident opens: `high` when the surface is `checkout_payments`, and `medium` otherwise. (The planned "more than 20 affected" rule would need severity to change after opening, which isn't built.)
 
 ### 6.2 Agents and trust boundaries
 
@@ -253,6 +279,8 @@ The Commander drives the state machine:
    - Either way, the status becomes `mitigated`.
 
 ### 6.4 Two modes: template and LLM
+
+As built, only template mode exists. The LLM mode below is designed, not wired.
 
 | | `LLM=template` (default, offline) | `LLM=anthropic` |
 |---|---|---|
@@ -293,15 +321,17 @@ A missing check is listed as "not checked" and contributes no LR, so it neither 
 
 These are **uncalibrated defaults**, and the UI and pitch say so: they encode stated assumptions, not frequencies learned from real incidents. Learning them from confirmed and rejected incidents is on the roadmap. Changing a value in `policy.json` changes the result, and the eval shows the effect.
 
-Worked example with the hero scenario's world:
-- **Deploy hypothesis:** a 14-minute gap (LR 6) and an error ratio of about 8.6 (LR 8.6) give a score of 0.5 × 6 × 8.6 ≈ 25.8.
-- **Provider hypothesis:** Razorpay operational (LR 0.1) and complaints spread across UPI and cards (LR 0.7) give 0.25 × 0.1 × 0.7 ≈ 0.018.
+Worked example with the hero scenario's world, as the engine computes it:
+- **Two candidate releases** share the 0.5 deploy prior, so each starts at 0.25.
+- **v4.21.7:** a 14-minute gap (LR 6) and an error ratio of about 8.5 (LR ≈ 8.5) give 0.25 × 6 × 8.5 ≈ 12.7.
+- **v4.21.6:** shipped 5 hours earlier (LR 0.5), with no error change (LR 1), gives 0.125.
+- **Provider:** Razorpay operational (LR 0.1) and complaints spread across UPI and cards (LR 0.7) give 0.25 × 0.1 × 0.7 ≈ 0.018.
 - **Unknown:** 0.25.
-- **Result:** the deploy hypothesis gets about 99% of the total, with every factor visible.
+- **Result:** v4.21.7 gets 97% of the total, with every factor visible. The simulated error ratio varies slightly with replay timing (8.4× to 8.6×); the ranking doesn't.
 
 In the UPI provider-outage scenario, the provider hypothesis wins instead, which shows the engine doesn't always blame the last deploy.
 
-### 7.4 LLM mode
+### 7.4 LLM mode (designed, not wired)
 
 The Investigator uses Claude to choose which checks to run and to explain them in plain words.
 - **Setup:** the `anthropic` adapter uses the SDK's tool runner, with `betaZodTool` definitions and `client.beta.messages.toolRunner`. Each tool's run function calls the policy gate as the Investigator.
@@ -314,7 +344,7 @@ The Investigator uses Claude to choose which checks to run and to explain them i
 
 Every ticket in the incident cluster, and every later ticket that joins (section 5.3), is linked by the Recovery Agent through `link_ticket_to_incident` (L1).
 - **Freshdesk, live mode:** the link is a private note on the ticket ("Linked to INC-2026-001: checkout failures after checkout-service v4.21.7").
-- **Sandbox:** it's recorded in memory.
+- **Sandbox (as built):** it's recorded in memory.
 
 ### 8.2 Affected customers
 
@@ -332,7 +362,7 @@ In the hero scenario: 8 ticketed + 15 silent = 23 affected.
 
 - **Ticketed customers** get a reply on their ticket. In live mode, that's Freshdesk `replyTicket` through Freshdesk's MCP server.
 - **Silent customers** with proactive-contact consent get the same message through the sandbox notification channel. Sending real email to invented customers would be wrong.
-- **Priority customers** who have agreed to voice contact also get an ElevenLabs audio version of the update, which plays in the UI.
+- **Priority customers** who have agreed to voice contact also get an ElevenLabs audio version of the update, which plays in the UI. As built, voice is off: the script is written and marked *prepared*, and no audio is generated.
 - Every message comes from one draft, so everyone hears the same story.
 
 ### 8.4 Credit and authority
@@ -381,7 +411,7 @@ The approver has three choices:
 ### 9.3 Audit log
 
 - Every entry records the fields listed in section 4, hash-chained: each entry includes the SHA-256 of the previous one, so any edit breaks the chain.
-- Entries are appended to `data/audit.jsonl` and kept in memory for the UI.
+- Entries are kept in memory for the UI and appended to `data/audit/<run>-<session>.jsonl`. Each session (a replay, or a live session) is its own chain.
 - `GET /api/audit/verify` re-walks the chain and reports the result, and the UI shows it as a badge.
 - Entries hold ticket and customer references and short summaries, not full ticket bodies.
 
@@ -395,20 +425,21 @@ The approver has three choices:
 | `GET /api/wiring` | none | each port's mode (live, sandbox, off) and adapter detail |
 | `GET /api/state` | none | snapshot for the UI: `seq`, tickets, clusters, incidents, agents, approvals |
 | `GET /api/stream` | none | SSE event stream; resumes from `Last-Event-ID` |
-| `POST /api/webhooks/freshdesk` | `X-CrisisCrew-Secret` header | Freshdesk automation webhook; the body carries only the ticket id |
+| `POST /api/webhooks/freshdesk` | `X-CrisisCrew-Secret` header | Freshdesk automation webhook; the body carries only the ticket id. **Designed, not built** |
 | `POST /api/tickets` | admin token | manual ticket ingest for sandbox runs |
-| `POST /api/replay` | admin token | start a scenario replay: `{scenario, speed, target: "engine" or "freshdesk"}` |
+| `POST /api/replay` | admin token | start a scenario replay: `{scenario, speed}` (the planned `target: "freshdesk"` isn't built) |
+| `POST /api/live` | admin token | start a fresh live session on the hero's world, for typed tickets |
 | `GET /api/scenarios` | none | list scenarios and their expected outcomes |
 | `POST /api/approvals/:id` | approver token | `{decision: "approve" or "modify" or "reject", amountInr?, note?}` |
 | `GET /api/audit` | none | audit entries, filterable by agent and decision |
 | `GET /api/audit/verify` | none | hash-chain check |
 | `GET /api/policy` | none | permission matrix and limits |
-| `GET /api/voice/:id` | none | generated audio (`audio/mpeg`) |
+| `GET /api/voice/:id` | none | generated audio (`audio/mpeg`); as built, it answers 404 because voice is off |
 | `POST /api/admin/reset` | admin token | clears state between rehearsals; deliberately absent from the UI |
 | `POST, GET, DELETE /mcp` | bearer token | MCP Streamable HTTP endpoint (section 10.3) |
 | `GET /*` | none | the built web app |
 
-Tokens are compared in constant time, and the web UI asks for the approver token the first time it's needed.
+Tokens are compared in constant time, and the web UI asks for the approver token the first time it's needed. As built, the admin and approver tokens are optional: when `ADMIN_TOKEN` or `APPROVER_TOKEN` is unset, those routes are open, which suits a local demo and must change before exposing the server.
 
 ### 10.2 Event stream
 
@@ -474,9 +505,13 @@ The UI reuses the Stage 1 page's visual system (its CSS variables, cards and rai
 | Handoff | approval card: amount, limit, case, Approve / Modify / Reject |
 | Audit | entries with filters; refusals highlighted; chain-verified badge |
 | Permissions | agents × tools matrix from `GET /api/policy` |
-| Eval | the latest eval summary (section 13) |
+| Eval | the latest eval summary (section 13). Not built: the eval lives in [eval.md](eval.md) |
+
+As built, the page also has a brief of the running scenario, headline metrics and a flow strip, and the Incoming tickets panel has a box for typing a complaint live.
 
 ### 10.5 Integrations
+
+Everything in this section except the embeddings is designed but not wired yet. The variables are listed in `.env.example`.
 
 **Freshdesk** (`TICKETS=freshdesk`)
 - **Ingest:**
@@ -536,7 +571,7 @@ The UI reuses the Stage 1 page's visual system (its CSS variables, cards and rai
 
 **Embeddings** (`EMBEDDINGS=local`)
 - **Loading:** transformers.js `pipeline("feature-extraction", …)` with mean pooling and normalisation, loaded lazily on first use.
-- **Offline:** set `EMBEDDINGS_MODEL_DIR` to a pre-downloaded model folder, which turns remote downloads off.
+- **Offline:** the model is read from `EMBEDDINGS_MODEL_DIR` (default `.models/`) first, and downloaded only when it isn't there. transformers.js 4.3 checks for tokenizer files ignoring `cache_dir`, so the library's default cache is also pointed at that folder; otherwise it goes to the network even with the model on disk. This was verified with the server's network blocked.
 - **Caching:** embeddings are cached by model id and SHA-256 of the text. Scenario texts are cached in `scenarios/.embeddings/` and committed, so CI and tests never load the model.
 - **Threads:** the ONNX runtime is limited to 2 threads (section 11).
 
@@ -547,7 +582,7 @@ The UI reuses the Stage 1 page's visual system (its CSS variables, cards and rai
 The demo runs on a fanless MacBook Air, so the design keeps load low and steady:
 
 - **One server process** for the engine, API, MCP and static UI. The Vite dev server runs only while working on the UI, and the demo uses the production build.
-- **Memory:** the server stays under about 500 MB with the quantized model loaded, and the whole stack under about 1 GB, excluding the browser.
+- **Memory:** the server stays under about 500 MB with the quantized model loaded (measured at about 400 MB), and the whole stack under about 1 GB, excluding the browser.
 - **CPU:**
   - The model loads once, lazily. Embeddings are batched per ingest burst and cached.
   - ONNX runs with 2 intra-op threads, so bursts don't max out the cores and trigger thermal throttling.
@@ -555,7 +590,7 @@ The demo runs on a fanless MacBook Air, so the design keeps load low and steady:
 - **Tests:**
   - Unit tests use `EMBEDDINGS=hash` or the committed embedding cache, so they never load the model.
   - Run `vitest run` for the package being changed, not a repo-wide watcher.
-- **Disk:** about 120 MB for the model (plus 23 MB for the fallback). pnpm's content-addressed store keeps `node_modules` small.
+- **Disk:** 23 MB for the chosen model. pnpm's content-addressed store keeps `node_modules` small.
 
 ## 12. Error handling
 
@@ -567,7 +602,7 @@ The demo runs on a fanless MacBook Air, so the design keeps load low and steady:
 | Webhook has a bad secret | 401, logged | none |
 | Webhook for a ticket already ingested | ignored (idempotent) | none |
 | Freshdesk MCP quota exhausted | the action fails visibly. The operator restarts with `FRESHDESK_ACTIONS=rest` | quota meter at the limit |
-| Embedding model can't load | the server refuses to start unless `EMBEDDINGS=hash` is set explicitly | none |
+| Embedding model can't load | as built, the server still starts, because prototypes and scenarios are served from the committed cache. A typed ticket that needs the model fails, and the next one tries loading again | the ticket can't be sent |
 | SSE disconnect | the browser reconnects and sends `Last-Event-ID`, and the server replays newer events | a brief "reconnecting" chip |
 | Gate refusal | audited, and the caller gets a refusal result, not an exception | highlighted in the audit panel |
 
@@ -579,15 +614,16 @@ The demo runs on a fanless MacBook Air, so the design keeps load low and steady:
 |---|---|
 | `core` units | cosine similarity and cohesion; union-find clustering; each gate; the Poisson tail; LR scoring and confidence; the policy decision matrix for every agent and tool; the hash chain, including tamper detection; lifecycle transitions; credit maths |
 | Scenarios | each scenario replays on a virtual clock with sandbox adapters and cached embeddings. The hero fires with 8 linked tickets, 23 affected (15 silent), a ₹11,500 approval and the deploy root cause. The UPI outage fires with the provider root cause. The three look-alike scenarios don't fire, each failing on its expected gate. The quiet day never fires |
-| Adapters | recorded JSON fixtures served by a fake `fetch`: GitHub deployments, Razorpay services, a Freshdesk ticket, ElevenLabs audio bytes |
+| Adapters | the embedding cache and loader (disk first, no network needed once downloaded). Recorded fixtures for the live adapters come with the adapters |
 | API | Hono's `app.request`: webhook secret check, idempotency, the first SSE events, approval decisions |
 | MCP | the SDK `Client` over `StreamableHTTPClientTransport`, with a custom `fetch` that calls the Hono app in-process: per-identity `tools/list`, an allowed call, and a refused call that's audited |
 | Web | the shared reducer; the UI itself is checked by hand |
 
-**The eval** (`pnpm eval`, run on site at milestone M7):
-- **Data:** about 40 scenario runs made by seeded sampling from hand-written paraphrase pools.
-  - 20 runs contain an incident, across three kinds: a checkout release bug, a UPI provider outage and a login OTP outage.
-  - 20 don't: quiet days, look-alike question bursts, scattered failures and coincidental pairs.
+**The eval** (`pnpm eval`; results in [eval.md](eval.md)):
+- **Data:** 60 scenario runs made by seeded sampling from hand-written paraphrase pools (144 sentences).
+  - 30 runs contain an incident, across three kinds: a checkout release bug, a UPI provider outage and a login OTP outage.
+  - 30 don't: quiet hours, look-alike question bursts, and scattered failures.
+  - A separate stress test mixes different delivery problems in one area, a known hard case.
 - **Held-out split:** thresholds are tuned on one half, and the results reported are from the other.
 - **Report:**
   - incident-level precision and recall at the chosen thresholds
@@ -613,7 +649,7 @@ The demo runs on a fanless MacBook Air, so the design keeps load low and steady:
 | Venue network is flaky | everything runs in sandbox mode offline. The model is pre-downloaded, and a phone hotspot is the backup for live calls |
 | Freshdesk trial has no MCP access, or runs out of quota | `FRESHDESK_ACTIONS=rest`; REST for rehearsals |
 | Webhook can't reach the laptop | `FRESHDESK_INGEST=poll` |
-| The model clusters poorly on real wording | calibration at hours 1–5, the fallback model, and the eval to show where it stands |
+| The model clusters poorly on real wording | calibration before the event (the hybrid similarity), the eval to show where it stands, and the stress test to show where it doesn't |
 | Claude is slow or refuses | effort `low` or `medium`, server-side fallbacks, labeled templates |
 | Running out of time before the event | milestones are ordered so each one leaves a working demo; the live adapters are independent and can be added one at a time |
 | MacBook Air throttles | the section 11 budget; the production build for the demo; laptop plugged in |
@@ -648,9 +684,9 @@ Scenarios are JSON files in `scenarios/`, validated by a zod schema. Times are r
 |---|---|---|
 | `checkout-v4.21.7` (hero) | `checkout-service` v4.21.7 ships 14 minutes before the first complaint. The five Stage 1 complaints arrive within 30 seconds, and three more follow during the investigation. 23 customers have failed payment attempts after the release; 8 of them file tickets. Two of the 15 silent customers are priority tier with voice consent. Razorpay is operational | incident; deploy root cause; 8 linked, 23 affected, 15 silent; 2 voice updates; ₹11,500 needs approval |
 | `upi-provider-outage` | no release in 6 hours; the provider is degraded for UPI; 6 UPI-specific failures in 2 minutes | incident; provider root cause |
-| `lookalike-checkout-questions` | 5 checkout questions ("can I use two coupons at checkout?") and 1 failure report in 8 minutes | no incident; the failure-share gate refuses it: "5 of 6 are questions, not failures" |
-| `scattered-failures` | 5 failures in 10 minutes about different things: login OTP, late delivery, refund, app crash, wrong item | no incident; the cohesion gate refuses it |
-| `two-card-complaints` | "charged twice for my subscription" and "how do I remove a saved card?" | no incident; size and cohesion refuse it |
+| `lookalike-checkout-questions` | 5 checkout questions ("can I pay by UPI at checkout instead of using a card?") and 1 failure report in 8 minutes | no incident; the failure-share gate refuses it: "4 of 5 are questions, not failures" (one question is tagged refunds and billing, so the group has 5) |
+| `scattered-failures` | 5 failures in 10 minutes about different things: login OTP, late delivery, refund, app crash, wrong item | no incident; no group grows past 2 similar tickets, so the size gate refuses it |
+| `two-card-complaints` | "charged twice for my subscription" and "how do I remove a saved card?" | no incident; the size gate refuses it (their similarity is 0.26) |
 | `quiet-day` | two hours of normal background traffic, replayed at 20× | no incident |
 
 The hero's first five tickets reuse the Stage 1 wording, which is Stage 1 material:
@@ -660,4 +696,4 @@ The hero's first five tickets reuse the Stage 1 wording, which is Stage 1 materi
 4. "Card rejected on checkout — card is fine."
 5. "Can't complete payment for my order."
 
-Everything else in the scenarios is written on site.
+Everything else in the scenarios was written for this project before the event.
