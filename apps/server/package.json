@@ -1,0 +1,26 @@
+{
+  "name": "@crisiscrew/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "replay": "tsx src/cli/replay.ts",
+    "eval": "tsx src/eval/run.ts",
+    "embeddings:warm": "tsx src/cli/warm-embeddings.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@crisiscrew/adapters": "workspace:*",
+    "@crisiscrew/contracts": "workspace:*",
+    "@crisiscrew/core": "workspace:*",
+    "@hono/node-server": "^2.1.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "hono": "^4.13.8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}

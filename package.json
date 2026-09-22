@@ -1,0 +1,32 @@
+{
+  "name": "crisiscrew",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.1",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @crisiscrew/server --filter @crisiscrew/web dev",
+    "build": "pnpm --filter @crisiscrew/web build",
+    "start": "pnpm build && pnpm --filter @crisiscrew/server start",
+    "test": "vitest run",
+    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
+    "replay": "pnpm --filter @crisiscrew/server replay",
+    "eval": "pnpm --filter @crisiscrew/server eval",
+    "embeddings:warm": "pnpm --filter @crisiscrew/server embeddings:warm"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.3",
+    "vitest": "^5.0.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "onnxruntime-node",
+      "protobufjs",
+      "sharp"
+    ]
+  }
+}

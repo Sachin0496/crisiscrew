@@ -19,3 +19,6 @@ data/
 .idea/
 .vscode/
 *.log
+
+# downloaded embedding models
+.models/
