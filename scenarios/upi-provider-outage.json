@@ -51,8 +51,8 @@
       { "customerRef": "u-bhavna", "at": "+30s", "method": "upi", "status": "failed", "amountInr": 649 },
       { "customerRef": "u-chetan", "at": "+50s", "method": "upi", "status": "pending", "amountInr": 2999 },
       { "customerRef": "u-divya", "at": "+70s", "method": "upi", "status": "failed", "amountInr": 449 },
-      { "customerRef": "u-esha", "at": "+95s", "method": "upi", "status": "pending", "amountInr": 1899 },
-      { "customerRef": "u-faisal", "at": "+120s", "method": "upi", "status": "failed", "amountInr": 999 }
+      { "customerRef": "u-esha", "at": "+75s", "method": "upi", "status": "pending", "amountInr": 1899 },
+      { "customerRef": "u-faisal", "at": "+80s", "method": "upi", "status": "failed", "amountInr": 999 }
     ]
   },
   "tickets": [

@@ -99,10 +99,10 @@
       { "customerRef": "c-priya", "at": "+40s", "method": "card", "status": "failed", "amountInr": 649 },
       { "customerRef": "c-arjun", "at": "+48s", "method": "upi", "status": "failed", "amountInr": 999 },
       { "customerRef": "c-varun", "at": "+55s", "method": "card", "status": "failed", "amountInr": 4199 },
-      { "customerRef": "c-ritika", "at": "+70s", "method": "upi", "status": "failed", "amountInr": 1249 },
-      { "customerRef": "c-meera", "at": "+100s", "method": "upi", "status": "failed", "amountInr": 1899 },
-      { "customerRef": "c-rohit", "at": "+120s", "method": "card", "status": "failed", "amountInr": 5999 },
-      { "customerRef": "c-rohit", "at": "+140s", "method": "card", "status": "failed", "amountInr": 5999 }
+      { "customerRef": "c-ritika", "at": "+60s", "method": "upi", "status": "failed", "amountInr": 1249 },
+      { "customerRef": "c-meera", "at": "+42s", "method": "upi", "status": "failed", "amountInr": 1899 },
+      { "customerRef": "c-rohit", "at": "+35s", "method": "card", "status": "failed", "amountInr": 5999 },
+      { "customerRef": "c-rohit", "at": "+50s", "method": "card", "status": "failed", "amountInr": 5999 }
     ]
   },
   "tickets": [
