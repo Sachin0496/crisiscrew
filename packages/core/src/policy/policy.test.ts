@@ -48,6 +48,15 @@ describe("PolicyGate", () => {
     expect(audit.entries()[0]?.reason).toMatch(/not allowed/);
   });
 
+  it("refuses a caller outside the allow-list before looking at its arguments", async () => {
+    const strict = tool("link_ticket_to_incident", 1, { input: z.object({ incidentId: z.string(), ticketId: z.string() }) });
+    const { gate } = setup([strict]);
+    const out = await gate.call("pattern", "link_ticket_to_incident", {});
+    expect(out).toMatchObject({ ok: false });
+    expect(out.ok ? "" : out.reason).toMatch(/not allowed/);
+    expect(out.ok ? "" : out.reason).not.toMatch(/incidentId/);
+  });
+
   it("keeps external MCP clients read-only", async () => {
     const send = tool("send_customer_update", 2);
     const { gate } = setup([send]);

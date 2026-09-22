@@ -1,5 +1,5 @@
 import { cosine, norm, type Embedder } from "@crisiscrew/core";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -56,6 +56,15 @@ describe("CachedEmbedder", () => {
     const cached = new CachedEmbedder({ modelId: "absent-model", dir, inner: null });
     await expect(cached.embed(["never embedded"])).rejects.toThrow(EmbeddingCacheMiss);
     await expect(cached.embed(["never embedded"])).rejects.toThrow(/never embedded/);
+  });
+
+  it("in read-only mode, passes misses to the next layer and never writes its own file", async () => {
+    dir = mkdtempSync(join(tmpdir(), "cc-embed-"));
+    const inner = new CountingEmbedder();
+    const committed = new CachedEmbedder({ modelId: inner.id, dir: join(dir, "committed"), inner, readOnly: true });
+    const [v] = await committed.embed(["typed by a judge"]);
+    expect(Array.from(v!)).toEqual([16, 1, 0]);
+    expect(existsSync(join(dir, "committed", "counting-model.jsonl"))).toBe(false);
   });
 
   it("keeps each model's vectors separate", async () => {

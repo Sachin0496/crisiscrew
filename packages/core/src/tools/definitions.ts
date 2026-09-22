@@ -350,6 +350,7 @@ export function createTools(): Tool[] {
         "Issue the goodwill credit. Within the authority limit this needs L2; above it, L3 and an approved approval for exactly this amount.",
       input: z.object({ incidentId: z.string().min(1), amountInr: z.number().positive(), approvalId: z.string().optional() }),
       level: (args, ctx) => ((args as { amountInr: number }).amountInr <= ctx.policy.limits.authorityLimitInr ? 2 : 3),
+      levels: [2, 3],
       adapter: (ctx) => ctx.ports.credits.adapter,
       condition(args, ctx) {
         const { incidentId, amountInr, approvalId } = args as { incidentId: string; amountInr: number; approvalId?: string };

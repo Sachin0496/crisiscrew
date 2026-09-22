@@ -11,7 +11,8 @@ export type RuntimeOptions = {
   latencyMs: number;
   /** Scenario whose world backs the live session (for tickets typed into the UI). */
   liveWorld: string;
-  onAudit?: (entry: AuditEntry) => void;
+  /** Called for every audit entry, with the session it belongs to (each session is its own hash chain). */
+  onAudit?: (entry: AuditEntry, sessionId: string) => void;
   onError?: (error: unknown) => void;
 };
 
@@ -66,6 +67,10 @@ export class Runtime {
     return this.current();
   }
 
+  policy(): Policy {
+    return this.options.policy;
+  }
+
   scenarioList(): ScenarioSummary[] {
     return [...this.options.scenarios.values()].map((s) => ({
       id: s.id,
@@ -101,7 +106,7 @@ export class Runtime {
       bus: this.bus,
       session: { sessionId, ...session },
       baselinePerHour: scenario.world.baselinePerHour,
-      onAudit: this.options.onAudit,
+      onAudit: this.options.onAudit ? (entry) => this.options.onAudit!(entry, sessionId) : undefined,
       onError: this.options.onError,
     });
     this.engine = engine;

@@ -39,6 +39,6 @@ export type DecisionBody = z.infer<typeof DecisionBody>;
 
 export const ReplayBody = z.object({
   scenario: z.string().min(1),
-  speed: z.number().min(0.25).max(50).optional(),
+  speed: z.number().min(0.25).max(500).optional(),
 });
 export type ReplayBody = z.infer<typeof ReplayBody>;

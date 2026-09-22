@@ -9,6 +9,8 @@ export type ToolDef<Ctx> = {
   input: z.ZodType;
   /** Authority needed for this particular call; may depend on the arguments (e.g. a credit's amount). */
   level: (args: unknown, ctx: Ctx) => Level;
+  /** Every level a call can need, for display; defaults to the level of a call with no arguments. */
+  levels?: Level[];
   /** Extra rule for L2/L3 calls: returns a refusal reason, or null to allow. */
   condition?: (args: unknown, ctx: Ctx) => string | null | Promise<string | null>;
   run: (args: unknown, ctx: Ctx) => Promise<unknown>;
@@ -58,6 +60,12 @@ export class PolicyGate<Ctx> {
     return [...this.tools.values()].filter((t) => allowed.has(t.name));
   }
 
+  /** Each tool with its description and the authority levels its calls can need. */
+  catalog(): { name: string; description: string; levels: Level[] }[] {
+    const ctx = this.context();
+    return [...this.tools.values()].map((t) => ({ name: t.name, description: t.description, levels: t.levels ?? [t.level({}, ctx)] }));
+  }
+
   matrix(): { identity: Identity; name: string; maxLevel: Level; tools: { name: string; allowed: boolean }[] }[] {
     return (Object.keys(this.policy.identities) as Identity[]).map((identity) => {
       const entry = this.policy.identities[identity];
@@ -86,11 +94,12 @@ export class PolicyGate<Ctx> {
 
     if (!tool) return deny(`unknown tool "${name}"`, null);
 
-    const parsed = tool.input.safeParse(args ?? {});
-    if (!parsed.success) return deny(`invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"} ${i.message}`).join("; ")}`, null);
-
+    // Permission first: a caller outside the allow-list learns nothing about the tool's arguments.
     const who = this.policy.identities[identity];
     if (!who.tools.includes(name)) return deny(`${who.name} is not allowed to call ${name}`, null);
+
+    const parsed = tool.input.safeParse(args ?? {});
+    if (!parsed.success) return deny(`invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"} ${i.message}`).join("; ")}`, null);
 
     const level = tool.level(parsed.data, ctx);
     if (level > who.maxLevel) return deny(`this ${name} call needs L${level}; ${who.name} is limited to L${who.maxLevel}`, level);

@@ -30,6 +30,8 @@ export type CachedEmbedderOptions = {
   dir: string;
   /** The real model; null means cache-only (tests and CI), and a miss throws. */
   inner: Embedder | null;
+  /** Keep new vectors in memory only; the file stays as committed. */
+  readOnly?: boolean;
 };
 
 /**
@@ -74,13 +76,15 @@ export class CachedEmbedder implements Embedder {
         );
       }
       const vectors = await this.options.inner.embed(missing);
-      mkdirSync(this.options.dir, { recursive: true });
       const lines = missing.map((text, i) => {
         const key = cacheKey(this.id, text);
         memory.set(key, vectors[i]!);
         return JSON.stringify({ k: key, t: text, v: encode(vectors[i]!) });
       });
-      appendFileSync(this.file, `${lines.join("\n")}\n`);
+      if (!this.options.readOnly) {
+        mkdirSync(this.options.dir, { recursive: true });
+        appendFileSync(this.file, `${lines.join("\n")}\n`);
+      }
     }
 
     return keys.map((k) => memory.get(k)!);
