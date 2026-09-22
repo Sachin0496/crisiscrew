@@ -1,0 +1,25 @@
+{
+  "id": "two-card-complaints",
+  "title": "Two unrelated complaints that mention a card",
+  "purpose": "The Stage 1 teardown's challenge: two complaints share the word 'card' but not a problem. Sharing a keyword must not start an incident.",
+  "speed": 2,
+  "expected": {
+    "incident": false,
+    "refusedBy": "size"
+  },
+  "world": {
+    "baselinePerHour": {},
+    "services": [{ "name": "checkout-service", "surfaces": ["checkout_payments"] }],
+    "deployments": [],
+    "providers": [{ "name": "razorpay", "status": "operational" }],
+    "customers": [
+      { "ref": "d1", "name": "Dev Anand" },
+      { "ref": "d2", "name": "Ela Bhatt" }
+    ],
+    "attempts": []
+  },
+  "tickets": [
+    { "at": "+0s", "customerRef": "d1", "channel": "email", "body": "My card was charged twice for last month's subscription." },
+    { "at": "+40s", "customerRef": "d2", "channel": "chat", "body": "How do I remove a saved card from my account?" }
+  ]
+}

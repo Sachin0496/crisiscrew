@@ -1,0 +1,31 @@
+{
+  "id": "scattered-failures",
+  "title": "Unrelated failures in the same ten minutes",
+  "purpose": "Restraint. Five real problems arrive close together, but each is about something different. Failures alone are not an incident; they have to describe the same thing.",
+  "speed": 4,
+  "expected": {
+    "incident": false,
+    "refusedBy": "size"
+  },
+  "world": {
+    "baselinePerHour": {},
+    "services": [{ "name": "checkout-service", "surfaces": ["checkout_payments"] }],
+    "deployments": [],
+    "providers": [{ "name": "razorpay", "status": "operational" }],
+    "customers": [
+      { "ref": "f1", "name": "Yash Vardhan" },
+      { "ref": "f2", "name": "Zara Sheikh" },
+      { "ref": "f3", "name": "Abhay Deol" },
+      { "ref": "f4", "name": "Bina Paul" },
+      { "ref": "f5", "name": "Chirag Jain" }
+    ],
+    "attempts": []
+  },
+  "tickets": [
+    { "at": "+0s", "customerRef": "f1", "channel": "chat", "body": "The OTP to log in never arrives on my phone." },
+    { "at": "+120s", "customerRef": "f2", "channel": "email", "body": "My parcel was supposed to arrive yesterday and tracking hasn't moved." },
+    { "at": "+240s", "customerRef": "f3", "channel": "portal", "body": "The refund for my returned headphones still isn't credited after 10 days." },
+    { "at": "+400s", "customerRef": "f4", "channel": "chat", "body": "The app crashes every time I open my orders page." },
+    { "at": "+560s", "customerRef": "f5", "channel": "email", "body": "I received a blue shirt instead of the black one I ordered." }
+  ]
+}

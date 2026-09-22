@@ -1,0 +1,33 @@
+{
+  "id": "lookalike-checkout-questions",
+  "title": "Look-alike burst: checkout questions",
+  "purpose": "Restraint. Six tickets about paying at checkout arrive together, but five are questions, not failures. Topic similarity alone must not open an incident.",
+  "speed": 4,
+  "expected": {
+    "incident": false,
+    "refusedBy": "failure_share"
+  },
+  "world": {
+    "baselinePerHour": { "checkout_payments": 3 },
+    "services": [{ "name": "checkout-service", "surfaces": ["checkout_payments"] }],
+    "deployments": [],
+    "providers": [{ "name": "razorpay", "status": "operational" }],
+    "customers": [
+      { "ref": "q1", "name": "Rhea Chakraborty" },
+      { "ref": "q2", "name": "Sameer Khan" },
+      { "ref": "q3", "name": "Tara Sutaria" },
+      { "ref": "q4", "name": "Uday Chopra" },
+      { "ref": "q5", "name": "Vani Bhojan" },
+      { "ref": "q6", "name": "Waseem Akram" }
+    ],
+    "attempts": []
+  },
+  "tickets": [
+    { "at": "+0s", "customerRef": "q1", "channel": "chat", "body": "Can I pay for my order at checkout with two different cards?" },
+    { "at": "+80s", "customerRef": "q2", "channel": "email", "body": "Is EMI available as a payment option at checkout for orders above ₹10,000?" },
+    { "at": "+160s", "customerRef": "q3", "channel": "chat", "body": "How do I apply a coupon code when paying at checkout?" },
+    { "at": "+240s", "customerRef": "q4", "channel": "chat", "body": "Can I pay by UPI at checkout instead of using a card?" },
+    { "at": "+320s", "customerRef": "q5", "channel": "portal", "body": "Does checkout accept my wallet balance as payment?" },
+    { "at": "+440s", "customerRef": "q6", "channel": "chat", "body": "Got a payment error at checkout once, but it worked when I retried." }
+  ]
+}

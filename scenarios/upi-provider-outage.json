@@ -1,0 +1,68 @@
+{
+  "id": "upi-provider-outage",
+  "title": "UPI outage at the payment provider",
+  "purpose": "A real incident whose cause is not a release: no deploy in the last 6 hours and the provider reports UPI degraded, so the engine must blame the provider, not the last deploy.",
+  "speed": 2,
+  "expected": {
+    "incident": true,
+    "rootCause": "provider:razorpay"
+  },
+  "world": {
+    "baselinePerHour": { "checkout_payments": 3 },
+    "services": [{ "name": "checkout-service", "surfaces": ["checkout_payments"], "baselineErrorRate": 0.004 }],
+    "deployments": [
+      { "service": "checkout-service", "version": "4.21.6", "sha": "8c1f2d94e0b7", "author": "aditi-rao", "at": "-30h", "message": "Show saved UPI handles first" }
+    ],
+    "providers": [
+      {
+        "name": "razorpay",
+        "status": "degraded",
+        "components": [
+          { "name": "Payments API", "status": "degraded" },
+          { "name": "Checkout", "status": "operational" }
+        ],
+        "detail": "Elevated UPI failure rates reported by partner banks"
+      }
+    ],
+    "customers": [
+      { "ref": "u-anil", "name": "Anil Kapoor", "consent": { "proactive": true } },
+      { "ref": "u-bhavna", "name": "Bhavna Singh", "consent": { "proactive": true } },
+      { "ref": "u-chetan", "name": "Chetan Bhagat", "consent": { "proactive": true } },
+      { "ref": "u-divya", "name": "Divya Menon", "consent": { "proactive": true } },
+      { "ref": "u-esha", "name": "Esha Gupta", "consent": { "proactive": true } },
+      { "ref": "u-faisal", "name": "Faisal Ahmed", "consent": { "proactive": true } },
+      { "ref": "u-gita", "name": "Gita Rao", "consent": { "proactive": true } },
+      { "ref": "u-hari", "name": "Hari Prasad", "consent": { "proactive": true } },
+      { "ref": "u-indu", "name": "Indu Nair", "tier": "priority", "consent": { "voice": true, "proactive": true } },
+      { "ref": "u-jai", "name": "Jai Shah", "consent": { "proactive": false } },
+      { "ref": "k-card1", "name": "Kiran Das" },
+      { "ref": "k-card2", "name": "Leela Thomas" },
+      { "ref": "bg-1", "name": "Mohan Lal" },
+      { "ref": "bg-2", "name": "Nandini Roy" }
+    ],
+    "attempts": [
+      { "customerRef": "k-card1", "at": "-8m", "method": "card", "status": "success", "amountInr": 1499 },
+      { "customerRef": "u-gita", "at": "-6m", "method": "upi", "status": "failed", "amountInr": 799 },
+      { "customerRef": "u-hari", "at": "-5m", "method": "upi", "status": "failed", "amountInr": 2299 },
+      { "customerRef": "u-indu", "at": "-4m", "method": "upi", "status": "failed", "amountInr": 15999 },
+      { "customerRef": "k-card2", "at": "-3m", "method": "card", "status": "success", "amountInr": 999 },
+      { "customerRef": "u-jai", "at": "-2m", "method": "upi", "status": "pending", "amountInr": 399 },
+      { "customerRef": "u-anil", "at": "+5s", "method": "upi", "status": "failed", "amountInr": 1199 },
+      { "customerRef": "u-bhavna", "at": "+30s", "method": "upi", "status": "failed", "amountInr": 649 },
+      { "customerRef": "u-chetan", "at": "+50s", "method": "upi", "status": "pending", "amountInr": 2999 },
+      { "customerRef": "u-divya", "at": "+70s", "method": "upi", "status": "failed", "amountInr": 449 },
+      { "customerRef": "u-esha", "at": "+95s", "method": "upi", "status": "pending", "amountInr": 1899 },
+      { "customerRef": "u-faisal", "at": "+120s", "method": "upi", "status": "failed", "amountInr": 999 }
+    ]
+  },
+  "tickets": [
+    { "at": "+0s", "customerRef": "bg-1", "channel": "email", "body": "Can I change the size of the jacket I ordered yesterday?" },
+    { "at": "+20s", "customerRef": "u-anil", "channel": "chat", "body": "UPI payment keeps failing, tried Google Pay and PhonePe." },
+    { "at": "+40s", "customerRef": "u-bhavna", "channel": "chat", "body": "Transaction declined by bank when paying through UPI." },
+    { "at": "+65s", "customerRef": "u-chetan", "channel": "email", "body": "My UPI payment has been stuck at processing for ten minutes." },
+    { "at": "+85s", "customerRef": "u-divya", "channel": "chat", "body": "The UPI collect request never showed up in my app." },
+    { "at": "+110s", "customerRef": "u-esha", "channel": "portal", "body": "Paid with UPI, the amount is pending and the order isn't confirmed." },
+    { "at": "+140s", "customerRef": "u-faisal", "channel": "phone", "body": "BHIM says payment failed, please try again later." },
+    { "at": "+160s", "customerRef": "bg-2", "channel": "email", "body": "Please share the invoice for my last order." }
+  ]
+}

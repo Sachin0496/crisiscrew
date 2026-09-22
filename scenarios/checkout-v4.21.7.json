@@ -1,0 +1,123 @@
+{
+  "id": "checkout-v4.21.7",
+  "title": "Checkout release v4.21.7 breaks payments",
+  "purpose": "The Stage 1 story, computed: five complaints in different words become one incident, the root cause is a release 14 minutes earlier, 23 customers are affected and a credit above authority goes to a human.",
+  "speed": 2,
+  "expected": {
+    "incident": true,
+    "rootCause": "deploy:checkout-service@4.21.7",
+    "linkedTickets": 8,
+    "affected": 23,
+    "silent": 15,
+    "voiceUpdates": 2,
+    "creditInr": 11500
+  },
+  "world": {
+    "baselinePerHour": { "checkout_payments": 3 },
+    "services": [
+      { "name": "checkout-service", "surfaces": ["checkout_payments"], "baselineErrorRate": 0.004, "faultyErrorRate": 0.0344 },
+      { "name": "auth-service", "surfaces": ["login_account"] }
+    ],
+    "deployments": [
+      { "service": "checkout-service", "version": "4.21.6", "sha": "8c1f2d94e0b7", "author": "aditi-rao", "at": "-5h", "message": "Show saved UPI handles first" },
+      { "service": "auth-service", "version": "2.8.0", "sha": "51aa90c3d2e4", "author": "neel-b", "at": "-40m", "message": "Rotate OTP signing key" },
+      { "service": "checkout-service", "version": "4.21.7", "sha": "3f9c2e1b7a55", "author": "vikram-s", "at": "-795s", "message": "Retry payment authorisation on gateway timeout", "faulty": true }
+    ],
+    "providers": [
+      {
+        "name": "razorpay",
+        "status": "operational",
+        "components": [
+          { "name": "Payments API", "status": "operational" },
+          { "name": "Checkout", "status": "operational" }
+        ],
+        "detail": "All systems operational"
+      }
+    ],
+    "customers": [
+      { "ref": "c-priya", "name": "Priya K.", "email": "priya.k@example.com", "consent": { "proactive": true } },
+      { "ref": "c-arjun", "name": "Arjun K.", "email": "arjun.k@example.com", "consent": { "proactive": true } },
+      { "ref": "c-sneha", "name": "Sneha M.", "email": "sneha.m@example.com", "consent": { "proactive": true } },
+      { "ref": "c-varun", "name": "Varun N.", "email": "varun.n@example.com", "consent": { "proactive": true } },
+      { "ref": "c-ritika", "name": "Ritika S.", "email": "ritika.s@example.com", "consent": { "proactive": true } },
+      { "ref": "c-karan", "name": "Karan D.", "email": "karan.d@example.com", "consent": { "proactive": true } },
+      { "ref": "c-meera", "name": "Meera J.", "email": "meera.j@example.com", "consent": { "proactive": true } },
+      { "ref": "c-rohit", "name": "Rohit P.", "email": "rohit.p@example.com", "consent": { "proactive": true } },
+      { "ref": "s01", "name": "Aditya Menon", "consent": { "proactive": true } },
+      { "ref": "s02", "name": "Kavya Reddy", "consent": { "proactive": true } },
+      { "ref": "s03", "name": "Ananya Iyer", "tier": "priority", "phone": "+91 90000 00003", "consent": { "voice": true, "proactive": true } },
+      { "ref": "s04", "name": "Rahul Verma", "consent": { "proactive": true } },
+      { "ref": "s05", "name": "Pooja Nair", "consent": { "proactive": false } },
+      { "ref": "s06", "name": "Siddharth Rao", "consent": { "proactive": true } },
+      { "ref": "s07", "name": "Nisha Gupta", "consent": { "proactive": true } },
+      { "ref": "s08", "name": "Imran Sheikh", "consent": { "proactive": true } },
+      { "ref": "s09", "name": "Farhan Qureshi", "tier": "priority", "phone": "+91 90000 00009", "consent": { "voice": true, "proactive": true } },
+      { "ref": "s10", "name": "Deepa Pillai", "consent": { "proactive": true } },
+      { "ref": "s11", "name": "Manoj Kumar", "consent": { "proactive": false } },
+      { "ref": "s12", "name": "Shreya Das", "consent": { "proactive": true } },
+      { "ref": "s13", "name": "Vikas Yadav", "consent": { "proactive": true } },
+      { "ref": "s14", "name": "Lakshmi Subramanian", "consent": { "proactive": false } },
+      { "ref": "s15", "name": "Tanvi Joshi", "consent": { "proactive": true } },
+      { "ref": "b1", "name": "Neha Sharma" },
+      { "ref": "b2", "name": "Amit Patel" },
+      { "ref": "b3", "name": "Ravi Teja" },
+      { "ref": "b4", "name": "Sonal Mehta" },
+      { "ref": "b5", "name": "Arvind Swamy" },
+      { "ref": "u1", "name": "Gaurav Bhatia" },
+      { "ref": "u2", "name": "Isha Kapoor" },
+      { "ref": "u3", "name": "Joseph Mathew" },
+      { "ref": "u4", "name": "Zoya Khan" },
+      { "ref": "u5", "name": "Harish Gowda" }
+    ],
+    "attempts": [
+      { "customerRef": "u1", "at": "-40m", "method": "card", "status": "success", "amountInr": 2499 },
+      { "customerRef": "u2", "at": "-35m", "method": "upi", "status": "success", "amountInr": 899 },
+      { "customerRef": "s01", "at": "-30m", "method": "upi", "status": "success", "amountInr": 1299 },
+      { "customerRef": "c-priya", "at": "-25m", "method": "card", "status": "success", "amountInr": 649 },
+      { "customerRef": "u3", "at": "-20m", "method": "card", "status": "success", "amountInr": 3499 },
+      { "customerRef": "s02", "at": "-12m", "method": "upi", "status": "failed", "amountInr": 1599 },
+      { "customerRef": "s04", "at": "-11m", "method": "card", "status": "failed", "amountInr": 2199 },
+      { "customerRef": "u4", "at": "-10m", "method": "upi", "status": "success", "amountInr": 499 },
+      { "customerRef": "s06", "at": "-9m", "method": "netbanking", "status": "failed", "amountInr": 5499 },
+      { "customerRef": "s07", "at": "-8m", "method": "card", "status": "pending", "amountInr": 1099 },
+      { "customerRef": "s01", "at": "-7m", "method": "upi", "status": "failed", "amountInr": 1299 },
+      { "customerRef": "s08", "at": "-6m", "method": "card", "status": "failed", "amountInr": 799 },
+      { "customerRef": "s03", "at": "-5m", "method": "card", "status": "failed", "amountInr": 12999 },
+      { "customerRef": "s10", "at": "-5m", "method": "upi", "status": "failed", "amountInr": 349 },
+      { "customerRef": "s05", "at": "-4m", "method": "wallet", "status": "failed", "amountInr": 599 },
+      { "customerRef": "s12", "at": "-3m", "method": "card", "status": "failed", "amountInr": 1899 },
+      { "customerRef": "s11", "at": "-3m", "method": "upi", "status": "pending", "amountInr": 2599 },
+      { "customerRef": "u5", "at": "-2m", "method": "card", "status": "success", "amountInr": 1499 },
+      { "customerRef": "s09", "at": "-2m", "method": "netbanking", "status": "failed", "amountInr": 8999 },
+      { "customerRef": "c-sneha", "at": "-1m", "method": "netbanking", "status": "failed", "amountInr": 1799 },
+      { "customerRef": "s13", "at": "-1m", "method": "upi", "status": "failed", "amountInr": 459 },
+      { "customerRef": "s14", "at": "+0s", "method": "card", "status": "failed", "amountInr": 3299 },
+      { "customerRef": "c-karan", "at": "+10s", "method": "card", "status": "failed", "amountInr": 2799 },
+      { "customerRef": "c-arjun", "at": "+20s", "method": "upi", "status": "failed", "amountInr": 999 },
+      { "customerRef": "s15", "at": "+25s", "method": "upi", "status": "failed", "amountInr": 699 },
+      { "customerRef": "c-priya", "at": "+30s", "method": "card", "status": "pending", "amountInr": 649 },
+      { "customerRef": "c-priya", "at": "+40s", "method": "card", "status": "failed", "amountInr": 649 },
+      { "customerRef": "c-arjun", "at": "+48s", "method": "upi", "status": "failed", "amountInr": 999 },
+      { "customerRef": "c-varun", "at": "+55s", "method": "card", "status": "failed", "amountInr": 4199 },
+      { "customerRef": "c-ritika", "at": "+70s", "method": "upi", "status": "failed", "amountInr": 1249 },
+      { "customerRef": "c-meera", "at": "+100s", "method": "upi", "status": "failed", "amountInr": 1899 },
+      { "customerRef": "c-rohit", "at": "+120s", "method": "card", "status": "failed", "amountInr": 5999 },
+      { "customerRef": "c-rohit", "at": "+140s", "method": "card", "status": "failed", "amountInr": 5999 }
+    ]
+  },
+  "tickets": [
+    { "at": "+0s", "customerRef": "b1", "channel": "email", "body": "How do I change the delivery address on my order?" },
+    { "at": "+15s", "customerRef": "b2", "channel": "portal", "body": "Where is my refund for the shoes I returned last week?" },
+    { "at": "+30s", "customerRef": "b3", "channel": "chat", "body": "Can I use two coupon codes on one order?" },
+    { "at": "+45s", "customerRef": "c-priya", "channel": "chat", "body": "My checkout keeps loading forever." },
+    { "at": "+52s", "customerRef": "c-arjun", "channel": "chat", "body": "UPI isn't working. Tried twice." },
+    { "at": "+59s", "customerRef": "c-sneha", "channel": "email", "body": "Payment failed but bank shows debit." },
+    { "at": "+63s", "customerRef": "c-varun", "channel": "chat", "body": "Card rejected on checkout — card is fine." },
+    { "at": "+75s", "customerRef": "c-ritika", "channel": "phone", "body": "Can't complete payment for my order." },
+    { "at": "+90s", "customerRef": "b4", "channel": "chat", "body": "Is cash on delivery available in Pune?" },
+    { "at": "+105s", "customerRef": "c-karan", "channel": "email", "body": "Money got deducted twice but the order page says failed." },
+    { "at": "+130s", "customerRef": "c-meera", "channel": "chat", "body": "Payment page goes blank after I enter the bank OTP, and the order is not placed." },
+    { "at": "+160s", "customerRef": "c-rohit", "channel": "portal", "body": "Tried three different cards and the payment still fails at the last step." },
+    { "at": "+175s", "customerRef": "b5", "channel": "email", "body": "My parcel was supposed to arrive yesterday and tracking still shows no update." }
+  ]
+}
