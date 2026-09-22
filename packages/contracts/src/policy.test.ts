@@ -1,0 +1,54 @@
+import { describe, expect, it } from "vitest";
+import { parsePolicy } from "./policy";
+
+const base = {
+  identities: {
+    pattern: { name: "Pattern Agent", maxLevel: 0, tools: ["get_incident"] },
+    commander: { name: "Incident Commander", maxLevel: 1, tools: ["open_incident"] },
+    investigator: { name: "Investigator", maxLevel: 0, tools: [] },
+    recovery: { name: "Recovery Agent", maxLevel: 2, tools: [] },
+    handoff: { name: "Handoff Agent", maxLevel: 3, tools: [] },
+    operator: { name: "External MCP client", maxLevel: 0, tools: [] },
+  },
+  limits: { authorityLimitInr: 5000, creditPerCustomerInr: 500 },
+  correlation: {
+    windowMin: 15,
+    edgeThreshold: 0.5,
+    joinThreshold: 0.5,
+    cohesionMin: 0.55,
+    sizeMin: 4,
+    failureShareMin: 0.75,
+    burstPMax: 0.001,
+    baselineFloorPerHour: 3,
+    surfaceMin: 0.35,
+  },
+  rca: {
+    lookbackHours: 6,
+    confidenceFloor: 0.6,
+    priors: { deploy: 0.5, provider: 0.25, unknown: 0.25 },
+    deployGap: { withinMin: 30, withinLr: 6, nearMin: 120, nearLr: 3, farLr: 0.5, afterLr: 0.2 },
+    errorRatio: { strongMin: 2, cap: 10, weakMin: 1.2, weakLr: 1, noneLr: 0.3 },
+    provider: { operationalLr: 0.1, degradedLr: 8, uncheckedLr: 1 },
+    methodSpread: { concentratedShare: 0.8, concentratedLr: 2, spreadLr: 0.7 },
+  },
+  recovery: { affectedLookbackMin: 30 },
+};
+
+describe("parsePolicy", () => {
+  it("accepts a policy whose tools all exist", () => {
+    const policy = parsePolicy(base, ["get_incident", "open_incident"]);
+    expect(policy.identities.commander.tools).toEqual(["open_incident"]);
+  });
+
+  it("rejects an allow-list naming a tool that does not exist", () => {
+    const typo = structuredClone(base);
+    typo.identities.pattern.tools = ["get_incidnet"];
+    expect(() => parsePolicy(typo, ["get_incident", "open_incident"])).toThrow(/get_incidnet/);
+  });
+
+  it("rejects a missing identity", () => {
+    const partial = structuredClone(base) as Record<string, unknown>;
+    delete (partial.identities as Record<string, unknown>).handoff;
+    expect(() => parsePolicy(partial, ["get_incident", "open_incident"])).toThrow();
+  });
+});

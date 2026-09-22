@@ -1,0 +1,60 @@
+import type {
+  AgentId,
+  AgentStatus,
+  Approval,
+  AuditEntry,
+  ClusterView,
+  CustomerUpdate,
+  Hypothesis,
+  IncidentStatus,
+  IncidentView,
+  Level,
+  SignalView,
+  Ticket,
+} from "./domain";
+
+type E<T extends string, P> = { seq: number; at: number; type: T; payload: P };
+
+export type SessionMode = "idle" | "replay" | "live";
+
+export type CrisisEvent =
+  | E<
+      "session.started",
+      {
+        sessionId: string;
+        mode: SessionMode;
+        scenarioId?: string;
+        scenarioTitle?: string;
+        speed?: number;
+        agents: { id: AgentId; name: string; level: Level }[];
+      }
+    >
+  | E<"ticket.received", { ticket: Ticket }>
+  | E<"signal.scored", { signal: SignalView; nearest: { ticketId: string; similarity: number }[] }>
+  | E<"cluster.updated", { cluster: ClusterView }>
+  | E<"incident.opened", { incident: IncidentView }>
+  | E<"incident.status_changed", { incidentId: string; from: IncidentStatus; to: IncidentStatus; note: string }>
+  | E<"agent.status", { agent: AgentId; status: AgentStatus; task?: string }>
+  | E<"tool.called", { entry: AuditEntry }>
+  | E<
+      "rootcause.ranked",
+      {
+        incidentId: string;
+        hypotheses: Hypothesis[];
+        rootCause?: { hypothesisId: string; label: string; confidence: number };
+        narrative?: string;
+      }
+    >
+  | E<"ticket.linked", { incidentId: string; ticketId: string }>
+  | E<"customers.identified", { incidentId: string; ticketed: string[]; silent: string[]; since: number }>
+  | E<"update.sent", { update: CustomerUpdate }>
+  | E<"credit.proposed", { incidentId: string; amountInr: number; perCustomerInr: number; customers: number; withinAuthority: boolean }>
+  | E<"approval.requested", { approval: Approval }>
+  | E<"approval.decided", { approval: Approval }>
+  | E<"credit.issued", { incidentId: string; amountInr: number; approvalId?: string; adapter: string; creditId: string }>
+  | E<"replay.finished", { scenarioId: string }>;
+
+export type CrisisEventType = CrisisEvent["type"];
+
+/** An event before the bus assigns its sequence number and timestamp. */
+export type EventInput = CrisisEvent extends infer Ev ? (Ev extends CrisisEvent ? Omit<Ev, "seq" | "at"> : never) : never;

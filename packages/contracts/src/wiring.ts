@@ -1,0 +1,44 @@
+import { z } from "zod";
+
+export type PortName =
+  | "tickets"
+  | "deployments"
+  | "payments"
+  | "metrics"
+  | "orders"
+  | "voice"
+  | "llm"
+  | "embeddings"
+  | "credits"
+  | "translate";
+
+export type PortMode = "sandbox" | "live" | "off";
+
+export type WiringPort = {
+  port: PortName;
+  mode: PortMode;
+  adapter: string;
+  detail: string;
+  /** Live adapters that are designed but not wired yet. */
+  planned: string[];
+};
+
+export type WiringReport = { ports: WiringPort[]; liveCount: number };
+
+export const DecisionBody = z
+  .object({
+    decision: z.enum(["approve", "modify", "reject"]),
+    amountInr: z.number().positive().optional(),
+    note: z.string().max(500).optional(),
+  })
+  .refine((body) => body.decision !== "modify" || body.amountInr !== undefined, {
+    message: "amountInr is required when the decision is modify",
+    path: ["amountInr"],
+  });
+export type DecisionBody = z.infer<typeof DecisionBody>;
+
+export const ReplayBody = z.object({
+  scenario: z.string().min(1),
+  speed: z.number().min(0.25).max(50).optional(),
+});
+export type ReplayBody = z.infer<typeof ReplayBody>;
