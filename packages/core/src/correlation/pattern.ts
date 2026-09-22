@@ -107,7 +107,7 @@ export class PatternEngine {
       incident.members.add(ticket.id);
       this.recentre(incident);
       incident.lastActivity = now;
-      return { signal, nearest, candidate: this.describe([...incident.members]), fires: false, joinIncidentId };
+      return { signal, nearest, candidate: { ...this.describe([...incident.members]), incidentId: joinIncidentId }, fires: false, joinIncidentId };
     }
 
     const inIncident = new Set([...this.incidents.values()].flatMap((i) => [...i.members]));

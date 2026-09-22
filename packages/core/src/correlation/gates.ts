@@ -32,8 +32,8 @@ function plural(n: number, word: string): string {
 }
 
 function describeSpan(sec: number): string {
-  if (sec < 90) return `${Math.max(1, Math.round(sec))} seconds`;
-  return `${Math.round(sec / 60)} minutes`;
+  if (sec < 90) return plural(Math.max(1, Math.round(sec)), "second");
+  return plural(Math.round(sec / 60), "minute");
 }
 
 export type GateEvaluation = { gates: GateResult[]; fires: boolean; burstP: number; baselinePerHour: number };
@@ -58,8 +58,8 @@ export function evaluateGates(stats: ClusterStats, cfg: CorrelationConfig): Gate
       pass: stats.size >= cfg.sizeMin,
       reason:
         stats.size >= cfg.sizeMin
-          ? `${plural(stats.size, "similar ticket")}`
-          : `only ${plural(stats.size, "similar ticket")} (needs ${cfg.sizeMin})`,
+          ? `${plural(stats.size, "ticket")} in this group`
+          : `only ${plural(stats.size, "ticket")} in this group (needs ${cfg.sizeMin})`,
     },
     {
       name: "cohesion",
@@ -87,9 +87,11 @@ export function evaluateGates(stats: ClusterStats, cfg: CorrelationConfig): Gate
       threshold: cfg.burstPMax,
       pass: burstP <= cfg.burstPMax,
       reason:
-        burstP <= cfg.burstPMax
-          ? `${plural(stats.failureCount, "failure")} in ${describeSpan(stats.spanSec)}: about ${humanOdds(burstP)} at normal volume (${baselinePerHour}/hour)`
-          : `${plural(stats.failureCount, "failure")} in ${describeSpan(stats.spanSec)} is within normal volume (${baselinePerHour}/hour)`,
+        stats.failureCount === 0
+          ? "no failure reports in this group"
+          : burstP <= cfg.burstPMax
+            ? `${plural(stats.failureCount, "failure")} in ${describeSpan(stats.spanSec)}: about ${humanOdds(burstP)} at normal volume (${baselinePerHour}/hour)`
+            : `${plural(stats.failureCount, "failure")} in ${describeSpan(stats.spanSec)} is within normal volume (${baselinePerHour}/hour)`,
     },
   ];
 

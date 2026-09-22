@@ -141,6 +141,11 @@ export class CrisisEngine {
     return decided;
   }
 
+  /** Marks the end of a scenario replay (every ticket ingested and all agent work settled). */
+  finishReplay(scenarioId: string): void {
+    this.emit({ type: "replay.finished", payload: { scenarioId } });
+  }
+
   /** Resolves when every ingest and agent task started so far has finished. */
   async whenIdle(): Promise<void> {
     while (this.tasks.size > 0) await Promise.allSettled([...this.tasks]);
@@ -153,11 +158,11 @@ export class CrisisEngine {
 
     const result = await this.pattern.ingest(ticket);
     this.emit({ type: "signal.scored", payload: { signal: result.signal, nearest: result.nearest } });
-    if (result.candidate) this.emit({ type: "cluster.updated", payload: { cluster: result.candidate } });
 
     if (result.fires && result.candidate) {
-      const cluster = result.candidate;
       const incidentId = `INC-${new Date(this.deps.clock.now()).getUTCFullYear()}-${pad(++this.counters.incident)}`;
+      const cluster = { ...result.candidate, incidentId };
+      this.emit({ type: "cluster.updated", payload: { cluster } });
       this.pattern.attachIncident(incidentId, cluster.memberTicketIds);
       let markOpened!: () => void;
       this.opened.set(incidentId, new Promise((resolve) => (markOpened = resolve)));
@@ -170,6 +175,7 @@ export class CrisisEngine {
       );
     } else if (result.joinIncidentId) {
       const incidentId = result.joinIncidentId;
+      if (result.candidate) this.emit({ type: "cluster.updated", payload: { cluster: result.candidate } });
       this.setAgent("pattern", "done", `${ticket.id} matches ${incidentId}`);
       this.track(
         (async () => {
@@ -178,6 +184,7 @@ export class CrisisEngine {
         })().catch((error) => this.fail("recovery", error)),
       );
     } else {
+      if (result.candidate) this.emit({ type: "cluster.updated", payload: { cluster: result.candidate } });
       this.setAgent("pattern", "idle", `${ticket.id}: no incident`);
     }
     return ticket;

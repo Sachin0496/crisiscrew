@@ -144,6 +144,7 @@ describe("PatternEngine", () => {
     expect(late.joinIncidentId).toBe("INC-1");
     expect(late.fires).toBe(false);
     expect(late.candidate?.memberTicketIds).toHaveLength(5);
+    expect(late.candidate?.incidentId).toBe("INC-1");
 
     const unrelated = await e.ingest(ticket("login-fail", 70));
     expect(unrelated.joinIncidentId).toBeUndefined();

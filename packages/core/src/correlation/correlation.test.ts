@@ -89,6 +89,16 @@ describe("evaluateGates", () => {
     expect(fires).toBe(false);
   });
 
+  it("describes a group with no failure reports without inventing a rate", () => {
+    const { gates } = evaluateGates({ ...strong, size: 2, failureCount: 0, spanSec: 0 }, cfg);
+    expect(gates.find((g) => g.name === "burst")?.reason).toBe("no failure reports in this group");
+  });
+
+  it("uses singular units for one second", () => {
+    const { gates } = evaluateGates({ ...strong, size: 2, failureCount: 1, spanSec: 1 }, cfg);
+    expect(gates.find((g) => g.name === "burst")?.reason).toContain("1 failure in 1 second ");
+  });
+
   it("uses the baseline floor when the observed baseline is lower", () => {
     const low = evaluateGates({ ...strong, baselinePerHour: 0.1 }, cfg);
     const floor = evaluateGates({ ...strong, baselinePerHour: 3 }, cfg);

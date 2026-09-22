@@ -66,6 +66,8 @@ export type ClusterView = {
   fires: boolean;
   firstAt: number;
   lastAt: number;
+  /** Set once the cluster belongs to an incident: when it opened one, or when a ticket joins one. */
+  incidentId?: string;
 };
 
 export const Identity = z.enum(["pattern", "commander", "investigator", "recovery", "handoff", "operator"]);
