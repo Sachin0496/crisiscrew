@@ -1,10 +1,18 @@
 # CrisisCrew Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 >
 > **How this plan was run:** the team asked for linear execution in one session on a MacBook Air, so the plan's author executed it inline, one task at a time, test first, with a commit per task. Tasks specify files, interfaces, tests and acceptance checks. The code lives in the repo, not in this document.
 
 **Goal:** Build the complete CrisisCrew system from [design.md](design.md) in sandbox mode, runnable offline, with every external API listed in `.env.example` but not wired.
+
+> **Status (2026-09-23): done.** Every task below was carried out with tests and its own commits (`git log`). Most tests were written first; for the sandbox world they came alongside the code and were checked afterwards by deliberately breaking the code. The fresh-clone check (Task 16) passed: install, typecheck, 181 tests, build, and the hero replay and approval over the API, with no model on disk. Where the build went beyond this plan:
+> - **Task 14, the eval:** it uses 60 runs over six kinds, split by *sentence* rather than by seed. A seed split would have let the same sentence appear in both tune and test.
+> - **After the plan, rehearsing the demo found two bugs, both fixed test first:**
+>   - a question typed during a burst became one of the incident's tickets;
+>   - with no network, a new typed ticket failed even though the model was on disk.
+>
+>   [design.md](design.md) records both in its "As built" section.
 
 **Architecture:**
 - A pnpm TypeScript monorepo.
@@ -80,11 +88,11 @@ scenarios/               *.json (6 scenarios) · pools/*.json (eval) · .embeddi
 - Each package exports its TypeScript source (`"exports": {".": "./src/index.ts"}`), so there's no build step.
 - Root scripts: `dev`, `start`, `test` (`vitest run`), `typecheck` (each package's `tsc --noEmit`, run one after another), `replay`, `eval`, `embeddings:warm`.
 
-- [ ] Step 1: Write a smoke test (`packages/core/src/smoke.test.ts`) that imports from `@crisiscrew/contracts` and `@crisiscrew/core`.
-- [ ] Step 2: `pnpm install`; `pnpm test`. Expected: fails until the packages resolve.
-- [ ] Step 3: Add the package manifests and tsconfigs. Expected: `pnpm test` and `pnpm typecheck` pass.
-- [ ] Step 4: Add CI: Node 24, pnpm 10, `install --frozen-lockfile`, `typecheck`, `test`, web build.
-- [ ] Step 5: Commit `Set up the pnpm workspace, TypeScript, Vitest and CI`.
+- [x] Step 1: Write a smoke test (`packages/core/src/smoke.test.ts`) that imports from `@crisiscrew/contracts` and `@crisiscrew/core`.
+- [x] Step 2: `pnpm install`; `pnpm test`. Expected: fails until the packages resolve.
+- [x] Step 3: Add the package manifests and tsconfigs. Expected: `pnpm test` and `pnpm typecheck` pass.
+- [x] Step 4: Add CI: Node 24, pnpm 10, `install --frozen-lockfile`, `typecheck`, `test`, web build.
+- [x] Step 5: Commit `Set up the pnpm workspace, TypeScript, Vitest and CI`.
 
 ## Milestone M1: correlation engine, scenarios, CLI replay
 
@@ -127,12 +135,12 @@ Scenario, policy and wiring
 - `PolicySchema`: `{identities: {[id]: {maxLevel, tools[]}}, limits, correlation, rca, recovery}`
 - `WiringReport`: `{ports: [{port, mode, adapter, detail}]}`
 
-- [ ] Write the tests first:
+- [x] Write the tests first:
   - `parseOffset` handles s, m and h, with both signs
   - `reduce` applies `ticket.received`, `cluster.updated`, `incident.opened` and `incident.status_changed`
   - `session.started` resets the state
   - the policy schema rejects an unknown tool name when given the known tool list
-- [ ] Implement until green. Commit `Add shared contracts: domain schemas, events and the state reducer`.
+- [x] Implement until green. Commit `Add shared contracts: domain schemas, events and the state reducer`.
 
 ### Task 3: Core math and correlation
 
@@ -164,7 +172,7 @@ The pattern engine
 - `PatternEngine`: constructor `(embedder, clock, cfg: CorrelationConfig)`
 - Methods: `init()`, `ingest(ticket) → {signal, candidate, fires, joinIncidentId?}`, `attachIncident(id, memberIds)`
 
-- [ ] Write the tests first:
+- [x] Write the tests first:
   - cosine of identical vectors is 1 and of orthogonal vectors is 0
   - `poissonTail(5, 0.05)` ≈ 2.5e-9
   - union-find joins a chain, and cohesion exposes chaining
@@ -174,7 +182,7 @@ The pattern engine
     - doesn't fire on 2
     - doesn't fire on 6 questions
     - joins a later similar failure to the open incident
-- [ ] Implement until green. Commit `Add the correlation engine: enrichment, clustering, gates and burst test`.
+- [x] Implement until green. Commit `Add the correlation engine: enrichment, clustering, gates and burst test`.
 
 ### Task 4: Embedders, scenarios and calibration
 
@@ -190,22 +198,22 @@ The pattern engine
 - `CachedEmbedder(inner | null, file)`: key = sha256(modelId + text). A miss with `inner` null throws `EmbeddingCacheMiss`.
 
 Steps:
-- [ ] Write the tests first. `CachedEmbedder` returns cached vectors, and on a miss with no inner embedder it throws.
-- [ ] Write the scenario files. The hero reuses the Stage 1 wording; every other text is new.
-- [ ] Run `pnpm embeddings:warm` for the candidate models.
-- [ ] **Calibration check.** For each model, print mean within-incident similarity, incident-to-background similarity and look-alike similarity. Pick the model with the larger margin. Set `correlation` thresholds in `policy.json` and record the numbers in `docs/eval.md`.
-- [ ] Write scenario tests with cached embeddings:
+- [x] Write the tests first. `CachedEmbedder` returns cached vectors, and on a miss with no inner embedder it throws.
+- [x] Write the scenario files. The hero reuses the Stage 1 wording; every other text is new.
+- [x] Run `pnpm embeddings:warm` for the candidate models.
+- [x] **Calibration check.** For each model, print mean within-incident similarity, incident-to-background similarity and look-alike similarity. Pick the model with the larger margin. Set `correlation` thresholds in `policy.json` and record the numbers in `docs/eval.md`.
+- [x] Write scenario tests with cached embeddings:
   - the hero fires and the UPI outage fires
   - `lookalike-checkout-questions` is refused by `failure_share`
   - `scattered-failures`, `two-card-complaints` and `quiet-day` don't fire
-- [ ] Commit `Add scenarios, embedders and the embedding cache; calibrate thresholds`.
+- [x] Commit `Add scenarios, embedders and the embedding cache; calibrate thresholds`.
 
 ### Task 5: CLI replay (detection)
 
 **Files:** `apps/server/src/scenarios.ts` (load and validate), `apps/server/src/cli/replay.ts`
 
-- [ ] Run `pnpm replay checkout-v4.21.7`. It prints each ticket with its surface and failure score, the candidate cluster's gates, and the incident opening. Expected: the incident opens after the fifth ticket.
-- [ ] Commit `Add CLI scenario replay`. Push (end of M1).
+- [x] Run `pnpm replay checkout-v4.21.7`. It prints each ticket with its surface and failure score, the candidate cluster's gates, and the incident opening. Expected: the incident opens after the fifth ticket.
+- [x] Commit `Add CLI scenario replay`. Push (end of M1).
 
 ## Milestone M2: the full incident lifecycle
 
@@ -221,14 +229,14 @@ Steps:
   - also `permitted(identity)` and `matrix()`
 
 Steps:
-- [ ] Write the tests first:
+- [x] Write the tests first:
   - the full matrix from `policy.json`: pattern can't `link_ticket_to_incident`, investigator can't `send_customer_update`, operator is read-only
   - `issue_recovery_credit` is L2 at or under the limit and L3 above it
   - L3 needs an approved approval with a matching amount
   - L2 voice needs voice consent
   - every call appends exactly one audit entry
   - tampering with an entry makes `verify()` fail
-- [ ] Implement until green, then commit.
+- [x] Implement until green, then commit.
 
 ### Task 7: Sandbox world and ports
 
@@ -239,11 +247,11 @@ Steps:
 - The simulated metrics raise the error rate after a deployment flagged `faulty`, with seeded noise.
 
 Steps:
-- [ ] Write the tests first:
+- [x] Write the tests first:
   - deployments come back sorted
   - the metric ratio around the faulty deploy in the hero world is between 7 and 10
   - orders return the 23 affected customers for the hero
-- [ ] Implement until green, then commit.
+- [x] Implement until green, then commit.
 
 ### Task 8: Root-cause scoring
 
@@ -252,12 +260,12 @@ Steps:
 **Interfaces:** `scoreHypotheses({firstAt, deployments, errorSeriesByService, providers, methodSpread, rca}) → Hypothesis[]`, sorted by confidence.
 
 Steps:
-- [ ] Write the tests first:
+- [x] Write the tests first:
   - the hero evidence ranks `checkout-service@4.21.7` first at 0.95 or more
   - the UPI evidence ranks the provider first
   - a missing check is "not checked", with LR 1
   - confidences sum to 1
-- [ ] Implement until green, then commit.
+- [x] Implement until green, then commit.
 
 ### Task 9: Agents, commander, engine
 
@@ -270,17 +278,17 @@ Steps:
   - fields: `gate`, `bus`
 
 Steps:
-- [ ] Write the tests first (sandbox ports, cached embeddings, `ManualClock`):
+- [x] Write the tests first (sandbox ports, cached embeddings, `ManualClock`):
   - **hero:** incident; root cause 4.21.7; 8 linked; affected 23 (8 ticketed, 15 silent); updates to ticketed and consenting silent customers; 2 voice scripts; a ₹11,500 approval pending
   - **decisions:** approve issues ₹11,500. Modify to ₹5,000 issues ₹5,000, and a mismatched execution is refused. Reject issues nothing.
   - **UPI outage:** provider root cause
   - **look-alikes:** no incident
-- [ ] Implement until green, then commit.
+- [x] Implement until green, then commit.
 
 ### Task 10: CLI shows the full lifecycle
 
-- [ ] Extend `replay.ts` with agent activity, tool calls, the root-cause ranking, recovery counts and the approval. Add a `--decide approve|modify:<amount>|reject` flag.
-- [ ] Commit, then push (end of M2).
+- [x] Extend `replay.ts` with agent activity, tool calls, the root-cause ranking, recovery counts and the approval. Add a `--decide approve|modify:<amount>|reject` flag.
+- [x] Commit, then push (end of M2).
 
 ## Milestone M3: API and event stream
 
@@ -296,7 +304,7 @@ Steps:
 - `createApp(runtime, config)`: the routes in design §10.1, minus the Freshdesk webhook (not wired).
 
 Steps:
-- [ ] Write the tests first with `app.request`:
+- [x] Write the tests first with `app.request`:
   - `/api/health`
   - `/api/wiring` shows every port as sandbox and live options as planned
   - `POST /api/replay` then `/api/state` shows the tickets
@@ -304,7 +312,7 @@ Steps:
   - admin endpoints need `ADMIN_TOKEN` when it's set
   - `/api/audit/verify` returns ok
   - the SSE route streams `session.started`
-- [ ] Implement until green. Commit, then push.
+- [x] Implement until green. Commit, then push.
 
 ## Milestone M4: the web UI
 
@@ -319,10 +327,10 @@ Steps:
 **Panels (design §10.4):** header with wiring badge and scenario controls, signals, correlation, incident, agents, investigation, recovery, handoff, audit, permissions, eval summary, add-a-ticket box.
 
 Steps:
-- [ ] Port the Stage 1 CSS variables and card styles into `src/styles/stage1.css`.
-- [ ] Build the panels.
-- [ ] Verify in the browser: the hero replay shows every step with computed numbers; approve, modify and reject all work; the look-alike replay shows the refusal.
-- [ ] Take screenshots for the README. Commit, then push.
+- [x] Port the Stage 1 CSS variables and card styles into `src/styles/stage1.css`.
+- [x] Build the panels.
+- [x] Verify in the browser: the hero replay shows every step with computed numbers; approve, modify and reject all work; the look-alike replay shows the refusal.
+- [x] Take screenshots for the README. Commit, then push.
 
 ## Milestone M5: MCP server
 
@@ -336,11 +344,11 @@ Steps:
 - A `tools/call` for a tool the identity may not use is refused by the gate, audited, and returned as `isError: true`.
 
 Steps:
-- [ ] Write the tests first. Use the SDK `Client` with `StreamableHTTPClientTransport` and a custom `fetch` that calls `app.fetch`:
+- [x] Write the tests first. Use the SDK `Client` with `StreamableHTTPClientTransport` and a custom `fetch` that calls `app.fetch`:
   - the operator lists only read tools
   - `get_incident` works
   - the pattern token calling `link_ticket_to_incident` is refused and audited
-- [ ] Implement until green. Commit, then push.
+- [x] Implement until green. Commit, then push.
 
 ## Milestone M7: eval
 
@@ -349,26 +357,26 @@ Steps:
 **Files:** `scenarios/pools/*.json`, `apps/server/src/eval/{generate,run}.ts`, `docs/eval.md` (generated)
 
 Steps:
-- [ ] Write the paraphrase pools:
+- [x] Write the paraphrase pools:
   - three incident kinds (checkout release bug, UPI outage, login OTP outage)
   - benign background, look-alike questions, scattered failures
-- [ ] Generate 40 seeded runs (20 incident, 20 not). Tune on seeds 1–20 and report on seeds 21–40.
-- [ ] Report incident precision and recall, linking precision and recall, detection latency, root-cause top-1 accuracy, and a threshold sweep.
-- [ ] Commit, then push.
+- [x] Generate 40 seeded runs (20 incident, 20 not). Tune on seeds 1–20 and report on seeds 21–40.
+- [x] Report incident precision and recall, linking precision and recall, detection latency, root-cause top-1 accuracy, and a threshold sweep.
+- [x] Commit, then push.
 
 ## Docs and finish
 
 ### Task 15: README, demo script, compliance, prep checklist
 
-- [ ] The README states honestly what's real and what's sandbox, with a status table, how to run it, architecture, screenshots, and the policy and audit story.
-- [ ] `docs/demo-script.md`: the stage flow.
-- [ ] `docs/compliance.md`: the rules check, including the organizers' email.
-- [ ] `docs/prep-checklist.md`: Node 24, model download, keys to collect at the event, tunnel.
-- [ ] Update `design.md` where the build differs from the design.
+- [x] The README states honestly what's real and what's sandbox, with a status table, how to run it, architecture, screenshots, and the policy and audit story.
+- [x] `docs/demo-script.md`: the stage flow.
+- [x] `docs/compliance.md`: the rules check, including the organizers' email.
+- [x] `docs/prep-checklist.md`: Node 24, model download, keys to collect at the event, tunnel.
+- [x] Update `design.md` where the build differs from the design.
 
 ### Task 16: Verification
 
-- [ ] From a fresh clone: `pnpm install`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm start`, and the hero replay in the browser. Record the results in the final summary.
+- [x] From a fresh clone: `pnpm install`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm start`, and the hero replay in the browser. Record the results in the final summary.
 
 ## Self-review against the spec
 
