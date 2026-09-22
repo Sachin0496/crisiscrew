@@ -116,6 +116,8 @@ export type Hypothesis = {
   evidence: EvidenceItem[];
   score: number;
   confidence: number;
+  /** When this cause would have started (a release's time); used to date the impact. */
+  startedAt?: number;
 };
 
 export type Customer = {
@@ -136,7 +138,8 @@ export type CustomerUpdate = {
   channel: UpdateChannel;
   text: string;
   source: string;
-  status: "sent" | "refused";
+  /** "prepared": a voice script was written but the voice port is off, so nothing was sent. */
+  status: "sent" | "prepared" | "refused";
   adapter: string;
   audioId?: string | null;
   reason?: string;

@@ -10,7 +10,7 @@ export type ToolDef<Ctx> = {
   /** Authority needed for this particular call; may depend on the arguments (e.g. a credit's amount). */
   level: (args: unknown, ctx: Ctx) => Level;
   /** Extra rule for L2/L3 calls: returns a refusal reason, or null to allow. */
-  condition?: (args: unknown, ctx: Ctx) => string | null;
+  condition?: (args: unknown, ctx: Ctx) => string | null | Promise<string | null>;
   run: (args: unknown, ctx: Ctx) => Promise<unknown>;
   /** Which adapter served the call ("sandbox", "core", …), for the audit log. */
   adapter?: (ctx: Ctx) => string;
@@ -95,7 +95,7 @@ export class PolicyGate<Ctx> {
     const level = tool.level(parsed.data, ctx);
     if (level > who.maxLevel) return deny(`this ${name} call needs L${level}; ${who.name} is limited to L${who.maxLevel}`, level);
 
-    const refusal = tool.condition?.(parsed.data, ctx);
+    const refusal = await tool.condition?.(parsed.data, ctx);
     if (refusal) return deny(refusal, level);
 
     const adapter = tool.adapter?.(ctx) ?? "core";

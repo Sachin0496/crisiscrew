@@ -99,6 +99,7 @@ export function scoreHypotheses(input: RcaInput, cfg: RcaConfig): Hypothesis[] {
         subject: `${d.service}@${d.version}`,
         label: `${d.service} v${d.version}`,
         prior: cfg.priors.deploy / input.deployments.length,
+        startedAt: d.at,
         evidence: [
           timingEvidence(d, input.firstComplaintAt, cfg, input.adapters.deployments),
           errorEvidence(d, input.errorSeries === null ? null : input.errorSeries[d.service], cfg, input.adapters.metrics),
