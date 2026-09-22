@@ -31,6 +31,12 @@ export const PolicySchema = z.object({
     burstPMax: z.number().positive().max(1),
     baselineFloorPerHour: z.number().positive(),
     surfaceMin: z.number().min(0).max(1),
+    /** Weight of sentence meaning in the similarity; the rest is product-area agreement. */
+    semanticWeight: z.number().min(0).max(1),
+    /** Softmax temperature that turns per-surface scores into a product-area profile. */
+    surfaceTemperature: z.number().positive(),
+    /** Subtracted from the failure score of tickets phrased as questions. */
+    questionPenalty: z.number().min(0).max(1),
   }),
   rca: z.object({
     lookbackHours: z.number().positive(),

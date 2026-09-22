@@ -14,6 +14,9 @@ const cfg: CorrelationConfig = {
   burstPMax: 0.001,
   baselineFloorPerHour: 3,
   surfaceMin: 0.35,
+  semanticWeight: 0.5,
+  surfaceTemperature: 0.03,
+  questionPenalty: 0.3,
 };
 
 // Dimensions: 0 checkout, 1 login, 2 delivery, 3 refunds, 4 app, 5 "something broke", 6 "a question", 7 per-ticket noise.
@@ -146,12 +149,29 @@ describe("PatternEngine", () => {
     expect(unrelated.joinIncidentId).toBeUndefined();
   });
 
-  it("reports the nearest earlier ticket with its similarity", async () => {
+  it("reports the nearest earlier ticket with its hybrid similarity", async () => {
     const e = await engine();
     const first = await e.ingest(ticket("checkout-fail-0", 0));
     const second = await e.ingest(ticket("checkout-question-0", 3));
     expect(second.nearest[0]?.ticketId).toBe(first.signal.ticketId);
-    // (1 * 1) / (|(1, .8)| * |(1, .8)|) = 1 / 1.64
-    expect(second.nearest[0]?.similarity).toBeCloseTo(1 / 1.64, 3);
+    // meaning: 1 / 1.64 = 0.6098; product area: both are checkout, so 1; half of each = 0.8049
+    expect(second.nearest[0]?.similarity).toBeCloseTo(0.8049, 3);
+  });
+
+  it("keeps same-wording failures about different product areas apart", async () => {
+    const e = await engine();
+    await e.ingest(ticket("checkout-fail-0", 0));
+    const login = await e.ingest(ticket("login-fail", 5));
+    // meaning: 0.64 / 1.64 = 0.39; product area: checkout vs login, 0; half of each = 0.195
+    expect(login.nearest[0]?.similarity).toBeCloseTo(0.195, 2);
+  });
+
+  it("shows how much of the cluster's similarity comes from meaning and how much from product area", async () => {
+    const e = await engine();
+    let last;
+    for (const [i, at] of [0, 7, 14, 18].entries()) last = await e.ingest(ticket(`checkout-fail-${i}`, at));
+    const c = last?.candidate;
+    expect(c?.cohesionParts.area).toBeCloseTo(1, 3);
+    expect(c?.cohesion).toBeCloseTo(0.5 * (c?.cohesionParts.meaning ?? 0) + 0.5 * (c?.cohesionParts.area ?? 0), 6);
   });
 });

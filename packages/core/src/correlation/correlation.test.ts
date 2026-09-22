@@ -14,6 +14,9 @@ const cfg: CorrelationConfig = {
   burstPMax: 0.001,
   baselineFloorPerHour: 3,
   surfaceMin: 0.35,
+  semanticWeight: 0.5,
+  surfaceTemperature: 0.03,
+  questionPenalty: 0.3,
 };
 
 describe("clusterComponents", () => {
@@ -110,6 +113,10 @@ describe("extractEntities", () => {
     expect(e.paymentMethods.sort()).toEqual(["card", "upi"]);
     expect(e.amounts).toEqual([1299]);
     expect(e.orderIds).toEqual(["A1B2C3"]);
+  });
+
+  it("recognises plural cards as a card payment", () => {
+    expect(extractEntities("Tried three different cards and it still fails").paymentMethods).toEqual(["card"]);
   });
 
   it("recognises UPI apps as UPI", () => {

@@ -21,6 +21,9 @@ const base = {
     burstPMax: 0.001,
     baselineFloorPerHour: 3,
     surfaceMin: 0.35,
+    semanticWeight: 0.5,
+    surfaceTemperature: 0.03,
+    questionPenalty: 0.3,
   },
   rca: {
     lookbackHours: 6,

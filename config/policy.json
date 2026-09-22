@@ -1,0 +1,73 @@
+{
+  "$comment": "CrisisCrew policy: who may call which tool, authority limits, detection thresholds and root-cause priors. The policy gate enforces exactly this file, and GET /api/policy shows it. See docs/design.md sections 5, 7 and 9.",
+  "identities": {
+    "pattern": {
+      "name": "Pattern Agent",
+      "maxLevel": 0,
+      "tools": ["search_recent_tickets", "get_incident"]
+    },
+    "commander": {
+      "name": "Incident Commander",
+      "maxLevel": 1,
+      "tools": ["open_incident", "get_incident", "search_recent_tickets"]
+    },
+    "investigator": {
+      "name": "Investigator",
+      "maxLevel": 0,
+      "tools": ["get_payment_health", "get_recent_deployments", "get_service_status", "get_incident"]
+    },
+    "recovery": {
+      "name": "Recovery Agent",
+      "maxLevel": 2,
+      "tools": [
+        "identify_affected_customers",
+        "link_ticket_to_incident",
+        "draft_customer_update",
+        "send_customer_update",
+        "propose_recovery_credit",
+        "issue_recovery_credit",
+        "get_incident"
+      ]
+    },
+    "handoff": {
+      "name": "Handoff Agent",
+      "maxLevel": 3,
+      "tools": ["request_human_approval", "issue_recovery_credit", "get_incident"]
+    },
+    "operator": {
+      "name": "External MCP client",
+      "maxLevel": 0,
+      "tools": ["search_recent_tickets", "get_incident", "get_payment_health", "get_recent_deployments", "get_service_status"]
+    }
+  },
+  "limits": {
+    "authorityLimitInr": 5000,
+    "creditPerCustomerInr": 500
+  },
+  "correlation": {
+    "windowMin": 15,
+    "edgeThreshold": 0.5,
+    "joinThreshold": 0.5,
+    "cohesionMin": 0.55,
+    "sizeMin": 4,
+    "failureShareMin": 0.75,
+    "burstPMax": 0.001,
+    "baselineFloorPerHour": 3,
+    "surfaceMin": 0.35,
+    "semanticWeight": 0.5,
+    "surfaceTemperature": 0.03,
+    "questionPenalty": 0.3
+  },
+  "rca": {
+    "lookbackHours": 6,
+    "confidenceFloor": 0.6,
+    "priors": { "deploy": 0.5, "provider": 0.25, "unknown": 0.25 },
+    "deployGap": { "withinMin": 30, "withinLr": 6, "nearMin": 120, "nearLr": 3, "farLr": 0.5, "afterLr": 0.2 },
+    "errorRatio": { "strongMin": 2, "cap": 10, "weakMin": 1.2, "weakLr": 1, "noneLr": 0.3 },
+    "provider": { "operationalLr": 0.1, "degradedLr": 8, "uncheckedLr": 1 },
+    "methodSpread": { "concentratedShare": 0.8, "concentratedLr": 2, "spreadLr": 0.7 }
+  },
+  "recovery": {
+    "affectedLookbackMin": 30
+  }
+}
