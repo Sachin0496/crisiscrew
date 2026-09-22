@@ -53,6 +53,8 @@ export type GateResult = { name: GateName; value: number; threshold: number; pas
 export type ClusterView = {
   id: string;
   memberTicketIds: string[];
+  /** The members that report a failure. An incident opens on these; questions in the group count toward the gates only. */
+  reportTicketIds: string[];
   /** Mean pairwise similarity: semanticWeight x meaning + (1 - semanticWeight) x area. */
   cohesion: number;
   cohesionParts: { meaning: number; area: number };

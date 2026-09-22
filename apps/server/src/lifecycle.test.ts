@@ -1,5 +1,6 @@
 import { CachedEmbedder, createSandboxPorts } from "@crisiscrew/adapters";
 import { CrisisEngine, EventBus, ManualClock } from "@crisiscrew/core";
+import type { Scenario } from "@crisiscrew/contracts";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_EMBEDDING_MODEL } from "./config";
 import { EMBEDDING_CACHE_DIR } from "./paths";
@@ -11,7 +12,11 @@ const scenarios = loadScenarios();
 const T0 = Date.UTC(2026, 8, 25, 14, 12, 0);
 
 async function replay(id: string) {
-  const scenario = scenarios.get(id)!;
+  return run(scenarios.get(id)!);
+}
+
+async function run(scenario: Scenario) {
+  const id = scenario.id;
   const clock = new ManualClock(T0);
   const ports = createSandboxPorts(scenario, { t0: T0, clock, latencyMs: 0 });
   const engine = new CrisisEngine({
@@ -150,5 +155,29 @@ describe("restraint", () => {
     const { state, engine } = await replay(id);
     expect(state.incidentOrder).toHaveLength(0);
     expect(engine.audit.entries()).toHaveLength(0);
+  });
+});
+
+describe("a checkout question asked during the burst", () => {
+  // b1 asks about paying by UPI 5 seconds before three customers report failures. The question counts toward the gates,
+  // but b1 has no failed payment, so b1 must not be treated as affected.
+  const hero = scenarios.get("checkout-v4.21.7")!;
+  const scenario: Scenario = {
+    ...hero,
+    id: "question-in-burst",
+    tickets: [
+      { at: "+40s", customerRef: "b1", channel: "chat", body: "Can I pay by UPI at checkout instead of using a card?" },
+      ...hero.tickets.filter((t) => ["c-priya", "c-arjun", "c-sneha"].includes(t.customerRef)),
+    ],
+  };
+
+  it("opens the incident on the failure reports only: the person who asked gets no outage update and no credit", async () => {
+    const { state, incident } = await run(scenario);
+    expect(state.incidentOrder).toHaveLength(1);
+    expect(state.candidate?.memberTicketIds).toContain("T-1001");
+    expect(incident?.ticketIds).toEqual(["T-1002", "T-1003", "T-1004"]);
+    expect(incident?.linkedTicketIds).not.toContain("T-1001");
+    expect(incident?.affected?.ticketed).not.toContain("b1");
+    expect(incident?.updates.filter((u) => u.customerRef === "b1")).toEqual([]);
   });
 });

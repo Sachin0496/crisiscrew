@@ -21,7 +21,7 @@ export async function runIncident(
   const opened = await kit.gate.call("commander", "open_incident", {
     incidentId,
     clusterId: cluster.id,
-    ticketIds: cluster.memberTicketIds,
+    ticketIds: cluster.reportTicketIds,
     surface: cluster.dominantSurface,
     severity,
   });

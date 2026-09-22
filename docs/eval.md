@@ -23,7 +23,7 @@ Every agent runs, through the policy gate, with root-cause scoring.
 |---|---|
 | Incident precision | 100% (15 of 15 incidents opened were real) |
 | Incident recall | 100% (15 of 15 real incidents caught) |
-| Linking precision | 93% of tickets in a caught incident were labeled complaints |
+| Linking precision | 100% of tickets in a caught incident were labeled complaints |
 | Linking recall | 99% of labeled complaints ended up in the incident |
 | Median detection latency | 4 complaints, 55 seconds after the first |
 | Root cause correct | 100% of caught incidents named the true cause |

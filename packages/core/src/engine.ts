@@ -163,10 +163,10 @@ export class CrisisEngine {
       const incidentId = `INC-${new Date(this.deps.clock.now()).getUTCFullYear()}-${pad(++this.counters.incident)}`;
       const cluster = { ...result.candidate, incidentId };
       this.emit({ type: "cluster.updated", payload: { cluster } });
-      this.pattern.attachIncident(incidentId, cluster.memberTicketIds);
+      this.pattern.attachIncident(incidentId, cluster.reportTicketIds);
       let markOpened!: () => void;
       this.opened.set(incidentId, new Promise((resolve) => (markOpened = resolve)));
-      this.setAgent("pattern", "done", `${cluster.memberTicketIds.length} tickets describe one failure; alerted the Incident Commander`);
+      this.setAgent("pattern", "done", `${cluster.reportTicketIds.length} failure reports describe one problem; alerted the Incident Commander`);
       this.track(
         runIncident(this.kit, cluster, incidentId, (ref) => this.deps.ports.orders.customer(ref), markOpened).catch((error) => {
           markOpened();

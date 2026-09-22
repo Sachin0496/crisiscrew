@@ -56,8 +56,8 @@ async function detect(run: EvalRun, cfg: CorrelationConfig): Promise<Outcome> {
   for (const t of tickets) {
     const r = await engine.ingest(t);
     if (r.fires && r.candidate) {
-      engine.attachIncident(`I${opened.length}`, r.candidate.memberTicketIds);
-      opened.push({ members: new Set(r.candidate.memberTicketIds), openedAt: t.receivedAt });
+      engine.attachIncident(`I${opened.length}`, r.candidate.reportTicketIds);
+      opened.push({ members: new Set(r.candidate.reportTicketIds), openedAt: t.receivedAt });
     } else if (r.joinIncidentId) {
       opened[Number(r.joinIncidentId.slice(1))]!.members.add(t.id);
     }

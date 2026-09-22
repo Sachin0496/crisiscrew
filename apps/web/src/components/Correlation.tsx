@@ -5,9 +5,9 @@ import { currentIncident } from "./Overview";
 export function Correlation({ state }: { state: CrisisState }) {
   const c = state.candidate;
   const cohesionGate = c?.gates.find((g) => g.name === "cohesion");
-  // A cluster that has grown past the tickets that opened its incident means a later complaint joined it.
+  // More failure reports than the incident opened with means a later complaint joined it.
   const opener = c?.incidentId ? state.incidents[c.incidentId] : undefined;
-  const joined = Boolean(opener && c && c.memberTicketIds.length > opener.ticketIds.length);
+  const joined = Boolean(opener && c && c.reportTicketIds.length > opener.ticketIds.length);
   return (
     <section className="card pad" id="correlation" aria-label="Pattern Agent correlation">
       <div className="cardhead">
@@ -55,7 +55,7 @@ export function Correlation({ state }: { state: CrisisState }) {
           <div className={`verdict ${c.incidentId ? "fire" : "hold"}`} role="status">
             {c.incidentId
               ? joined
-                ? `The latest complaint matches ${c.incidentId}, which now has ${c.memberTicketIds.length} tickets.`
+                ? `The latest complaint matches ${c.incidentId}, which now has ${c.reportTicketIds.length} tickets.`
                 : `All four gates passed: ${c.incidentId} opened.`
               : `No incident: ${c.gates.find((g) => !g.pass)?.reason ?? "gates not met"}.`}
           </div>

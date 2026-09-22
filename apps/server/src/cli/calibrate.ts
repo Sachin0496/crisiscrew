@@ -51,7 +51,7 @@ for (const modelId of models) {
       );
       if (r.fires && !firedAt) {
         firedAt = t.id;
-        engine.attachIncident("INC", r.candidate?.memberTicketIds ?? []);
+        engine.attachIncident("INC", r.candidate?.reportTicketIds ?? []);
       }
     }
     const ok = Boolean(firedAt) === s.expected.incident;

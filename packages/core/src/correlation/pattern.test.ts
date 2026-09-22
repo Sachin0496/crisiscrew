@@ -117,6 +117,17 @@ describe("PatternEngine", () => {
     expect(share?.reason).toContain("5 of 6");
   });
 
+  it("counts a question inside a burst toward the gates, but lists only the failure reports", async () => {
+    const e = await engine();
+    const question = await e.ingest(ticket("checkout-question-0", 0));
+    let last;
+    for (const [i, at] of [5, 10, 15].entries()) last = await e.ingest(ticket(`checkout-fail-${i}`, at));
+    expect(last?.fires).toBe(true);
+    expect(last?.candidate?.memberTicketIds).toHaveLength(4);
+    expect(last?.candidate?.reportTicketIds).toHaveLength(3);
+    expect(last?.candidate?.reportTicketIds).not.toContain(question.signal.ticketId);
+  });
+
   it("forgets failures older than the window", async () => {
     const e = await engine();
     for (const [i, at] of [0, 5, 10].entries()) await e.ingest(ticket(`checkout-fail-${i}`, at));

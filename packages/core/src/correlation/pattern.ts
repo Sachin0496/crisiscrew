@@ -199,6 +199,7 @@ export class PatternEngine {
     return {
       id: `cl-${ids[0]}`,
       memberTicketIds: ids,
+      reportTicketIds: failures.map((m) => m.ticket.id),
       cohesion,
       cohesionParts: { meaning, area },
       failureShare: failures.length / members.length,
