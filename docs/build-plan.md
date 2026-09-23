@@ -13,6 +13,7 @@
 >   - with no network, a new typed ticket failed even though the model was on disk.
 >
 >   [design.md](design.md) records both in its "As built" section.
+> - **The web UI** was redesigned after the plan as an incident console: a sidebar with four pages, in light and dark themes.
 
 **Architecture:**
 - A pnpm TypeScript monorepo.

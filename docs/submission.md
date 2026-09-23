@@ -34,11 +34,11 @@ Every one of the 42 tool calls is recorded in a hash-chained audit log.
   - Tickets phrased as questions are recognised by their form.
 - **Agents:** five agents with separate identities. Every tool call goes through a policy gate, which checks the allow-list, the authority level (which can depend on the arguments) and consent, and writes one audit entry.
 - **MCP:** an MCP server at `/mcp`. Each bearer token is one identity and sees only its own tools. When the Pattern Agent's token tries to write, the call is refused and audited.
-- **UI:** the Stage 1 visual design, now driven by a live event stream. Every number on screen is computed.
+- **UI:** a new incident console in React, driven by a live event stream. It has four pages (incident, tickets, agents, governance) and light and dark themes. Every number on screen is computed.
 - **Evaluation:** 60 seeded runs over six kinds, with the paraphrase pools split so that no tuning sentence appears in the test.
   - Results on the held-out test split: incident precision 100% (15 of 15), recall 100% (15 of 15), linking precision 100% and recall 99%, median detection at the 4th complaint, and the root cause correct in every caught incident.
   - A stress test of mixed delivery complaints opens an incident in 10 of 20 runs, and we report that as a limit.
-- **Testing:** 181 tests and CI on every push.
+- **Testing:** 196 tests and CI on every push.
 
 ## How it evolved from Stage 1
 
@@ -49,7 +49,7 @@ Every one of the 42 tool calls is recorded in a hash-chained audit log.
 
 ## What isn't wired yet
 
-External APIs (Freshdesk, GitHub deployments, Razorpay status, ElevenLabs, Claude and the sponsor APIs) are designed behind ports and listed in `.env.example`, but not wired. The demo runs on a sandbox world: releases, gateway status, error rates and orders come from the scenario. The UI's wiring badge says exactly which parts are live.
+External APIs (Freshdesk, GitHub deployments, Razorpay status, ElevenLabs, Claude and the sponsor APIs) are designed behind ports and listed in `.env.example`, but not wired. The demo runs on a sandbox world: releases, gateway status, error rates and orders come from the scenario. The environment box in the UI's sidebar says exactly which parts are live.
 
 ## Challenges we ran into
 

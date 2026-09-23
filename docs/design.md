@@ -20,6 +20,7 @@ The system described here is built and runs in sandbox mode. Where the build dif
 - **Changed after testing:**
   - An incident is made of the group's failure reports; questions in the group count toward the gates only (section 5.3).
   - The embedding model loads from disk first, so typed tickets work with no network (section 10.5).
+- **Redesigned:** the web UI, as a production-style incident console with four pages and light and dark themes (section 10.4).
 - **Not built:** the dismiss and resolve operator actions, the Eval panel in the UI, and the LLM mode.
 
 ## 1. What we're building
@@ -47,7 +48,7 @@ Every number is computed from data while the demo runs.
 | 6 | Customers get consistent updates, and one gets a voice update | A Freshdesk reply written through Freshdesk's official MCP server, plus ElevenLabs audio |
 | 7 | A ₹11,500 credit (23 × ₹500) exceeds the ₹5,000 authority, so a human decides | An approval card, with the decision recorded in the audit log |
 | 8 | "Prove the read-only agent can't write" | An MCP client using the Pattern Agent's token is refused, and the refusal appears in the audit log |
-| 9 | Nothing is hidden | A badge fed by `GET /api/wiring` shows which ports are live and which are sandbox |
+| 9 | Nothing is hidden | An environment box fed by `GET /api/wiring` shows which ports are live and which are sandbox |
 | 10 | It isn't tuned to one example | Precision and recall over labeled scenarios, reported on a held-out split |
 
 As built, rows 3 to 6 run against the scenario's sandbox world: the release, the gateway status, the orders and the updates are simulated. The live calls named in the right-hand column are designed (section 10.5) but not wired.
@@ -88,7 +89,7 @@ crisiscrew/
 │   ├── server/           composition root and the only process: config → adapters →
 │   │                     engine; Hono API, SSE, MCP at /mcp, replay CLI, eval runner,
 │   │                     serves the built web app (Freshdesk webhook: designed, not built)
-│   └── web/              React + Vite UI in the Stage 1 visual style
+│   └── web/              React + Vite incident console
 └── scenarios/            replayable worlds (JSON) and their cached embeddings
 ```
 
@@ -150,7 +151,7 @@ Each port has one switch. An unset switch means sandbox, so the whole system run
 | credits | `CREDITS` | an in-memory ledger | `dodo`: Dodo Payments test mode (stretch) |
 | translate | `TRANSLATE` | `off` | `sarvam`: translate Indic-language tickets before embedding (stretch) |
 
-`GET /api/wiring` lists every port's mode and adapter, and the UI badge reads it. If a live adapter is selected but its credentials are missing, the server refuses to start and names the missing variable. As built, no live option is wired yet: selecting one stops startup with `adapter "<name>" is not wired yet`, and the wiring report lists it as planned. The full list of variables is in [`.env.example`](../.env.example).
+`GET /api/wiring` lists every port's mode and adapter, and the environment box in the UI's sidebar reads it. If a live adapter is selected but its credentials are missing, the server refuses to start and names the missing variable. As built, no live option is wired yet: selecting one stops startup with `adapter "<name>" is not wired yet`, and the wiring report lists it as planned. The full list of variables is in [`.env.example`](../.env.example).
 
 ### 3.4 Deployment
 
@@ -492,22 +493,23 @@ Tokens are compared in constant time, and the web UI asks for the approver token
 
 ### 10.4 Web UI
 
-The UI reuses the Stage 1 page's visual system (its CSS variables, cards and rail), which is Stage 1 material. It has no timeline animation, fake timer or reset button. Everything on screen comes from events.
+The first plan reused the Stage 1 page's visual system. As built, the UI is a new design: a production-style incident console. It uses neutral surfaces, with colour only where it means something:
+- red for incidents and refusals
+- amber for a decision waiting on a human
+- green for checks that passed
+- one blue for the primary action
 
-| Panel | Shows |
+It's light by default, with a dark mode that the viewer's browser remembers. There's no timeline animation, fake timer or reset button: everything on screen comes from events. Pages are addressed by the URL hash, so a reload keeps the page.
+
+| Part | Shows |
 |---|---|
-| Header | incident status; mode ("Live" or "Replay: *scenario*"); wiring badge (e.g. "5 live · 4 sandbox") with per-port detail |
-| Signals | ticket feed: customer, channel, time, surface chip, failure or question chip, similarity to the forming cluster |
-| Correlation | similarity bar with threshold marker; the four gates with values; member tickets; refusal reasons in amber |
-| Agents | the five agents, each with status, level chip and current tool call |
-| Investigation | tool calls with live or sandbox tags and durations; hypotheses with confidence and a breakdown of evidence and LRs; the deployment's SHA links to GitHub |
-| Recovery | linked tickets; affected (ticketed vs silent); updates with source labels; voice player |
-| Handoff | approval card: amount, limit, case, Approve / Modify / Reject |
-| Audit | entries with filters; refusals highlighted; chain-verified badge |
-| Permissions | agents × tools matrix from `GET /api/policy` |
-| Eval | the latest eval summary (section 13). Not built: the eval lives in [eval.md](eval.md) |
-
-As built, the page also has a brief of the running scenario, headline metrics and a flow strip, and the Incoming tickets panel has a box for typing a complaint live.
+| Sidebar | the four pages, with counts and a dot while an incident is open; the environment (live, sandbox and off counts, and per-port detail from `GET /api/wiring`); the connection; the theme switch |
+| Top bar | breadcrumb with the incident id; session state ("Replaying at 2×", "Replay finished", "Live session"); scenario and speed; Run replay; Live mode |
+| Incident page | a note on the running scenario and its expected outcome; the header (title from the product area, status, severity, time opened, tickets, customers affected, likely cause); a progress stepper; key numbers; **Detection** (similarity with its meaning and area parts and the threshold marker, the four gates with plain reasons, and the verdict); **Root cause** (hypotheses with priors, likelihood ratios and sources); **Customer impact** (affected split, update counts by channel, the single update, the voice script, and the updates table); the **Decision required** card (approve, modify with an amount, reject, with a note for the audit record); **Incoming tickets** with a box for typing one; the timeline; recent agent activity |
+| Tickets page | every ticket with time, customer, channel, message, product area, failure or question, and incident, filterable, plus the typing box |
+| Agents page | each agent's highest authority, status, current task and last tool; every tool call with level, adapter, decision and result |
+| Governance page | the audit log with the chain-verified badge and a filter for refused calls; the permissions matrix from `GET /api/policy` |
+| Eval | not in the UI: the eval lives in [eval.md](eval.md) |
 
 ### 10.5 Integrations
 
@@ -640,7 +642,7 @@ The demo runs on a fanless MacBook Air, so the design keeps load low and steady:
 - Data is minimised:
   - The audit log stores references and summaries.
   - Voice contact requires the customer's voice-consent flag, and proactive messages require proactive consent. This reflects consent expectations under India's DPDP Act.
-  - Ticket text goes to Claude only when `LLM=anthropic`, and the wiring badge shows when it does.
+  - Ticket text goes to Claude only when `LLM=anthropic`, and the environment box in the UI shows when it does.
 
 ## 15. Risks
 
@@ -654,7 +656,7 @@ The demo runs on a fanless MacBook Air, so the design keeps load low and steady:
 | Running out of time before the event | milestones are ordered so each one leaves a working demo; the live adapters are independent and can be added one at a time |
 | MacBook Air throttles | the section 11 budget; the production build for the demo; laptop plugged in |
 | Toolchain surprises (Node 25, TypeScript 7) | pinned to Node 24 LTS and TypeScript 5.9 |
-| A judge asks "is this live?" | the wiring badge, audit verification and this document answer it |
+| A judge asks "is this live?" | the environment box in the UI, audit verification and this document answer it |
 
 ## 16. Stretch goals, in order
 

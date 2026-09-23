@@ -77,4 +77,4 @@ What the team does before and at Stage 2 (Bangalore, 25–26 September 2026). Th
 - [ ] `pnpm test` passes, and CI is green on the last commit (`gh run list --limit 1`).
 - [ ] The repository is public, and the README renders.
 - [ ] Devpost has the updated description, the repo link and the corrected tags.
-- [ ] Every claim on the page matches what's wired. The wiring badge is the source of truth.
+- [ ] Every claim on the page matches what's wired. The environment box in the UI is the source of truth.

@@ -8,14 +8,14 @@
 
 It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.devpost.com/) by Freshworks, where it's a Stage 2 finalist in Track 1 (customer and employee experience).
 
-![Four complaints in different words pass all four gates and open INC-2026-001](docs/screenshots/detection.png)
+![The incident console: eight complaints in different words passed all four gates, the release is the likely cause at 97%, and a ₹11,500 credit waits for a human](docs/screenshots/incident.png)
 
 > **Status: it runs fully offline, in sandbox mode.**
 > - **Real and running:** the detection engine, the five agents, the policy gate, the audit log, the MCP server and the UI. Every number on screen is computed from ticket text and data.
 > - **Sandbox:** the world the agents act on (releases, payment-gateway status, error rates, customers and orders) comes from replayable scenarios.
 > - **Not wired yet:** the external APIs (Freshdesk, GitHub, Razorpay status, ElevenLabs, Claude and the sponsor APIs). They're designed and listed in [`.env.example`](.env.example).
 >
-> The wiring badge in the UI and `GET /api/wiring` show exactly what's live.
+> The environment box in the UI's sidebar and `GET /api/wiring` show exactly what's live.
 
 ## What it does
 
@@ -40,7 +40,7 @@ pnpm install
 pnpm start
 ```
 
-Open http://localhost:8787, pick a scenario, and click **▶ Run replay**. You can also click **Live mode** and type complaints yourself.
+Open http://localhost:8787, pick a scenario in the top bar, and click **Run replay**. You can also click **Live mode** and type complaints into the **Incoming tickets** box yourself.
 
 - **Keys:** none needed. To change a setting, copy `.env.example` to `.env`.
 - **Model:** replays read embeddings from the committed cache, so they need no model. The first complaint you type downloads the embedding model (`Xenova/all-MiniLM-L6-v2`, 23 MB) into `.models/`. After that, everything works with no network.
@@ -51,7 +51,7 @@ Open http://localhost:8787, pick a scenario, and click **▶ Run replay**. You c
 | `pnpm dev` | The server and the Vite dev server, both reloading on change, for UI work |
 | `pnpm replay <scenario>` | Replays a scenario in the terminal and prints what each agent does. Add `--decide approve`, `reject` or `modify:5000` to settle the approval |
 | `pnpm eval` | Runs the evaluation and rewrites [docs/eval.md](docs/eval.md) |
-| `pnpm test` | 181 tests with Vitest. They never load the model |
+| `pnpm test` | 196 tests with Vitest. They never load the model |
 | `pnpm typecheck` | Strict TypeScript across the workspace |
 | `pnpm calibrate <model>` | The model comparison behind [docs/calibration.md](docs/calibration.md) |
 | `pnpm embeddings:warm` | Embeds every scenario, prototype and eval sentence into the committed cache |
@@ -100,11 +100,21 @@ Six hand-written worlds in [`scenarios/`](scenarios/). Half of them test restrai
 
 ## What you'll see
 
-| Restraint: similar words, but not an incident | Root cause and the human decision |
+The web UI is an incident console. A sidebar leads to four pages:
+- **Incident:** the header, a progress stepper and key numbers. Below them are cards for detection, root cause and customer impact, the human decision, incoming tickets, the timeline and agent activity.
+- **Tickets:** every ticket, tagged as a failure report or a question.
+- **Agents:** what each agent is doing, and every tool call.
+- **Governance:** the hash-chained audit log and the permissions table.
+
+It's light by default, with a dark mode.
+
+| Restraint: similar words, but not an incident | Root cause and customer impact |
 |---|---|
-| ![The look-alike burst is refused: 4 of 5 are questions](docs/screenshots/restraint.png) | ![Hypotheses with priors and likelihood ratios, and the ₹11,500 approval card](docs/screenshots/root-cause-and-approval.png) |
-| **Recovery and governance** | **Agents at work** |
-| ![23 affected customers, the single update, and the hash-chained audit log](docs/screenshots/recovery-and-audit.png) | ![Live tool calls with authority levels and sandbox tags](docs/screenshots/overview.png) |
+| ![The look-alike burst is refused: 4 of 5 are questions, not failures](docs/screenshots/restraint.png) | ![Causes ranked by prior times likelihood ratios, next to the decision card and incoming tickets](docs/screenshots/root-cause-and-impact.png) |
+| **Governance** | **Tickets** |
+| ![The audit log with a refused MCP call highlighted, and the chain verified](docs/screenshots/governance.png) | ![Every ticket tagged by product area, as a failure report or a question, and by incident](docs/screenshots/tickets.png) |
+| **Dark mode** | |
+| ![The same incident in dark mode](docs/screenshots/dark.png) | |
 
 ## How it works
 
@@ -260,19 +270,20 @@ The known weak spot is several *different* delivery problems arriving within ten
 
 ## Tests
 
-181 tests with Vitest run on every push in CI (GitHub Actions: install, typecheck, test, build), and none of them loads the embedding model. They cover:
+196 tests with Vitest run on every push in CI (GitHub Actions: install, typecheck, test, build), and none of them loads the embedding model. They cover:
 - the maths: cosine, the Poisson tail, likelihood-ratio scoring
 - each gate, every agent × tool permission, and audit-chain tampering
 - the full incident lifecycle for every scenario, and approve, modify and reject
 - the HTTP API and the event stream
 - MCP through the official SDK client
 - the eval generator, and embedding loading with no network
+- the UI's page routing, incident progress, verdicts and labels
 
 ## Stage 1 → Stage 2
 
 **Stage 1 was a scripted prototype.** A single HTML page played a 12-second animation, and its numbers were typed into the page. It's archived unchanged in [`prototype/`](prototype/), with a list of exactly what was scripted.
 
-**Stage 2 is the real system.** Correlation, confidence, affected counts and credits are computed from data, and the agents make real tool calls through a real permission gate. The UI keeps the Stage 1 visual design.
+**Stage 2 is the real system.** Correlation, confidence, affected counts and credits are computed from data, and the agents make real tool calls through a real permission gate. The UI is a new incident console, built for Stage 2.
 
 It was built before the event, as the organizers allowed by email: they told finalists that teams can work beforehand and that Stage 2 is mostly presentation. The git history shows each step. [docs/compliance.md](docs/compliance.md) checks the project against the hackathon rules.
 
@@ -286,7 +297,7 @@ crisiscrew/
 │   └── adapters/    sandbox ports and the embedders (local model, cache, hash)
 ├── apps/
 │   ├── server/      the one process: Hono API, SSE, MCP, runtime, replay CLI, eval
-│   └── web/         React UI, driven by the event stream
+│   └── web/         React incident console, driven by the event stream
 ├── config/policy.json   levels, allow-lists, limits, thresholds, priors: data, not code
 ├── scenarios/       six scenarios, the eval's paraphrase pools, the committed embedding cache
 ├── prototype/       the Stage 1 page, archived unchanged

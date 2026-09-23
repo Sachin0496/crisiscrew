@@ -53,17 +53,17 @@ Track 1 asks for agents built on Freshworks Agent Studio, MCP and multi-agent or
 | Freshworks: Freshdesk | **Designed, not wired.** The webhook ingest, REST and Freshdesk MCP actions are specified, and their variables are in `.env.example` | design section 10.5 |
 | Freshworks: Agent Studio | **Not yet.** It's a configuration step (register `/mcp` with the operator token) once the organizers provide access | design section 16 |
 
-**On stage, say it plainly:** the Freshworks integrations are designed and ready to wire, and the demo runs on a sandbox world. The wiring badge in the UI shows this too.
+**On stage, say it plainly:** the Freshworks integrations are designed and ready to wire, and the demo runs on a sandbox world. The environment box in the UI's sidebar shows this too.
 
 ## 4. Judging criteria: where each one is shown
 
 | Criterion | What demonstrates it |
 |---|---|
 | Innovation and originality | Treating support tickets as incident telemetry. Detection by meaning plus product area, with restraint: four gates, each with a plain reason, including refusing a burst of look-alike questions |
-| Technical execution | Typed contracts shared by server and UI, an event-sourced UI, 181 tests, CI, a hash-chained audit log, and an evaluation on a held-out split |
+| Technical execution | Typed contracts shared by server and UI, an event-sourced UI, 196 tests, CI, a hash-chained audit log, and an evaluation on a held-out split |
 | Use of AI and agentic design | Sentence embeddings running locally. Five agents with calibrated authority, where the level depends on the arguments (a credit above ₹5,000 needs a human). The same gate governs both internal agents and MCP clients |
 | Relevance to the problem | The hero scenario: a checkout release breaks payments. CrisisCrew detects it from 4 complaints, names the release, finds 15 silent customers and asks a human to approve ₹11,500 in credits |
-| Presentation and demo quality | The Stage 1 visual style driven by live events, the restraint scenario, a live typed complaint, and an MCP refusal |
+| Presentation and demo quality | A clean incident console driven by live events, the restraint scenario, a live typed complaint, and an MCP refusal |
 | Potential impact | Earlier detection than dashboards, consistent customer updates, and an audit trail. The eval numbers are stated with their limits |
 
 ## 5. Honest claims: Stage 1 and the Devpost page
@@ -78,16 +78,16 @@ Track 1 asks for agents built on Freshworks Agent Studio, MCP and multi-agent or
 
 **Inside the product:**
 - No number on screen is typed in. Each one is computed from ticket text and the scenario's data.
-- `GET /api/wiring` and the UI badge report every port as live, sandbox, off, or planned but not wired.
+- `GET /api/wiring` and the environment box in the UI report every port as live, sandbox, off, or planned but not wired.
 - Selecting an unwired adapter stops the server at startup with a clear message. It never falls back to fake data.
 - The eval report states that its data is synthetic and hand-written.
 
 ## 6. Third-party material and licenses
 
 - **Code:** original, under the [MIT license](../LICENSE).
-- **Dependencies:** open-source npm packages under permissive licenses: Hono, @hono/node-server, zod, @modelcontextprotocol/sdk, React, Vite, Vitest, tsx and onnxruntime-node (all MIT); TypeScript and @huggingface/transformers (Apache-2.0).
+- **Dependencies:** open-source npm packages under permissive licenses: Hono, @hono/node-server, zod, @modelcontextprotocol/sdk, React, Vite, Vitest, tsx and onnxruntime-node (all MIT); TypeScript and @huggingface/transformers (Apache-2.0); lucide-react icons (ISC).
 - **Embedding model:** `all-MiniLM-L6-v2` from sentence-transformers (Apache-2.0), in its ONNX conversion `Xenova/all-MiniLM-L6-v2`. It's downloaded at run time into `.models/`, which git ignores, and isn't committed.
-- **UI styling:** reused from the team's own Stage 1 page.
+- **UI:** designed for Stage 2. The Stage 1 page is kept only as a record, in `prototype/`.
 - **Scenario and eval data:** hand-written for this project. Customer names, orders and releases are invented.
 
 ## 7. Secrets and personal data

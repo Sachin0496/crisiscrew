@@ -25,7 +25,7 @@ The demo is a scripted 12-second timeline. Every number it shows is written into
 
 ## Why it's kept
 
-It's the starting point that Stage 2 evolves from. Keeping it unchanged makes the difference easy to audit. Outside `prototype/`, every number is computed, and every integration is labeled live or sandbox. The Stage 2 web app reuses this page's visual design (its CSS), which is Stage 1 material.
+It's the starting point that Stage 2 evolves from. Keeping it unchanged makes the difference easy to audit. Outside `prototype/`, every number is computed, and every integration is labeled live or sandbox. The Stage 2 web app is a new design; this page is kept only as the Stage 1 record.
 
 Don't edit this file. To verify it:
 
