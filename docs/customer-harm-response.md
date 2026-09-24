@@ -1,6 +1,6 @@
 # Customer Harm Response: design for the pivot
 
-Written on 2026-09-24 for [issue #1](https://github.com/Sachin0496/crisiscrew/issues/1). It covers how CrisisCrew moves from "detect outages from similar support tickets" to **Customer Harm Response for Freshworks**, and what that changes in the engine, the integrations and the UI. The [Stage 2 design](design.md) still describes detection, root cause and the policy gate, which don't change.
+Written on 2026-09-24 for [issue #1](https://github.com/Sachin0496/crisiscrew/issues/1), and built the same day. [As built](#as-built) at the end lists where the build differs from this plan. It covers how CrisisCrew moves from "detect outages from similar support tickets" to **Customer Harm Response for Freshworks**, and what that changes in the engine, the integrations and the UI. The [Stage 2 design](design.md) still describes detection, root cause and the policy gate, which don't change.
 
 ## 1. The thesis
 
@@ -77,7 +77,7 @@ The thresholds live in `config/policy.json` (`recovery.highValueInr`).
 | Account note | they didn't write in and opted out of proactive messages: no message, but support sees what happened if they get in touch | L1 |
 | Voice update | priority customers who agreed to calls (prepared while voice is off) | L2 |
 | Goodwill credit | ₹200 for medium severity, ₹1,000 for high | L2 up to ₹500 per customer and ₹5,000 per incident; L3 above either |
-| No credit | low severity (they paid on retry), or not verified | none: a recorded decision |
+| No credit | low severity (they paid on retry); customers who aren't verified get no credit action at all | none: a recorded decision |
 
 **Money stays governed.** `issue_recovery_credit` now takes one customer. It is:
 - **L2** when the amount is within the per-customer limit (₹500) **and** the agents' running total for the incident stays within ₹5,000;
@@ -202,3 +202,28 @@ Everything below runs in sandbox mode by default, and each live adapter is switc
 - **Orders stay sandbox.** Payment attempts, customers and consent come from the scenario world. In a real deployment, the orders port would read the commerce platform.
 - **No compensation without limits.** Credits above ₹500 per customer, or beyond ₹5,000 per incident, always stop for a human.
 - **No new agents** and no extra sponsor APIs.
+
+## As built
+
+Built on 2026-09-24 as planned, with these differences and additions:
+
+- **Two more action kinds:**
+  - `acknowledge` is the reply to a complaint that isn't verified, asking for a payment reference.
+  - `no_credit` is a recorded decision with its reason (for example, paid on a retry). It needs no tool call and counts as done.
+- **The engineering-incident tools** are `file_engineering_incident` and `update_engineering_incident` (L1, Incident Commander).
+  - The commander files the incident in parallel with the investigation.
+  - It adds the investigation note after the root cause, and a coverage note when the incident moves to awaiting approval or recovered.
+- **The audit log names the adapter that served each call.** The gate passes a call's arguments to the tool's adapter label, so a note on a Freshdesk ticket reads `freshdesk`, and one on a replay ticket reads `sandbox`.
+- **A live session's world is anchored two minutes in the past** (`LIVE_WORLD_LEAD_MS`). Its payment attempts have already happened, so a typed or Freshdesk complaint from a known customer is confirmed at once, as it would be in production.
+- **The hero scenario:** Nisha's pending payment now goes through on a retry, which shows the "paid on retry, no credit" rule. The headline numbers are unchanged: 23 affected, 8 complained, 15 silent.
+- **The UPI scenario** keeps its provider root cause. Its expectations now include 10 affected (4 silent) and one credit for a human: Indu Nair, a priority customer.
+- **The UI:**
+  - With no incident open, the Incident page leads with Detection, so the restraint beat shows the refusal first.
+  - On the Customers page, the table leaves out the recovery column, because the detail panel shows the whole plan.
+- **Verified:**
+  - 256 tests;
+  - the hero and live typed flows run in the browser, with approve, modify and the unverified walk-in;
+  - the Freshdesk webhook flow against a fake Freshdesk;
+  - the sidebar renderer against the server's real payload.
+
+  Nothing has run against a real Freshdesk or Freshservice account yet.

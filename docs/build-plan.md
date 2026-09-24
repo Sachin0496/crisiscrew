@@ -1,5 +1,7 @@
 # CrisisCrew Implementation Plan
 
+> The plan the Stage 2 build followed, kept as the record. The Customer Harm Response pivot came after it (2026-09-24): see [customer-harm-response.md](customer-harm-response.md) for what changed in recovery, and the git history for how it was built.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 >
 > **How this plan was run:** the team asked for linear execution in one session on a MacBook Air, so the plan's author executed it inline, one task at a time, test first, with a commit per task. Tasks specify files, interfaces, tests and acceptance checks. The code lives in the repo, not in this document.

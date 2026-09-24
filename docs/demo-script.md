@@ -1,6 +1,9 @@
 # Main Stage demo script
 
-A 5-minute flow, with a 3-minute cut at the end. Every beat runs on the real engine in sandbox mode, offline. The commands and the four typed complaints below were rehearsed against the server on 2026-09-23.
+A 5-minute flow, with a 3-minute cut at the end. Every beat runs on the real engine in sandbox mode, offline. The optional Freshdesk beat needs the team's Freshdesk trial and a tunnel (see [prep-checklist.md](prep-checklist.md)). The flow was run end to end against the server on 2026-09-24.
+
+**The story in one line:**
+> Most incident tools tell engineering what broke. Support tools tell you who complained. CrisisCrew connects the two, and measures success by Recovery Coverage, not by whether the alert fired.
 
 ## Before going on stage (10 minutes)
 
@@ -10,93 +13,101 @@ A 5-minute flow, with a 3-minute cut at the end. Every beat runs on the real eng
    MCP_TOKEN_PATTERN=pattern-demo-token
    MCP_TOKEN_OPERATOR=operator-demo-token
    ```
-   Leave `ADMIN_TOKEN` and `APPROVER_TOKEN` empty so the UI never asks for a token on stage. That's fine on a laptop that isn't exposed to the internet.
+   Leave `ADMIN_TOKEN` and `APPROVER_TOKEN` empty so the UI never asks for a token on stage. That's fine on a laptop that isn't exposed to the internet. If Freshdesk is switched on through a tunnel, set both.
 3. Start the production build (not the dev server):
    ```bash
    pnpm start
    ```
-4. Open http://localhost:8787 in the browser, full screen at 110–125% zoom, in light mode (the sidebar's theme switch). The **Sandbox environment** box at the bottom of the sidebar should read **1 live · 6 sandbox · 3 off**: the embedding model is live, and every other port is sandbox or off.
-5. Open a terminal beside the browser in the repo folder, with the two MCP commands from beat 5 pasted in and ready.
+4. Open http://localhost:8787 in the browser, full screen at 110–125% zoom, in light mode. The environment box at the bottom of the sidebar reads:
+   - **1 live · 7 sandbox · 3 off** in sandbox mode;
+   - one more live port for each Freshworks adapter you switched on.
+5. Open a terminal beside the browser in the repo folder, with the MCP commands from beat 5 ready.
 6. Warm-up run: click **Run replay** on the hero once and let it finish. Then click **Live mode** to clear it. The first typed complaint after a restart loads the model, which takes about a second.
 
 ## The 5-minute flow
 
 ### 1. The problem (0:00–0:30)
 
-> "Customers notice outages before dashboards do. When a release breaks checkout, the first signal is a few support tickets, in different words, within a minute. An agent sees them one at a time. CrisisCrew reads them as incident telemetry."
+> "When a release breaks checkout, support sees a few complaints. Engineering sees an error rate. Nobody sees the customers: who was actually harmed, who stayed silent, and whether each one got the right recovery. CrisisCrew is a customer harm response layer for Freshworks."
 
-### 2. The hero: detect, investigate, recover (0:30–2:15)
+### 2. Who was harmed, and who stayed silent (0:30–2:30)
 
 Stay on the **Incident** page. In the top bar, choose **Checkout release v4.21.7 breaks payments**, set **2×**, and click **Run replay**.
 
-Point at the screen as it happens:
-- **Incoming tickets** (right): each ticket is tagged with its product area and marked as a failure report or a question. The first three are ordinary questions and stay out.
-- **Detection** (left): the similarity bar and the four gates. "My checkout keeps loading forever", "UPI isn't working", "Payment failed but bank shows debit": no shared keywords.
-  > "Similarity is half meaning, from a sentence-embedding model running on this laptop, and half product area. The fourth complaint passes all four gates: 4 failures in 18 seconds is about 1 in 4 million at normal volume."
-- **The header and stepper:** the incident opens as **Checkout and payment failures**, high severity. The Investigator and the Recovery Agent start in parallel, as **Agent activity** shows.
-- **Root cause:** the ranking.
-  > "97% for checkout-service v4.21.7. It shipped 14 minutes before the first complaint (likelihood ratio 6), and its error rate jumped more than 8 times. The payment gateway is ruled out: it reports operational, and the complaints span UPI and cards. Every factor is shown; the model doesn't just announce a number."
-- **Customer impact:** 8 linked tickets and 23 affected customers, 15 of whom never wrote in. Each customer is updated through a channel they agreed to. The two voice updates show as *prepared*, because voice isn't wired.
+As it happens, point at:
+- **Incoming tickets** (right): complaints in different words. The fourth one opens the incident.
+  > "Detection is the trigger, not the product. Four complaints in 18 seconds, and the Investigator ties it to the checkout release 14 minutes earlier: 97%, with every factor shown."
+- **Customer impact** (left), the hero:
+  > "8 customers complained. CrisisCrew found 15 more whose payments failed in the same window but who never contacted support. A complaint alone never counts as harm: every one of these 23 has a failed payment on record."
+- Click **Ananya Iyer** in the table. The **Customers** page opens her evidence chain:
+  > "Her ₹12,999 card payment failed; the affected service is checkout; the likely cause is v4.21.7; it's inside the incident window; and she never contacted support. Confirmed, and silently affected."
+- Her **Recovery** plan: a proactive message (done), a voice update (prepared, because voice isn't wired), and a ₹1,000 credit **waiting for approval**.
+  > "Every action has a reason. She's a priority customer, so her credit is above the ₹500 the agents may give one customer alone."
+- Go back to **Incident**. **Recovery coverage: 21/23 (91%)**, with 2 needing a human.
+  > "Twenty-one customers are already recovered within policy: ₹200 credits, updates through the channel each one agreed to, account notes for the three who opted out of messages. Nisha paid on a retry, so she gets the update and no credit."
 
-### 3. The human decision (2:15–2:45)
+### 3. The human decision (2:30–3:15)
 
-The amber **Decision required** card shows ₹11,500 (23 × ₹500) against a ₹5,000 authority limit.
+In the amber **Decisions required** card:
+- Click **Approve ₹1,000** for Ananya Iyer.
+- For Farhan Qureshi, type `500` in **Other amount in ₹** and click **Modify**.
 
-> "The same tool, issue_recovery_credit, is L2 below ₹5,000 and L3 above it. Authority depends on the arguments, not just the agent."
+Coverage reaches **23/23**, and the stepper reaches **Recovered**.
 
-Type `5000` in **Other amount in ₹** and click **Modify**. The Handoff Agent issues exactly ₹5,000, the stepper reaches **Mitigated**, and the gate would refuse the original ₹11,500.
+> "Money stays governed. Each approval is for one customer, and only the approved amount can be paid, only to that customer. The gate would refuse Farhan's original ₹1,000. And the incident couldn't be marked recovered while anyone was still waiting."
 
-### 4. Restraint (2:45–3:30)
+### 4. Restraint (3:15–3:45)
 
-Choose **Look-alike burst: checkout questions**, set **10×**, and click **Run replay**.
+Pick one:
+- **No evidence, no money.** Click **Live mode**. Type the four complaints from the live typed burst below as Priya K., Arjun K., Sneha M. and Varun N. Then type one more as `A Judge`.
+  > "A judge's complaint joins the incident, but no failed payment is on record for them. So they get an acknowledgement asking for a payment reference, and no credit. Not verified."
+- **Similar words, not an incident.** Choose **Look-alike burst: checkout questions**, set **10×**, and click **Run replay**. The **Detection** card refuses in plain words: *4 of 5 are questions, not failures*.
 
-> "Five questions about paying at checkout, and one real failure. Same product area, similar words. A naive system pages someone."
+### 5. Freshworks-native (3:45–4:30)
 
-The **Detection** card refuses, in plain words: **4 of 5 are questions, not failures**. (If asked why 5 and not 6: the coupon question is tagged refunds and billing, so it falls outside the group.)
+**If Freshdesk is switched on** (`TICKETS=freshdesk`):
+1. In Freshdesk, create a ticket as requester `priya.k@example.com`: "My checkout keeps loading forever." Do the same as `arjun.k@example.com`, `sneha.m@example.com` and `varun.n@example.com`. The four rehearsed sentences below work.
+2. The incident opens in CrisisCrew.
+3. Open Priya's Freshdesk ticket:
+   - the CrisisCrew private note links the incident;
+   - the update is the reply;
+   - the outcome note lists her evidence and credit;
+   - the **CrisisCrew sidebar** shows her impact, evidence, recovery and the incident's coverage.
 
-> "Every team shows success. We're showing what it refuses to do, and why."
-
-### 5. Governance: the read-only agent can't write (3:30–4:15)
-
-Open **Governance** in the sidebar. The badge shows the audit chain verified, and the **Permissions** table below the log shows who may call which tool.
-
-In the terminal, the read-only operator token lists its tools. Only the five read tools come back:
+**Otherwise, show MCP.** An Agent Studio agent, or any MCP client, sees the same incident customer by customer. The read-only operator token lists seven read tools, including the customer impact ones:
 ```bash
 curl -s http://localhost:8787/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
   -H 'authorization: Bearer operator-demo-token' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_recovery_coverage","arguments":{}}}'
 ```
-
-Now the Pattern Agent's token tries to write:
+And the read-only Pattern Agent's token can't write:
 ```bash
 curl -s http://localhost:8787/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
   -H 'authorization: Bearer pattern-demo-token' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"link_ticket_to_incident","arguments":{"ticketId":"T-1001","incidentId":"INC-2026-001"}}}'
 ```
-The reply is **Refused by the CrisisCrew policy gate: Pattern Agent is not allowed to call link_ticket_to_incident**. The refusal appears at the top of the audit log, highlighted in red. Click **Refused** to show only refusals.
+The reply is **Refused by the CrisisCrew policy gate**, and the refusal is at the top of **Governance**.
 
-> "MCP clients go through the same gate as our own agents. What they can't do, they can't do, and it's on the record."
+### 6. The close (4:30–5:00)
 
-### 6. The numbers, and the honesty (4:15–5:00)
-
-> "We didn't tune this to one example. On 60 generated runs with a held-out test split: 100% precision and recall on incidents, detection at the median 4th complaint, and the right root cause every time. It's synthetic data, and the report says so. Our known weak spot: several *different* delivery problems at once open an incident in half the runs."
-
-> "Stage 1 was a scripted prototype. This is the real system. The Freshdesk, GitHub, Razorpay and ElevenLabs integrations are designed and listed. The environment box shows what's live today: the engine, the agents, the gate and the model. The world they act on is a sandbox."
+> "We measure success by Recovery Coverage: every affected customer covered, not whether the alert fired. Low-risk recovery runs automatically; money above authority stops for a human, one customer at a time. And we're honest about what's live: the engine, the agents and the gate are real. The world they act on (orders, releases, payments) is a sandbox, and the environment box says so. Freshdesk and Freshservice are wired and switch on with keys."
 
 ## The 3-minute cut
 
-Do beats 1 and 2 at **4× speed**, click **Approve** in beat 3, and do beat 5 with only the refusal command. Mention beat 4 and the numbers in one sentence each.
+Do beat 1 in one sentence. Do beat 2 at **4× speed**, with one click into Ananya's evidence chain. Then do beat 3 (approve both), and end with beat 6. Mention restraint in one sentence.
 
-## Optional: a live typed burst (60–90 seconds)
+## Live typed burst (60–90 seconds)
 
-Click **Live mode**, then type these four complaints into the box at the bottom of **Incoming tickets**, clicking **Send** after each, within about five minutes. They were rehearsed and open an incident on the fourth, naming checkout-service v4.21.7 at 97%:
+Click **Live mode**, then type these four complaints into the box at the bottom of **Incoming tickets**. Pick the customer from the name suggestions, and click **Send** after each one. They open an incident on the fourth, naming checkout-service v4.21.7 at 97%. The customers are confirmed from their payments, and 19 silent customers are found.
 
-1. `The payment page just spins after I click pay.`
-2. `Paid with UPI, money gone from my account, but the app says order failed.`
-3. `My debit card keeps getting declined at checkout even though it works everywhere else.`
-4. `Checkout crashes when I try to pay for my cart.`
+| Customer | Complaint |
+|---|---|
+| Priya K. | `The payment page just spins after I click pay.` |
+| Arjun K. | `Paid with UPI, money gone from my account, but the app says order failed.` |
+| Sneha M. | `My debit card keeps getting declined at checkout even though it works everywhere else.` |
+| Varun N. | `Checkout crashes when I try to pay for my cart.` |
 
-If a judge offers a sentence, type it first. A question such as "Do you accept American Express cards?" is tagged as a question, and it never becomes one of the incident's tickets.
+If a judge offers a sentence, type it under their own name: it will show as **Not verified**, which is the point. A question such as "Do you accept American Express cards?" is tagged as a question, and it never joins the incident.
 
 ## If something goes wrong
 
@@ -104,18 +115,28 @@ If a judge offers a sentence, type it first. A question such as "Do you accept A
 |---|---|
 | The browser shows "reconnecting" | Wait two seconds; the stream resumes from the last event. Refresh if it doesn't |
 | A replay seems stuck | Click **Live mode**, then run the replay again. Each run is a fresh session |
-| The server won't start | Read the one-line message. It names the variable to fix (for example, a live adapter that isn't wired) |
-| No network at the venue | Nothing changes: the demo is offline once the model is in `.models/` |
+| The server won't start | Read the one-line message. It names the variable to fix, for example Freshdesk keys that are missing |
+| Freshdesk doesn't deliver the webhook | Switch to `FRESHDESK_INGEST=poll` and restart: it reads new tickets every 15 seconds without a public URL |
+| No network at the venue | Nothing changes in sandbox mode: the demo is offline once the model is in `.models/` |
 | The UI is unusable | Run `pnpm replay checkout-v4.21.7` in the terminal. It prints the same story, beat by beat |
 
 ## Likely questions
 
-- **"Is this live or scripted?"** The engine, agents, gate and model are live. The world they read (releases, gateway status, error rates, orders) is a sandbox scenario, and the environment box in the sidebar says so; click it for each port's detail. Every number is computed; `pnpm eval` reproduces them.
-- **"Why not keywords?"** "Checkout keeps loading", "UPI isn't working" and "card rejected" share no keywords. Plain embeddings alone scored them about 0.44; adding product area separates labeled pairs completely (AUC 1.00). See [calibration.md](calibration.md).
-- **"How do you avoid false alarms?"** Four gates, each with a plain reason, and questions recognised by their form. In the eval, none of the 15 no-incident test runs fired.
-- **"Where does 97% come from?"** Prior × likelihood ratios, normalised across hypotheses, with every factor on screen. The priors are stated assumptions, not learned, and the doc says so.
-- **"Where's the LLM?"** Detection uses a local sentence-embedding model. Claude is designed in for investigation narratives and message drafts, but it's not wired in this build, and it would never compute the scores.
-- **"How would it plug into Freshdesk?"** A Freshdesk automation webhook sends the ticket id; replies and private notes go through Freshdesk's MCP server or REST. It's designed in detail (design section 10.5), and the variables are in `.env.example`.
-- **"Hindi or Hinglish tickets?"** Not yet: the current model is English-only. The multilingual model and Sarvam translation are the plan.
-- **"Privacy?"** The audit log keeps references and summaries, not ticket text. Voice needs voice consent, and proactive messages need proactive consent.
+- **"Isn't this ticket clustering?"** Clustering is the trigger. The product is what happens after harm begins:
+  - proving who was harmed from operational evidence;
+  - finding the customers who never complained;
+  - recovering each one by their own harm;
+  - measuring coverage.
+- **"How do you know the silent customers were affected?"** Each one has a failed or pending payment inside the incident window, on the service the incident is about. The evidence chain on the Customers page shows it customer by customer. A complaint without that evidence is *not verified*, and nobody is credited on a ticket alone.
+- **"Who decides the credits?"** The policy in `config/policy.json`: ₹200 for a failed payment, ₹1,000 for priority customers or payments of ₹10,000 or more, and nothing for customers who paid on a retry. The agents may give ₹500 per customer and ₹5,000 per incident; everything above waits for a human, per customer.
+- **"Is this live or scripted?"** The engine, the agents, the gate and the model are live, and every number is computed. The orders, releases and gateway status are a sandbox world. Freshdesk and Freshservice adapters are wired and tested against fakes of their APIs; they go live with keys. The environment box says which is which.
+- **"Where does 97% come from?"** Prior × likelihood ratios, normalised across hypotheses, with every factor on screen. The priors are stated assumptions.
+- **"Where's the LLM?"** Detection uses a local sentence-embedding model. Recovery is policy, not generation. Claude is designed in for narratives and drafts, but it's not wired, and it would never compute the numbers or decide money.
+- **"How would it run in production?"**
+  - Freshdesk tickets arrive by webhook.
+  - The orders port reads the commerce platform instead of the sandbox.
+  - Notes and replies go back through Freshdesk's REST API or its MCP server.
+  - Engineering gets a Freshservice incident.
+  - Agent Studio agents read the same incident through MCP.
+- **"Privacy?"** The audit log keeps references and summaries, not ticket text. Proactive messages need proactive consent, voice needs voice consent, and customers who opted out get an account note instead of a message.
 - **"When did you build this?"** Before the event, as the organizers allowed by email. The git history shows every step.
