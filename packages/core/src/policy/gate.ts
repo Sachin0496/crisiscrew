@@ -14,8 +14,8 @@ export type ToolDef<Ctx> = {
   /** Extra rule for L2/L3 calls: returns a refusal reason, or null to allow. */
   condition?: (args: unknown, ctx: Ctx) => string | null | Promise<string | null>;
   run: (args: unknown, ctx: Ctx) => Promise<unknown>;
-  /** Which adapter served the call ("sandbox", "core", …), for the audit log. */
-  adapter?: (ctx: Ctx) => string;
+  /** Which adapter serves the call ("sandbox", "freshdesk", "core", …), for the audit log; it may depend on the arguments. */
+  adapter?: (ctx: Ctx, args?: unknown) => string;
   summarize?: (result: unknown) => string;
 };
 
@@ -107,7 +107,7 @@ export class PolicyGate<Ctx> {
     const refusal = await tool.condition?.(parsed.data, ctx);
     if (refusal) return deny(refusal, level);
 
-    const adapter = tool.adapter?.(ctx) ?? "core";
+    const adapter = tool.adapter?.(ctx, parsed.data) ?? "core";
     try {
       const result = await withTimeout(tool.run(parsed.data, ctx), TIMEOUT_MS, name);
       const resultSummary = clip(tool.summarize ? tool.summarize(result) : JSON.stringify(result ?? null));

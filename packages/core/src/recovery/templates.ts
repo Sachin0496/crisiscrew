@@ -1,11 +1,26 @@
-import type { Hypothesis, IncidentView, Surface } from "@crisiscrew/contracts";
+import {
+  incidentTitle,
+  SURFACE_LABELS,
+  type AffectedCustomer,
+  type Coverage,
+  type Hypothesis,
+  type IncidentView,
+  type RecoveryAction,
+  type Surface,
+} from "@crisiscrew/contracts";
 
-export type Draft = { subject: string; body: string; voiceScript: string; source: string };
+/** The update every confirmed customer receives, the acknowledgement for complaints with no evidence yet, and the voice script. */
+export type Draft = { subject: string; body: string; acknowledgement: string; voiceScript: string; source: string };
 
 const IST = new Intl.DateTimeFormat("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
+const IST_SECONDS = new Intl.DateTimeFormat("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
 
 export function clockTime(ms: number): string {
   return IST.format(ms);
+}
+
+export function clockTimeSec(ms: number): string {
+  return IST_SECONDS.format(ms);
 }
 
 export function firstName(name: string): string {
@@ -48,32 +63,90 @@ export function draftUpdate(incident: IncidentView, since: number): Draft {
     `${root && root.kind !== "unknown" ? "We've found the cause and we're fixing it." : "We're looking into it now."} ` +
     "If money left your account, it will come back automatically. We're sorry, and there's nothing you need to do.";
   const subject = incident.surface === "checkout_payments" ? `Update on your payment (${incident.id})` : `Update from customer care (${incident.id})`;
-  return { subject, body, voiceScript, source: "template" };
+  const reference =
+    incident.surface === "checkout_payments"
+      ? "We couldn't find a failed payment on your account yet. If money left your account, reply with your order number or payment reference and we'll check it for you."
+      : "We couldn't match your account to the problem yet. Reply with your order number or account email and we'll check it for you.";
+  const acknowledgement =
+    `Hi {name}, thanks for telling us. We know ${PROBLEM[incident.surface]} since about ${clockTime(since)}, and our team is on it. ${reference} ` +
+    `Reference: ${incident.id}.`;
+  return { subject, body, acknowledgement, voiceScript, source: "template" };
 }
 
 export function personalise(text: string, name: string): string {
   return text.replaceAll("{name}", firstName(name));
 }
 
-/** The case a human approver reads: what happened, how sure we are, what's been done, what's being asked. */
-export function caseSummary(incident: IncidentView, amountInr: number, perCustomerInr: number, limitInr: number): string {
+const DONE_PHRASES: Partial<Record<RecoveryAction["kind"], string>> = {
+  ticket_reply: "update sent on their ticket",
+  acknowledge: "acknowledged, and asked for a payment reference",
+  proactive_message: "proactive update sent",
+  account_note: "note left on their account",
+};
+
+/** What has been done for one customer, in a phrase per action. */
+export function actionPhrases(actions: RecoveryAction[]): string[] {
+  return actions.flatMap((a) => {
+    if (a.kind === "voice") return a.status === "prepared" ? ["voice update prepared (voice is off)"] : a.status === "done" ? ["voice update sent"] : [];
+    if (a.kind === "credit") {
+      if (a.status === "done") return [`${inr(a.amountInr ?? 0)} goodwill credit issued${a.approvalId ? ` on approval ${a.approvalId}` : ""}${a.detail ? ` (${a.detail})` : ""}`];
+      if (a.status === "declined") return [`credit declined by the approver${a.detail ? `: ${a.detail}` : ""}`];
+      if (a.status === "awaiting_approval") return [`${inr(a.amountInr ?? 0)} credit waiting for a human decision`];
+      return [];
+    }
+    if (a.kind === "no_credit") return [`no credit: ${a.reason.charAt(0).toLowerCase()}${a.reason.slice(1)}`];
+    const phrase = DONE_PHRASES[a.kind];
+    return phrase && a.status === "done" ? [phrase] : [];
+  });
+}
+
+function evidenceSentence(customer: AffectedCustomer): string {
+  const facts = customer.evidence.filter((e) => e.kind === "payment_failed" || e.kind === "payment_pending" || e.kind === "payment_succeeded").map((e) => e.label);
+  return facts.length ? facts.join("; ") : "no failed payment on record";
+}
+
+/** The case a human approver reads for one customer's credit: the evidence, the cause, what's been done, and what's asked. */
+export function customerCase(incident: IncidentView, customer: AffectedCustomer, actions: RecoveryAction[], credit: RecoveryAction, perCustomerLimitInr: number): string {
   const root = incident.hypotheses.find((h) => h.id === incident.rootCause?.hypothesisId);
-  const evidence = root?.evidence.filter((e) => e.checked).map((e) => e.observation) ?? [];
-  const affected = incident.affected;
-  const sent = incident.updates.filter((u) => u.status === "sent").length;
-  const voice = incident.updates.filter((u) => u.channel === "voice" && u.status !== "refused").length;
+  const done = actionPhrases(actions.filter((a) => a.id !== credit.id));
   const lines = [
-    root
-      ? `Root cause: ${root.label} (${Math.round((incident.rootCause?.confidence ?? 0) * 100)}% confidence).${evidence.length ? ` Evidence: ${evidence.join("; ")}.` : ""}`
-      : "Root cause: not yet identified.",
-    affected
-      ? `Affected: ${affected.total} customers (${affected.ticketed.length} contacted us, ${affected.silent.length} haven't).`
-      : "Affected customers: not yet identified.",
-    `Done so far: ${incident.linkedTicketIds.length} tickets linked, ${sent} updates sent${voice ? `, ${voice} voice updates prepared` : ""}.`,
-    `Proposed: ${inr(perCustomerInr)} goodwill credit for each affected customer = ${inr(amountInr)}, above the ${inr(limitInr)} limit the agents can approve alone.`,
-    "Recommendation: approve, or modify the amount.",
+    `${customer.name}${customer.tier === "priority" ? ", a priority customer" : ""}, ${customer.complained ? "wrote in" : "never contacted support"}. Evidence: ${evidenceSentence(customer)}.`,
+    root ? `Likely cause: ${root.label} (${Math.round((incident.rootCause?.confidence ?? 0) * 100)}% confidence).` : "Cause: not identified yet.",
+    done.length ? `Done so far: ${done.join("; ")}.` : "Nothing sent yet.",
+    `Proposed: ${inr(credit.amountInr ?? 0)} goodwill credit, above the ${inr(perCustomerLimitInr)} the agents may give one customer on their own.`,
+    "Approve, change the amount, or reject. Only the amount you approve can be paid, and only to this customer.",
   ];
   return lines.join("\n");
+}
+
+/** The private note CrisisCrew leaves on a customer's ticket once their recovery is settled. */
+export function outcomeNote(incident: IncidentView, customer: AffectedCustomer, actions: RecoveryAction[]): string {
+  const cause = incident.rootCause ? `; likely cause ${incident.rootCause.label} (${Math.round(incident.rootCause.confidence * 100)}%)` : "";
+  return [
+    `CrisisCrew · ${incident.id} · ${incidentTitle(incident.surface)}`,
+    `${customer.confidence === "confirmed" ? "Confirmed affected" : "Not verified"}: ${evidenceSentence(customer)}${cause}.`,
+    `Recovery: ${actionPhrases(actions).join("; ") || "nothing yet"}.`,
+  ].join("\n");
+}
+
+/** The engineering incident's title and first description, from the detection. */
+export function engineeringSummary(incident: IncidentView): { title: string; description: string } {
+  return {
+    title: `${incidentTitle(incident.surface)} (${incident.id})`,
+    description:
+      `CrisisCrew opened ${incident.id}: ${incident.ticketIds.length} similar failure reports about ${SURFACE_LABELS[incident.surface].toLowerCase()} ` +
+      "passed every detection gate. Customer impact and recovery are tracked in CrisisCrew, and notes follow here.",
+  };
+}
+
+/** The note that brings the engineering incident up to date on customer impact. */
+export function coverageNote(coverage: Coverage): string {
+  const pct = coverage.ratio === null ? "n/a" : `${Math.round(coverage.ratio * 100)}%`;
+  return (
+    `Customer impact: ${coverage.confirmed} customers affected (${coverage.complained} complained, ${coverage.silent} silent` +
+    `${coverage.unverified ? `; ${coverage.unverified} more complained without a failed payment on record` : ""}). ` +
+    `Recovery coverage ${coverage.recovered}/${coverage.confirmed} (${pct})${coverage.needsHuman ? `; ${coverage.needsHuman} waiting for a human decision` : ""}.`
+  );
 }
 
 /** Plain-language summary of what the Investigator checked and concluded. */

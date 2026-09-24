@@ -34,13 +34,37 @@ async function connect(app: Awaited<ReturnType<typeof setup>>["app"], token: str
 const text = (result: unknown) => ((result as { content: { text: string }[] }).content[0]?.text ?? "");
 
 describe("MCP endpoint", () => {
-  it("shows an external client only the read-only tools", async () => {
+  it("shows an external client only the read-only tools, including the customer impact ones", async () => {
     const { app } = await setup();
     const client = await connect(app, "op-token");
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
-      ["get_incident", "get_payment_health", "get_recent_deployments", "get_service_status", "search_recent_tickets"].sort(),
+      [
+        "get_customer_impact",
+        "get_incident",
+        "get_payment_health",
+        "get_recent_deployments",
+        "get_recovery_coverage",
+        "get_service_status",
+        "search_recent_tickets",
+      ].sort(),
     );
+    await client.close();
+  });
+
+  it("gives an external client the same incident, customer by customer", async () => {
+    const { app, runtime } = await setup();
+    const done = new Promise<void>((resolve) => runtime.bus.subscribe((e) => e.type === "replay.finished" && resolve()));
+    await runtime.startReplay("checkout-v4.21.7", 500);
+    await done;
+    const client = await connect(app, "op-token");
+    const silent = JSON.parse(text(await client.callTool({ name: "get_customer_impact", arguments: { filter: "silent" } }))) as {
+      customers: { name: string; complained: boolean; evidence: string[] }[];
+    };
+    expect(silent.customers).toHaveLength(15);
+    expect(silent.customers.every((c) => !c.complained && c.evidence.includes("Never contacted support"))).toBe(true);
+    const coverage = JSON.parse(text(await client.callTool({ name: "get_recovery_coverage", arguments: {} }))) as { coverage: { recovered: number; confirmed: number } };
+    expect(coverage.coverage).toMatchObject({ recovered: 21, confirmed: 23 });
     await client.close();
   });
 

@@ -5,7 +5,11 @@
   "speed": 2,
   "expected": {
     "incident": true,
-    "rootCause": "provider:razorpay"
+    "rootCause": "provider:razorpay",
+    "affected": 10,
+    "silent": 4,
+    "needsHuman": 1,
+    "autoCreditInr": 1800
   },
   "world": {
     "baselinePerHour": { "checkout_payments": 3 },

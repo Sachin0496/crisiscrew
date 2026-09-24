@@ -1,31 +1,28 @@
-import type { Customer } from "@crisiscrew/contracts";
-import { personalise, type Draft } from "../recovery/templates";
+import {
+  actionsFor,
+  customerState,
+  recoveryCoverage,
+  type AffectedCustomer,
+  type CustomerImpact,
+  type Identity,
+  type RecoveryAction,
+} from "@crisiscrew/contracts";
+import type { ToolCallResult } from "../policy/gate";
+import { outcomeNote, personalise, type Draft } from "../recovery/templates";
 import { inBatches, type AgentKit } from "./kit";
 
-type Affected = { ticketed: string[]; silent: string[]; since: number };
-
-/** Customers who filed a ticket in the incident, with the name on their ticket. */
-function ticketedNames(kit: AgentKit, incidentId: string): Map<string, string> {
-  const s = kit.state();
-  const incident = s.incidents[incidentId]!;
-  const names = new Map<string, string>();
-  for (const id of [...incident.ticketIds, ...incident.linkedTicketIds]) {
-    const t = s.tickets[id]?.ticket;
-    if (t) names.set(t.customerRef, t.customerName);
-  }
-  return names;
+/** Records an action's new status. */
+export function updateAction(kit: AgentKit, action: RecoveryAction, change: Partial<RecoveryAction>): void {
+  kit.emit({ type: "recovery.updated", payload: { incidentId: action.incidentId, action: { ...action, ...change, updatedAt: kit.now() } } });
 }
 
-async function identify(kit: AgentKit, incidentId: string, sinceMs?: number): Promise<Affected | null> {
-  const r = await kit.gate.call("recovery", "identify_affected_customers", { incidentId, ...(sinceMs !== undefined ? { sinceMs } : {}) });
+/** Builds (or rebuilds) the Customer Impact Graph from the orders data and the incident's tickets. */
+export async function assessImpact(kit: AgentKit, incidentId: string): Promise<CustomerImpact | null> {
+  const r = await kit.gate.call("recovery", "identify_affected_customers", { incidentId });
   if (!r.ok) return null;
-  const affected = r.result as Affected;
-  kit.emit({ type: "customers.identified", payload: { incidentId, ...affected } });
-  return affected;
-}
-
-function reply(kit: AgentKit, incidentId: string, customerRef: string, name: string, draft: Draft) {
-  return kit.gate.call("recovery", "send_customer_update", { incidentId, customerRef, channel: "ticket_reply", text: personalise(draft.body, name) });
+  const impact = r.result as CustomerImpact;
+  kit.emit({ type: "impact.assessed", payload: { incidentId, impact } });
+  return impact;
 }
 
 /** Phase 1, in parallel with the Investigator: link the cluster's tickets and find everyone affected. */
@@ -33,83 +30,114 @@ export async function startRecovery(kit: AgentKit, incidentId: string): Promise<
   const incident = kit.state().incidents[incidentId]!;
   kit.setAgent("recovery", "working", "Linking tickets and finding affected customers");
   await inBatches(incident.ticketIds, 4, (ticketId) => kit.gate.call("recovery", "link_ticket_to_incident", { incidentId, ticketId }));
-  await identify(kit, incidentId);
+  await kit.serial(incidentId, () => assessImpact(kit, incidentId));
   kit.setAgent("recovery", "idle", "Waiting for the root cause");
 }
 
-/**
- * Phase 2, once the cause is known: one consistent update for everyone
- * affected, through the channel each customer allows, then a credit proposal.
- * Returns whether the credit needs a human.
- */
-export async function finishRecovery(
-  kit: AgentKit,
-  incidentId: string,
-  customerOf: (ref: string) => Promise<Customer | null>,
-): Promise<"mitigated" | "needs_approval"> {
-  kit.setStatus(incidentId, "recovering", "Updating affected customers");
-  kit.setAgent("recovery", "working", "Updating affected customers");
-
-  let incident = kit.state().incidents[incidentId]!;
-  const root = incident.hypotheses.find((h) => h.id === incident.rootCause?.hypothesisId);
-  if (root?.startedAt !== undefined && incident.affected && root.startedAt < incident.affected.since) {
-    await identify(kit, incidentId, root.startedAt);
-    incident = kit.state().incidents[incidentId]!;
-  }
-
-  const drafted = await kit.gate.call("recovery", "draft_customer_update", { incidentId });
-  if (drafted.ok && incident.affected) {
-    const draft = drafted.result as Draft;
-    const silent = (await Promise.all(incident.affected.silent.map(customerOf))).filter((c): c is Customer => c !== null);
-
-    await inBatches([...ticketedNames(kit, incidentId)], 5, ([ref, name]) => reply(kit, incidentId, ref, name, draft));
-    await inBatches(
-      silent.filter((c) => c.consent.proactive),
-      5,
-      (c) => kit.gate.call("recovery", "send_customer_update", { incidentId, customerRef: c.ref, channel: "proactive_message", text: personalise(draft.body, c.name) }),
-    );
-    const priority = silent.filter((c) => c.tier === "priority" && c.consent.voice);
-    if (priority.length > 0) kit.setAgent("recovery", "working", `Preparing voice updates for ${priority.length} priority customers`);
-    await inBatches(priority, 2, (c) =>
-      kit.gate.call("recovery", "send_customer_update", { incidentId, customerRef: c.ref, channel: "voice", text: personalise(draft.voiceScript, c.name) }),
-    );
-  }
-
-  const proposed = await kit.gate.call("recovery", "propose_recovery_credit", { incidentId });
-  if (!proposed.ok) {
-    kit.setAgent("recovery", "done", `Credit not proposed: ${proposed.reason}`);
-    return "mitigated";
-  }
-  const { amountInr, withinAuthority } = proposed.result as { amountInr: number; withinAuthority: boolean };
-  if (!withinAuthority) {
-    kit.setAgent("recovery", "done", "The credit is above my authority, so it goes to the Handoff Agent");
-    return "needs_approval";
-  }
-  const issued = await kit.gate.call("recovery", "issue_recovery_credit", { incidentId, amountInr });
-  kit.setAgent("recovery", "done", issued.ok ? "Credit issued within my authority" : `Credit not issued: ${issued.reason}`);
-  return "mitigated";
+function evidenceSummary(customer: AffectedCustomer): string {
+  return customer.evidence
+    .filter((e) => e.kind === "payment_failed" || e.kind === "payment_pending")
+    .map((e) => e.label)
+    .join("; ");
 }
 
-/** A later complaint that matches an open incident: link it, move the customer to "contacted us", and reply if updates already went out. */
-export async function linkLateTicket(kit: AgentKit, incidentId: string, ticketId: string): Promise<void> {
-  kit.setAgent("recovery", "working", `Linking ${ticketId} to ${incidentId}`);
-  await kit.gate.call("recovery", "link_ticket_to_incident", { incidentId, ticketId });
-  const s = kit.state();
-  const incident = s.incidents[incidentId]!;
-  const ticket = s.tickets[ticketId]!.ticket;
-  if (incident.affected) {
-    kit.emit({
-      type: "customers.identified",
-      payload: {
-        incidentId,
-        ticketed: [...new Set([...incident.affected.ticketed, ticket.customerRef])],
-        silent: incident.affected.silent.filter((r) => r !== ticket.customerRef),
-        since: incident.affected.since,
-      },
-    });
+/** Carries out one planned action within the agents' authority and records the outcome on the action. */
+async function carryOut(kit: AgentKit, action: RecoveryAction, customer: AffectedCustomer | undefined, draft: Draft): Promise<void> {
+  if (!customer) {
+    updateAction(kit, action, { status: "failed", detail: "No longer in the impact graph" });
+    return;
   }
+  const { incidentId, customerRef } = action;
+  const send = (channel: "ticket_reply" | "proactive_message" | "voice", text: string) =>
+    kit.gate.call("recovery", "send_customer_update", { incidentId, customerRef, channel, text: personalise(text, customer.name), actionId: action.id });
+
+  let r: ToolCallResult;
+  switch (action.kind) {
+    case "ticket_reply":
+      r = await send("ticket_reply", draft.body);
+      break;
+    case "acknowledge":
+      r = await send("ticket_reply", draft.acknowledgement);
+      break;
+    case "proactive_message":
+      r = await send("proactive_message", draft.body);
+      break;
+    case "voice":
+      r = await send("voice", draft.voiceScript);
+      break;
+    case "account_note":
+      r = await kit.gate.call("recovery", "add_account_note", {
+        incidentId,
+        customerRef,
+        text: `Affected by ${incidentId}: ${evidenceSummary(customer)}. Opted out of proactive messages, so CrisisCrew didn't contact them.`,
+      });
+      break;
+    case "credit":
+      r = await kit.gate.call("recovery", "issue_recovery_credit", { incidentId, customerRef, amountInr: action.amountInr });
+      break;
+    default:
+      return;
+  }
+  if (!r.ok) {
+    updateAction(kit, action, { status: "failed", detail: r.reason });
+    return;
+  }
+  const result = r.result as { updateId?: string; status?: string; adapter?: string; noteId?: string; creditId?: string };
+  if (action.kind === "credit") updateAction(kit, action, { status: "done", detail: `${result.creditId} · ${r.entry.adapter}` });
+  else if (action.kind === "account_note") updateAction(kit, action, { status: "done", detail: `${result.noteId} · ${r.entry.adapter}` });
+  else if (result.status === "prepared") updateAction(kit, action, { status: "prepared", detail: `${result.updateId}: prepared, voice is off` });
+  else updateAction(kit, action, { status: "done", detail: `${result.updateId} · ${result.adapter ?? r.entry.adapter}` });
+}
+
+/**
+ * Writes the outcome back to each complaint's ticket once that customer's
+ * recovery is settled: a private note with the evidence and what was done.
+ * In Freshdesk mode it lands on the Freshdesk ticket.
+ */
+export async function noteOutcomes(kit: AgentKit, incidentId: string, identity: Extract<Identity, "recovery" | "handoff">): Promise<void> {
+  const incident = kit.state().incidents[incidentId];
+  if (!incident?.impact) return;
+  for (const customer of incident.impact.customers) {
+    const key = `${incidentId}:${customer.ref}`;
+    const ticketId = customer.ticketIds.at(-1);
+    if (!ticketId || kit.noted.has(key)) continue;
+    const actions = actionsFor(incident, customer.ref);
+    const state = customerState(customer, actions);
+    const settled = state === "recovered" || (state === "unverified" && actions.length > 0 && actions.every((a) => a.status !== "planned"));
+    if (!settled) continue;
+    kit.noted.add(key);
+    await kit.gate.call(identity, "add_ticket_note", { incidentId, ticketId, text: outcomeNote(incident, customer, actions) });
+  }
+}
+
+/**
+ * One recovery pass: rebuild the impact graph if asked, plan the actions
+ * each customer is still missing, and carry out every planned action within
+ * the agents' authority. Credits above it stay planned for the Handoff Agent.
+ */
+export async function reconcile(kit: AgentKit, incidentId: string, options: { assessFirst: boolean }): Promise<void> {
+  kit.setAgent("recovery", "working", "Planning each affected customer's recovery");
+  if (options.assessFirst) await assessImpact(kit, incidentId);
+  if (!kit.draftFor(incidentId)) await kit.gate.call("recovery", "draft_customer_update", { incidentId });
   const draft = kit.draftFor(incidentId);
-  const alreadyReplied = incident.updates.some((u) => u.customerRef === ticket.customerRef && u.channel === "ticket_reply");
-  if (draft && !alreadyReplied) await reply(kit, incidentId, ticket.customerRef, ticket.customerName, draft);
-  kit.setAgent("recovery", "done", `Linked ${ticketId}`);
+  const planned = await kit.gate.call("recovery", "plan_recovery", { incidentId });
+  if (!draft || !planned.ok) {
+    kit.setAgent("recovery", "done", `Recovery stopped: ${planned.ok ? "no update could be drafted" : planned.reason}`);
+    return;
+  }
+
+  const incident = kit.state().incidents[incidentId]!;
+  const customers = new Map((incident.impact?.customers ?? []).map((c) => [c.ref, c]));
+  const todo = incident.actions.filter((a) => a.status === "planned" && a.level !== null && a.level <= 2);
+  if (todo.length > 0) kit.setAgent("recovery", "working", `Carrying out ${todo.length} recovery actions within my authority`);
+  await inBatches(todo, 5, (action) => carryOut(kit, action, customers.get(action.customerRef), draft));
+  await noteOutcomes(kit, incidentId, "recovery");
+
+  const coverage = recoveryCoverage(kit.state().incidents[incidentId]!);
+  const waiting = kit.state().incidents[incidentId]!.actions.filter((a) => a.level === 3 && a.status === "planned").length;
+  kit.setAgent(
+    "recovery",
+    "done",
+    `${coverage.recovered} of ${coverage.confirmed} affected customers recovered${waiting ? `; ${waiting} ${waiting === 1 ? "credit is" : "credits are"} above my authority, so they go to the Handoff Agent` : ""}`,
+  );
 }

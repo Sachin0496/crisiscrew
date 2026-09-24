@@ -1,7 +1,7 @@
 {
   "id": "checkout-v4.21.7",
   "title": "Checkout release v4.21.7 breaks payments",
-  "purpose": "The Stage 1 story, computed: five complaints in different words become one incident, the root cause is a release 14 minutes earlier, 23 customers are affected and a credit above authority goes to a human.",
+  "purpose": "A checkout release breaks payments. 8 customers complain in different words; CrisisCrew ties the harm to the release, finds 15 more customers whose payments failed but who never wrote in, and plans each one's recovery: 21 settle within policy and 2 priority customers' credits go to a human.",
   "speed": 2,
   "expected": {
     "incident": true,
@@ -10,7 +10,8 @@
     "affected": 23,
     "silent": 15,
     "voiceUpdates": 2,
-    "creditInr": 11500
+    "needsHuman": 2,
+    "autoCreditInr": 4000
   },
   "world": {
     "baselinePerHour": { "checkout_payments": 3 },
@@ -80,6 +81,7 @@
       { "customerRef": "u4", "at": "-10m", "method": "upi", "status": "success", "amountInr": 499 },
       { "customerRef": "s06", "at": "-9m", "method": "netbanking", "status": "failed", "amountInr": 5499 },
       { "customerRef": "s07", "at": "-8m", "method": "card", "status": "pending", "amountInr": 1099 },
+      { "customerRef": "s07", "at": "-4m", "method": "card", "status": "success", "amountInr": 1099 },
       { "customerRef": "s01", "at": "-7m", "method": "upi", "status": "failed", "amountInr": 1299 },
       { "customerRef": "s08", "at": "-6m", "method": "card", "status": "failed", "amountInr": 799 },
       { "customerRef": "s03", "at": "-5m", "method": "card", "status": "failed", "amountInr": 12999 },

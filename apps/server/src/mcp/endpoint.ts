@@ -8,8 +8,10 @@ import type { Config } from "../config";
 import type { Runtime } from "../runtime";
 
 const INSTRUCTIONS =
-  "CrisisCrew turns bursts of similar customer complaints into incidents. Every tool call goes through a policy gate: " +
-  "you only see the tools your token's identity may use, and every call, allowed or refused, is written to a hash-chained audit log.";
+  "CrisisCrew is a customer harm response layer: it verifies which customers an incident harmed, finds the ones who never complained, " +
+  "and coordinates governed recovery until every affected customer is covered. Start with get_incident, then get_customer_impact " +
+  "(per-customer evidence and recovery state) and get_recovery_coverage. Every tool call goes through a policy gate: you only see the " +
+  "tools your token's identity may use, and every call, allowed or refused, is written to a hash-chained audit log.";
 
 function rpcError(id: unknown, code: number, message: string) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
@@ -59,7 +61,7 @@ export function mountMcp(app: Hono, deps: { runtime: Runtime; config: Config }):
       });
     }
 
-    const server = new McpServer({ name: "crisiscrew", version: "0.1.0" }, { instructions: INSTRUCTIONS });
+    const server = new McpServer({ name: "crisiscrew", version: "0.2.0" }, { instructions: INSTRUCTIONS });
     const catalog = new Map(gate.catalog().map((t) => [t.name, t]));
     for (const tool of permitted) {
       const levels = catalog.get(tool.name)?.levels.map((l) => `L${l}`).join("/") ?? "";

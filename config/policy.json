@@ -1,5 +1,5 @@
 {
-  "$comment": "CrisisCrew policy: who may call which tool, authority limits, detection thresholds and root-cause priors. The policy gate enforces exactly this file, and GET /api/policy shows it. See docs/design.md sections 5, 7 and 9.",
+  "$comment": "CrisisCrew policy: who may call which tool, authority limits, detection thresholds, root-cause priors and the recovery policy. The policy gate enforces exactly this file, and GET /api/policy shows it. See docs/design.md sections 5, 7 and 9, and docs/customer-harm-response.md sections 2 to 4.",
   "identities": {
     "pattern": {
       "name": "Pattern Agent",
@@ -9,7 +9,7 @@
     "commander": {
       "name": "Incident Commander",
       "maxLevel": 1,
-      "tools": ["open_incident", "get_incident", "search_recent_tickets"]
+      "tools": ["open_incident", "get_incident", "search_recent_tickets", "file_engineering_incident", "update_engineering_incident", "get_recovery_coverage"]
     },
     "investigator": {
       "name": "Investigator",
@@ -22,28 +22,36 @@
       "tools": [
         "identify_affected_customers",
         "link_ticket_to_incident",
+        "add_ticket_note",
         "draft_customer_update",
+        "plan_recovery",
         "send_customer_update",
-        "propose_recovery_credit",
+        "add_account_note",
         "issue_recovery_credit",
-        "get_incident"
+        "get_incident",
+        "get_customer_impact"
       ]
     },
     "handoff": {
       "name": "Handoff Agent",
       "maxLevel": 3,
-      "tools": ["request_human_approval", "issue_recovery_credit", "get_incident"]
+      "tools": ["request_human_approval", "issue_recovery_credit", "add_ticket_note", "get_incident", "get_customer_impact"]
     },
     "operator": {
       "name": "External MCP client",
       "maxLevel": 0,
-      "tools": ["search_recent_tickets", "get_incident", "get_payment_health", "get_recent_deployments", "get_service_status"]
+      "tools": [
+        "search_recent_tickets",
+        "get_incident",
+        "get_customer_impact",
+        "get_recovery_coverage",
+        "get_payment_health",
+        "get_recent_deployments",
+        "get_service_status"
+      ]
     }
   },
-  "limits": {
-    "authorityLimitInr": 5000,
-    "creditPerCustomerInr": 500
-  },
+  "limits": { "authorityLimitInr": 5000, "perCustomerLimitInr": 500 },
   "correlation": {
     "windowMin": 15,
     "edgeThreshold": 0.5,
@@ -68,6 +76,8 @@
     "methodSpread": { "concentratedShare": 0.8, "concentratedLr": 2, "spreadLr": 0.7 }
   },
   "recovery": {
-    "affectedLookbackMin": 30
+    "affectedLookbackMin": 30,
+    "creditInr": { "standard": 200, "high": 1000 },
+    "highValueInr": 10000
   }
 }

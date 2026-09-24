@@ -1,5 +1,5 @@
 import { serveStatic } from "@hono/node-server/serve-static";
-import { DecisionBody, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
+import { DecisionBody, impactGraph, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -9,18 +9,26 @@ import { wiringReport, type Config } from "../config";
 import { mountMcp } from "../mcp/endpoint";
 import { REPO_ROOT, WEB_DIST_DIR } from "../paths";
 import type { Runtime } from "../runtime";
+import { ticketImpact } from "./impact";
 import { eventStream } from "./sse";
 
-export type AppDeps = { runtime: Runtime; config: Config };
+export type AppDeps = { runtime: Runtime; config: Config; onError?: (error: unknown) => void };
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 const ManualTicket = z.object({
   customerName: z.string().trim().min(1).max(80).default("Walk-in customer"),
+  customerEmail: z.string().trim().max(120).optional(),
   channel: z.enum(["chat", "email", "phone", "portal"]).default("chat"),
   subject: z.string().trim().max(200).optional(),
   body: z.string().trim().min(1).max(2000),
 });
+
+/** Freshdesk's automation rule posts {"ticket_id": 123}; its simple mode nests the fields under "freshdesk_webhook". */
+const FreshdeskWebhook = z.union([
+  z.object({ ticket_id: z.coerce.number().int().positive() }),
+  z.object({ freshdesk_webhook: z.object({ ticket_id: z.coerce.number().int().positive() }) }),
+]);
 
 function sameSecret(given: string, expected: string): boolean {
   const a = Buffer.from(given);
@@ -54,12 +62,13 @@ async function body<T>(c: Context, schema: z.ZodType<T>): Promise<{ ok: true; da
   return { ok: true, data: parsed.data };
 }
 
-/** The HTTP API (design section 10.1), the event stream, and the built web app. */
-export function createApp({ runtime, config }: AppDeps): Hono {
+/** The HTTP API (design section 10.1), the event stream, the Freshdesk webhook and sidebar data, and the built web app. */
+export function createApp({ runtime, config, onError }: AppDeps): Hono {
   const app = new Hono();
   const admin = requireToken(config.adminToken, "admin");
   const approver = requireToken(config.approverToken, "approver");
   const startedAt = Date.now();
+  const baseUrl = (c: Context) => config.publicBaseUrl ?? new URL(c.req.url).origin;
 
   app.get("/api/health", (c) =>
     c.json({
@@ -87,18 +96,46 @@ export function createApp({ runtime, config }: AppDeps): Hono {
   app.post("/api/live", admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
   app.post("/api/admin/reset", admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
 
+  app.get("/api/customers", (c) => c.json(runtime.customerDirectory()));
+
   app.post("/api/tickets", admin, async (c) => {
     const parsed = await body(c, ManualTicket);
     if (!parsed.ok) return parsed.response;
-    const { customerName, channel, subject, body: text } = parsed.data;
+    const { customerName, customerEmail, channel, subject, body: text } = parsed.data;
+    // A known customer brings their payment history, so the complaint can be verified; anyone else is a walk-in.
+    const known = await runtime.findCustomer({ ...(customerEmail ? { email: customerEmail } : {}), name: customerName });
     const ticket = await runtime.ingest({
-      customerRef: `walk-in:${customerName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-      customerName,
+      customerRef: known?.ref ?? `walk-in:${customerName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+      customerName: known?.name ?? customerName,
       channel,
       body: text,
       ...(subject ? { subject } : {}),
     });
     return c.json(ticket, 201);
+  });
+
+  app.get("/api/incidents/:id/graph", (c) => {
+    const incident = runtime.state().incidents[c.req.param("id")];
+    return incident ? c.json(impactGraph(incident)) : c.json({ error: `no incident ${c.req.param("id")}` }, 404);
+  });
+
+  app.get("/api/tickets/:id/impact", (c) => c.json(ticketImpact(runtime.state(), runtime.state().tickets[c.req.param("id")], baseUrl(c))));
+
+  app.get("/api/freshdesk/tickets/:id", (c) => {
+    const externalId = `freshdesk:${c.req.param("id")}`;
+    const view = Object.values(runtime.state().tickets).find((v) => v.ticket.externalId === externalId);
+    return c.json(ticketImpact(runtime.state(), view, baseUrl(c)));
+  });
+
+  app.post("/api/webhooks/freshdesk", async (c) => {
+    if (!runtime.freshdeskEnabled || !config.freshdesk?.webhookSecret) return c.json({ error: "Freshdesk webhook ingest is off: set TICKETS=freshdesk and FRESHDESK_INGEST=webhook" }, 404);
+    if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshdesk.webhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
+    const parsed = await body(c, FreshdeskWebhook);
+    if (!parsed.ok) return parsed.response;
+    const ticketId = "ticket_id" in parsed.data ? parsed.data.ticket_id : parsed.data.freshdesk_webhook.ticket_id;
+    // Answer at once; Freshdesk's webhook times out quickly, and ingest reads the ticket back from the API.
+    void runtime.ingestFreshdesk(ticketId).catch((error) => onError?.(error));
+    return c.json({ accepted: true, ticketId }, 202);
   });
 
   app.post("/api/approvals/:id", approver, async (c) => {

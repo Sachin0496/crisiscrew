@@ -17,6 +17,7 @@ export type TicketView = { ticket: Ticket; signal?: SignalView; incidentId?: str
 export type CreditRecord = {
   id: string;
   incidentId: string;
+  customerRef: string;
   amountInr: number;
   approvalId?: string;
   adapter: string;
@@ -167,11 +168,24 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
       return { ...next, tickets: markTickets(next, [ticketId], incidentId) };
     }
 
-    case "customers.identified": {
-      const { incidentId, ticketed, silent, since } = event.payload;
+    case "impact.assessed": {
+      const { incidentId, impact } = event.payload;
+      return updateIncident(state, incidentId, (incident) => ({ ...incident, impact }));
+    }
+
+    case "recovery.planned": {
+      const { incidentId, actions } = event.payload;
+      return updateIncident(state, incidentId, (incident) => {
+        const known = new Set(incident.actions.map((a) => a.id));
+        return { ...incident, actions: [...incident.actions, ...actions.filter((a) => !known.has(a.id))] };
+      });
+    }
+
+    case "recovery.updated": {
+      const { incidentId, action } = event.payload;
       return updateIncident(state, incidentId, (incident) => ({
         ...incident,
-        affected: { ticketed, silent, total: ticketed.length + silent.length, since },
+        actions: incident.actions.map((a) => (a.id === action.id ? action : a)),
       }));
     }
 
@@ -180,44 +194,23 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
       return updateIncident(state, update.incidentId, (incident) => ({ ...incident, updates: [...incident.updates, update] }));
     }
 
-    case "credit.proposed": {
-      const { incidentId, amountInr, perCustomerInr, customers } = event.payload;
-      return updateIncident(state, incidentId, (incident) => ({
-        ...incident,
-        credit: { amountInr, perCustomerInr, customers, status: "proposed" },
-      }));
-    }
-
-    case "approval.requested": {
-      const { approval } = event.payload;
-      const next = { ...state, approvals: { ...state.approvals, [approval.id]: approval } };
-      return updateIncident(next, approval.incidentId, (incident) => ({
-        ...incident,
-        approvalId: approval.id,
-        credit: incident.credit ? { ...incident.credit, status: "awaiting_approval", approvalId: approval.id } : incident.credit,
-      }));
-    }
-
+    case "approval.requested":
     case "approval.decided": {
       const { approval } = event.payload;
-      const next = { ...state, approvals: { ...state.approvals, [approval.id]: approval } };
-      if (approval.status !== "rejected") return next;
-      return updateIncident(next, approval.incidentId, (incident) => ({
-        ...incident,
-        credit: incident.credit ? { ...incident.credit, status: "withheld" } : incident.credit,
-      }));
+      return { ...state, approvals: { ...state.approvals, [approval.id]: approval } };
     }
 
     case "credit.issued": {
-      const { incidentId, amountInr, approvalId, adapter, creditId } = event.payload;
-      const next = {
+      const { incidentId, customerRef, amountInr, approvalId, adapter, creditId } = event.payload;
+      return {
         ...state,
-        credits: [...state.credits, { id: creditId, incidentId, amountInr, approvalId, adapter, at: event.at }],
+        credits: [...state.credits, { id: creditId, incidentId, customerRef, amountInr, approvalId, adapter, at: event.at }],
       };
-      return updateIncident(next, incidentId, (incident) => ({
-        ...incident,
-        credit: incident.credit ? { ...incident.credit, status: "issued", amountInr } : incident.credit,
-      }));
+    }
+
+    case "engineering.recorded": {
+      const { incidentId, record } = event.payload;
+      return updateIncident(state, incidentId, (incident) => ({ ...incident, engineering: record }));
     }
 
     case "replay.finished":

@@ -1,3 +1,4 @@
+import { normalizeDomain } from "@crisiscrew/adapters";
 import type { Identity, PortMode, PortName, WiringReport } from "@crisiscrew/contracts";
 import { randomBytes } from "node:crypto";
 import { MODELS_DIR } from "./paths";
@@ -16,13 +17,36 @@ type PortSpec = {
   /** Values that actually work today. The rest are designed but not wired. */
   wired: string[];
   mode: (value: string) => PortMode;
-  detail: (value: string, config: { embeddingsModel: string }) => string;
+  detail: (value: string, config: Config) => string;
 };
 
 const sandboxMode = () => "sandbox" as const;
 
+function ticketsDetail(value: string, { freshdesk }: Config): string {
+  if (value !== "freshdesk" || !freshdesk) return "Scenario replay and tickets typed into the UI";
+  const ingest = freshdesk.ingest === "webhook" ? "webhook ingest" : `polled every ${freshdesk.pollSeconds} s`;
+  const writes = freshdesk.actions === "mcp" ? "Freshdesk's MCP server" : "the REST API";
+  return `Freshdesk (${freshdesk.domain}): ${ingest}; notes and replies through ${writes}. Replays and typed tickets stay in the sandbox`;
+}
+
 const PORTS: Record<PortName, PortSpec> = {
-  tickets: { env: "TICKETS", options: ["sandbox", "freshdesk"], wired: ["sandbox"], mode: sandboxMode, detail: () => "Scenario replay and tickets typed into the UI" },
+  tickets: {
+    env: "TICKETS",
+    options: ["sandbox", "freshdesk"],
+    wired: ["sandbox", "freshdesk"],
+    mode: (v) => (v === "freshdesk" ? "live" : "sandbox"),
+    detail: ticketsDetail,
+  },
+  incidents: {
+    env: "INCIDENTS",
+    options: ["sandbox", "freshservice"],
+    wired: ["sandbox", "freshservice"],
+    mode: (v) => (v === "freshservice" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "freshservice" && c.freshservice
+        ? `Freshservice (${c.freshservice.domain}): an incident for each CrisisCrew incident, with notes, filed as ${c.freshservice.requesterEmail}`
+        : "Engineering incidents kept in memory",
+  },
   deployments: { env: "DEPLOYMENTS", options: ["sandbox", "github"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's release history" },
   payments: { env: "PAYMENTS", options: ["sandbox", "razorpay-status"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's gateway status" },
   metrics: { env: "METRICS", options: ["sandbox"], wired: ["sandbox"], mode: sandboxMode, detail: () => "Error rates simulated from the scenario's releases" },
@@ -42,6 +66,17 @@ const PORTS: Record<PortName, PortSpec> = {
 
 const MCP_IDENTITIES: Identity[] = ["pattern", "commander", "investigator", "recovery", "handoff", "operator"];
 
+export type FreshdeskConfig = {
+  domain: string;
+  apiKey: string;
+  webhookSecret: string | null;
+  ingest: "webhook" | "poll";
+  pollSeconds: number;
+  actions: "rest" | "mcp";
+};
+
+export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null };
+
 export type Config = {
   port: number;
   publicBaseUrl: string | null;
@@ -54,6 +89,8 @@ export type Config = {
   embeddingsThreads: number;
   mcpTokens: Record<Identity, string>;
   generatedTokens: Identity[];
+  freshdesk: FreshdeskConfig | null;
+  freshservice: FreshserviceConfig | null;
 };
 
 type Env = Record<string, string | undefined>;
@@ -69,6 +106,51 @@ function int(env: Env, key: string, fallback: number): number {
   const n = Number(value);
   if (!Number.isInteger(n) || n < 0) throw new ConfigError(`${key} must be a whole number, got "${value}"`);
   return n;
+}
+
+function oneOf<T extends string>(env: Env, key: string, options: readonly T[]): T {
+  const value = text(env, key) ?? options[0]!;
+  if (!options.includes(value as T)) throw new ConfigError(`${key} must be one of ${options.join(", ")}; got "${value}"`);
+  return value as T;
+}
+
+function domain(env: Env, key: string, product: "freshdesk.com" | "freshservice.com"): string {
+  try {
+    return normalizeDomain(text(env, key) ?? "", product);
+  } catch {
+    throw new ConfigError(`${key} is empty`);
+  }
+}
+
+function freshdeskConfig(env: Env): FreshdeskConfig {
+  if (!text(env, "FRESHDESK_DOMAIN") || !text(env, "FRESHDESK_API_KEY")) {
+    throw new ConfigError("TICKETS=freshdesk needs FRESHDESK_DOMAIN and FRESHDESK_API_KEY; see .env.example");
+  }
+  const ingest = oneOf(env, "FRESHDESK_INGEST", ["webhook", "poll"] as const);
+  const webhookSecret = text(env, "FRESHDESK_WEBHOOK_SECRET");
+  if (ingest === "webhook" && !webhookSecret) {
+    throw new ConfigError("FRESHDESK_INGEST=webhook needs FRESHDESK_WEBHOOK_SECRET, so only your automation rule can post tickets; see .env.example");
+  }
+  return {
+    domain: domain(env, "FRESHDESK_DOMAIN", "freshdesk.com"),
+    apiKey: text(env, "FRESHDESK_API_KEY")!,
+    webhookSecret,
+    ingest,
+    pollSeconds: Math.max(5, int(env, "FRESHDESK_POLL_SECONDS", 15)),
+    actions: oneOf(env, "FRESHDESK_ACTIONS", ["rest", "mcp"] as const),
+  };
+}
+
+function freshserviceConfig(env: Env): FreshserviceConfig {
+  const missing = ["FRESHSERVICE_DOMAIN", "FRESHSERVICE_API_KEY", "FRESHSERVICE_REQUESTER_EMAIL"].filter((k) => !text(env, k));
+  if (missing.length > 0) throw new ConfigError(`INCIDENTS=freshservice needs ${missing.join(", ")}; see .env.example`);
+  const workspace = text(env, "FRESHSERVICE_WORKSPACE_ID");
+  return {
+    domain: domain(env, "FRESHSERVICE_DOMAIN", "freshservice.com"),
+    apiKey: text(env, "FRESHSERVICE_API_KEY")!,
+    requesterEmail: text(env, "FRESHSERVICE_REQUESTER_EMAIL")!,
+    workspaceId: workspace === null ? null : int(env, "FRESHSERVICE_WORKSPACE_ID", 0),
+  };
 }
 
 /** Reads and validates configuration from environment variables. See .env.example. */
@@ -103,10 +185,12 @@ export function loadConfig(env: Env): Config {
     embeddingsThreads: int(env, "EMBEDDINGS_THREADS", 2),
     mcpTokens,
     generatedTokens,
+    freshdesk: switches.tickets === "freshdesk" ? freshdeskConfig(env) : null,
+    freshservice: switches.incidents === "freshservice" ? freshserviceConfig(env) : null,
   };
 }
 
-/** What is live, what is sandbox, and which live adapters are designed but not wired. Shown by GET /api/wiring and the UI badge. */
+/** What is live, what is sandbox, and which live adapters are available or only designed. Shown by GET /api/wiring and the UI. */
 export function wiringReport(config: Config): WiringReport {
   const ports = (Object.entries(PORTS) as [PortName, PortSpec][]).map(([port, spec]) => {
     const value = config.switches[port];
@@ -115,7 +199,9 @@ export function wiringReport(config: Config): WiringReport {
       mode: spec.mode(value),
       adapter: value,
       detail: spec.detail(value, config),
+      available: spec.wired.filter((o) => o !== value && spec.mode(o) === "live"),
       planned: spec.options.filter((o) => !spec.wired.includes(o)),
+      env: spec.env,
     };
   });
   return { ports, liveCount: ports.filter((p) => p.mode === "live").length };
