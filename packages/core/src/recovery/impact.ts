@@ -65,10 +65,12 @@ export function assessImpact(input: ImpactInput): AffectedCustomer[] {
     if (a.at < input.since) continue;
     byCustomer.set(a.customerRef, [...(byCustomer.get(a.customerRef) ?? []), a]);
   }
+  // Arrival order: by time, then by ticket number for tickets that arrive in the same millisecond.
+  const arrived = [...input.tickets].sort((x, y) => x.receivedAt - y.receivedAt || x.id.localeCompare(y.id, "en", { numeric: true }));
   const ticketsBy = new Map<string, Ticket[]>();
-  for (const t of [...input.tickets].sort((x, y) => x.receivedAt - y.receivedAt)) {
-    ticketsBy.set(t.customerRef, [...(ticketsBy.get(t.customerRef) ?? []), t]);
-  }
+  for (const t of arrived) ticketsBy.set(t.customerRef, [...(ticketsBy.get(t.customerRef) ?? []), t]);
+  const firstTicket = new Map<string, number>();
+  arrived.forEach((t, i) => firstTicket.has(t.customerRef) || firstTicket.set(t.customerRef, i));
   const failingRefs = [...byCustomer].filter(([, list]) => list.some((a) => FAILING.has(a.status))).map(([ref]) => ref);
   const refs = [...new Set([...ticketsBy.keys(), ...failingRefs])];
 
@@ -147,8 +149,8 @@ export function assessImpact(input: ImpactInput): AffectedCustomer[] {
     return confirmed ? { ...base, severity: severityOf(base, input.highValueInr) } : base;
   });
 
-  // Complained first (by their first ticket), then silent (by their first failure), then unverified.
+  // Complained first (in the order they wrote in), then silent (by their first failure), then unverified.
   const rank = (c: AffectedCustomer) => (c.confidence !== "confirmed" ? 2 : c.complained ? 0 : 1);
-  const time = (c: AffectedCustomer) => (c.complained ? (ticketsBy.get(c.ref)?.[0]?.receivedAt ?? 0) : (c.firstFailedAt ?? 0));
-  return customers.sort((a, b) => rank(a) - rank(b) || time(a) - time(b) || a.ref.localeCompare(b.ref));
+  const order = (c: AffectedCustomer) => (c.complained ? (firstTicket.get(c.ref) ?? 0) : (c.firstFailedAt ?? 0));
+  return customers.sort((a, b) => rank(a) - rank(b) || order(a) - order(b) || a.ref.localeCompare(b.ref));
 }

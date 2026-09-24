@@ -1,9 +1,7 @@
 import { AGENT_IDS, LEVEL_NAMES, type AuditEntry, type CrisisState } from "@crisiscrew/contracts";
 import { Bot } from "lucide-react";
 import { Badge, Card, Empty } from "../components/ui";
-import { AGENT_STATUS, plural, sentence, since, TOOL_OWNER, type Tone } from "../format";
-
-const ADAPTER: Record<string, string> = { sandbox: "Sandbox", core: "Engine", off: "Off" };
+import { ADAPTER_LABELS, AGENT_STATUS, plural, sentence, since, TOOL_OWNER, type Tone } from "../format";
 
 export function decisionOf(call: AuditEntry): { label: string; tone: Tone } {
   if (call.decision === "denied") return { label: "Refused", tone: "danger" };
@@ -20,7 +18,7 @@ export function AgentsPage({ state }: { state: CrisisState }) {
         <h1 className="page-title">Agents</h1>
         <p className="page-lede">
           Five agents, each with its own identity, allow-list and highest authority level. Every tool call goes through the policy gate and is written to the audit
-          log.
+          log, with the adapter that served it: the sandbox, or Freshdesk and Freshservice when they're switched on.
         </p>
       </div>
       <Card title="Agents" subtitle="What each agent is doing now" flush>
@@ -86,7 +84,9 @@ export function AgentsPage({ state }: { state: CrisisState }) {
                       <td className="mono nowrap">{c.tool}</td>
                       <td className="nowrap">{c.level === null ? "–" : `L${c.level}`}</td>
                       <td>
-                        <Badge>{ADAPTER[c.adapter] ?? "Live"}</Badge>
+                        <Badge tone={c.adapter === "freshdesk" || c.adapter === "freshdesk-mcp" || c.adapter === "freshservice" ? "success" : "neutral"}>
+                          {ADAPTER_LABELS[c.adapter] ?? c.adapter}
+                        </Badge>
                       </td>
                       <td>
                         <Badge tone={decision.tone}>{decision.label}</Badge>

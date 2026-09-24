@@ -24,11 +24,12 @@ export function TicketTags({ view }: { view: TicketView }) {
       )}
       {incidentId && <Badge mono>{incidentId}</Badge>}
       {ticket.source === "manual" && <Badge tone="accent">Typed here</Badge>}
+      {ticket.source === "freshdesk" && <Badge tone="accent">Freshdesk</Badge>}
     </div>
   );
 }
 
-export function RecentTickets({ state }: { state: CrisisState }) {
+export function RecentTickets({ state, customerNames }: { state: CrisisState; customerNames: string[] }) {
   const views = [...state.ticketOrder].reverse().slice(0, 6).map((id) => state.tickets[id]!);
   return (
     <Card
@@ -58,7 +59,7 @@ export function RecentTickets({ state }: { state: CrisisState }) {
           </article>
         ))
       )}
-      <TicketComposer />
+      <TicketComposer customerNames={customerNames} />
     </Card>
   );
 }

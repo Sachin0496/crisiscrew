@@ -1,10 +1,10 @@
-import { initialState, type ClusterView, type IncidentStatus, type IncidentView } from "@crisiscrew/contracts";
+import { initialState, type AffectedCustomer, type Approval, type ClusterView, type IncidentStatus, type IncidentView, type RecoveryAction } from "@crisiscrew/contracts";
 import { describe, expect, it } from "vitest";
-import { currentIncident, expectedOutcome, groupVerdict, incidentTitle, progressSteps, sessionSummary } from "./view";
+import { currentIncident, customerRows, decisionsFor, expectedOutcome, groupVerdict, incidentTitle, matchesFilter, planSummary, progressSteps, sessionSummary } from "./view";
 
 type Timeline = IncidentView["timeline"];
 const at = (status: IncidentStatus, sec: number) => ({ at: sec * 1000, status, note: "" });
-const incident = (status: IncidentStatus, timeline: Timeline, approvalId?: string) => ({ status, timeline, ...(approvalId ? { approvalId } : {}) });
+const incident = (status: IncidentStatus, timeline: Timeline) => ({ status, timeline });
 const states = (steps: ReturnType<typeof progressSteps>) => steps.map((s) => `${s.key}:${s.state}`);
 
 describe("incidentTitle", () => {
@@ -18,7 +18,7 @@ describe("incidentTitle", () => {
 describe("progressSteps", () => {
   it("marks the steps already passed as done and the current status as current", () => {
     const steps = progressSteps(
-      incident("awaiting_approval", [at("detected", 1), at("investigating", 2), at("root_cause_identified", 3), at("recovering", 4), at("awaiting_approval", 5)], "APR-001"),
+      incident("awaiting_approval", [at("detected", 1), at("investigating", 2), at("root_cause_identified", 3), at("recovering", 4), at("awaiting_approval", 5)]),
     );
     expect(states(steps)).toEqual([
       "detected:done",
@@ -26,22 +26,22 @@ describe("progressSteps", () => {
       "root_cause_identified:done",
       "recovering:done",
       "awaiting_approval:current",
-      "mitigated:upcoming",
+      "recovered:upcoming",
     ]);
     expect(steps.map((s) => s.at)).toEqual([1000, 2000, 3000, 4000, 5000, undefined]);
   });
 
   it("leaves out the approval step while no human decision has been asked for", () => {
     const steps = progressSteps(incident("investigating", [at("detected", 1), at("investigating", 2)]));
-    expect(states(steps)).toEqual(["detected:done", "investigating:current", "root_cause_identified:upcoming", "recovering:upcoming", "mitigated:upcoming"]);
+    expect(states(steps)).toEqual(["detected:done", "investigating:current", "root_cause_identified:upcoming", "recovering:upcoming", "recovered:upcoming"]);
   });
 
-  it("shows every step as done once the incident is mitigated", () => {
-    const withinAuthority = progressSteps(incident("mitigated", [at("detected", 1), at("mitigated", 9)]));
+  it("shows every step as done once every affected customer is recovered", () => {
+    const withinAuthority = progressSteps(incident("recovered", [at("detected", 1), at("recovered", 9)]));
     expect(withinAuthority.every((s) => s.state === "done")).toBe(true);
     expect(withinAuthority.map((s) => s.key)).not.toContain("awaiting_approval");
 
-    const afterApproval = progressSteps(incident("mitigated", [at("detected", 1), at("awaiting_approval", 5), at("mitigated", 9)], "APR-001"));
+    const afterApproval = progressSteps(incident("recovered", [at("detected", 1), at("awaiting_approval", 5), at("recovered", 9)]));
     expect(states(afterApproval)).toContain("awaiting_approval:done");
   });
 });
@@ -120,9 +120,98 @@ describe("expectedOutcome", () => {
   it("states what a scenario should do, including which gate refuses it", () => {
     expect(expectedOutcome({ incident: false, refusedBy: "failure_share" })).toBe("Expected: no incident, refused by the failure share gate");
     expect(expectedOutcome({ incident: false })).toBe("Expected: no incident");
-    expect(
-      expectedOutcome({ incident: true, rootCause: "deploy:checkout-service@4.21.7", affected: 23, silent: 15, creditInr: 11500 }),
-    ).toBe("Expected: an incident caused by checkout-service@4.21.7, 23 customers affected (15 silent), and a ₹11,500 credit for a human to decide");
+    expect(expectedOutcome({ incident: true, rootCause: "deploy:checkout-service@4.21.7", affected: 23, silent: 15, needsHuman: 2 })).toBe(
+      "Expected: an incident caused by checkout-service@4.21.7, 23 customers harmed (15 silent), and 2 credits for a human to decide",
+    );
+    expect(expectedOutcome({ incident: true, rootCause: "provider:razorpay", affected: 10, silent: 4, needsHuman: 1 })).toBe(
+      "Expected: an incident caused by razorpay, 10 customers harmed (4 silent), and one credit for a human to decide",
+    );
     expect(expectedOutcome({ incident: true, rootCause: "provider:razorpay" })).toBe("Expected: an incident caused by razorpay");
+  });
+});
+
+function affected(ref: string, over: Partial<AffectedCustomer> = {}): AffectedCustomer {
+  return {
+    ref,
+    name: ref,
+    tier: "standard",
+    consent: { proactive: true, voice: false },
+    complained: false,
+    ticketIds: [],
+    confidence: "confirmed",
+    severity: "medium",
+    failedAttempts: 1,
+    amountInr: 999,
+    methods: ["upi"],
+    paidOnRetry: false,
+    evidence: [{ kind: "payment_failed", label: `UPI payment of ₹999 failed at 14:05:00 (${ref})`, node: `attempt:${ref}:1`, source: "sandbox" }],
+    ...over,
+  };
+}
+
+function act(customerRef: string, kind: RecoveryAction["kind"], status: RecoveryAction["status"], amountInr?: number): RecoveryAction {
+  return { id: `${customerRef}-${kind}`, incidentId: "INC-1", customerRef, kind, reason: "", level: 2, status, updatedAt: 0, ...(amountInr ? { amountInr } : {}) };
+}
+
+describe("customer rows", () => {
+  const inc = {
+    id: "INC-1",
+    impact: {
+      since: 0,
+      assessedAt: 0,
+      customers: [
+        affected("priya", { complained: true, ticketIds: ["T-1"] }),
+        affected("ananya", { tier: "priority", severity: "high" }),
+        affected("judge", { confidence: "unverified", complained: true, severity: undefined, evidence: [] }),
+      ],
+    },
+    actions: [
+      act("priya", "ticket_reply", "done"),
+      act("priya", "credit", "done", 200),
+      act("ananya", "proactive_message", "done"),
+      act("ananya", "voice", "prepared"),
+      act("ananya", "credit", "awaiting_approval", 1000),
+      act("judge", "acknowledge", "done"),
+    ],
+  } as unknown as IncidentView;
+  const rows = customerRows(inc);
+
+  it("gives each customer their recovery state and strongest evidence", () => {
+    expect(rows.map((r) => `${r.customer.ref}:${r.state}`)).toEqual(["priya:recovered", "ananya:needs_human", "judge:unverified"]);
+    expect(rows[0]?.headline).toBe("UPI payment of ₹999 failed at 14:05:00 (priya)");
+    expect(rows[2]?.headline).toBe("No failed payment on record");
+  });
+
+  it("filters by complained, silent, needs a human and not verified", () => {
+    const pick = (f: Parameters<typeof matchesFilter>[1]) => rows.filter((r) => matchesFilter(r, f)).map((r) => r.customer.ref);
+    expect(pick("all")).toEqual(["priya", "ananya", "judge"]);
+    expect(pick("complained")).toEqual(["priya"]);
+    expect(pick("silent")).toEqual(["ananya"]);
+    expect(pick("needs_human")).toEqual(["ananya"]);
+    expect(pick("unverified")).toEqual(["judge"]);
+  });
+
+  it("sums up a plan in a few words", () => {
+    expect(planSummary(rows[1]!.actions)).toBe("Message · Voice · ₹1,000 credit");
+    expect(planSummary([act("x", "account_note", "done"), act("x", "no_credit", "done")])).toBe("Account note");
+  });
+});
+
+describe("decisionsFor", () => {
+  it("lists an incident's pending decisions first, oldest first, then decided ones", () => {
+    const approval = (id: string, status: Approval["status"], requestedAt: number, decidedAt?: number) =>
+      ({ id, incidentId: "INC-1", status, requestedAt, ...(decidedAt ? { decidedAt } : {}) }) as Approval;
+    const state = {
+      ...initialState(),
+      approvals: {
+        a: approval("a", "approved", 1, 50),
+        b: approval("b", "pending", 3),
+        c: approval("c", "pending", 2),
+        d: approval("d", "rejected", 1, 60),
+        e: { ...approval("e", "pending", 1), incidentId: "INC-2" },
+      },
+    };
+    expect(decisionsFor(state, "INC-1").map((a) => a.id)).toEqual(["c", "b", "d", "a"]);
+    expect(decisionsFor(state, undefined)).toEqual([]);
   });
 });

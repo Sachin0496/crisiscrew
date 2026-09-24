@@ -1,15 +1,16 @@
 import type { WiringReport } from "@crisiscrew/contracts";
 import { CircleAlert, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, type PolicyView, type ScenarioSummary } from "./api";
+import { api, type DirectoryEntry, type PolicyView, type ScenarioSummary } from "./api";
 import { AppHeader, SPEEDS } from "./components/AppHeader";
 import { Sidebar } from "./components/Sidebar";
 import { STATUS_LABELS } from "./format";
 import { AgentsPage } from "./pages/AgentsPage";
+import { CustomersPage } from "./pages/CustomersPage";
 import { GovernancePage } from "./pages/GovernancePage";
 import { IncidentPage } from "./pages/IncidentPage";
 import { TicketsPage } from "./pages/TicketsPage";
-import { parseRoute, ROUTES, routeHref, type Route } from "./router";
+import { parseCustomer, parseRoute, ROUTES, routeHref, type Route } from "./router";
 import { applyTheme, storedTheme, type Theme } from "./theme";
 import { useCrisis } from "./useCrisis";
 import { currentIncident } from "./view";
@@ -17,6 +18,8 @@ import { currentIncident } from "./view";
 export function App() {
   const { state, connected } = useCrisis();
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
+  const [customerRef, setCustomerRef] = useState<string | undefined>(() => parseCustomer(window.location.hash));
+  const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [theme, setTheme] = useState<Theme>(storedTheme);
   const [wiring, setWiring] = useState<WiringReport | null>(null);
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
@@ -28,8 +31,13 @@ export function App() {
 
   useEffect(() => {
     const onHash = () => {
-      setRoute(parseRoute(window.location.hash));
-      window.scrollTo({ top: 0 });
+      const next = parseRoute(window.location.hash);
+      // Picking another customer on the Customers page keeps the list where it is.
+      setRoute((previous) => {
+        if (previous !== next || next !== "customers") window.scrollTo({ top: 0 });
+        return next;
+      });
+      setCustomerRef(parseCustomer(window.location.hash));
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -51,11 +59,19 @@ export function App() {
     if (replaySpeed !== undefined && SPEEDS.includes(replaySpeed)) setSpeed(replaySpeed);
   }, [sessionId, mode, replaying, replaySpeed]);
 
+  // The customers of the session's world, so a typed complaint can come from a known customer.
+  useEffect(() => {
+    if (!sessionId) return;
+    api.customers().then(setDirectory, () => undefined);
+  }, [sessionId]);
+
   const incident = currentIncident(state);
   useEffect(() => {
     const page = ROUTES.find((r) => r.id === route)?.label ?? "Incident";
     document.title = incident && route === "incident" ? `${incident.id} · ${STATUS_LABELS[incident.status]} · CrisisCrew` : `${page} · CrisisCrew`;
   }, [route, incident?.id, incident?.status]);
+
+  const customerNames = directory.map((c) => c.name);
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -92,6 +108,7 @@ export function App() {
       <div className="main">
         <AppHeader
           route={route}
+          customerName={route === "customers" && customerRef ? incident?.impact?.customers.find((c) => c.ref === customerRef)?.name : undefined}
           state={state}
           scenarios={scenarios}
           scenarioId={scenarioId}
@@ -103,8 +120,9 @@ export function App() {
           onLive={() => run(() => api.live())}
         />
         <main id="content">
-          {route === "incident" && <IncidentPage state={state} scenario={scenario} />}
-          {route === "tickets" && <TicketsPage state={state} />}
+          {route === "incident" && <IncidentPage state={state} scenario={scenario} customerNames={customerNames} />}
+          {route === "customers" && <CustomersPage state={state} selected={customerRef} />}
+          {route === "tickets" && <TicketsPage state={state} customerNames={customerNames} />}
           {route === "agents" && <AgentsPage state={state} />}
           {route === "governance" && <GovernancePage state={state} policy={policy} />}
         </main>

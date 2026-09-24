@@ -1,7 +1,7 @@
-import type { CrisisState, IncidentView } from "@crisiscrew/contracts";
-import { Check, CirclePlay, Clock, GitCommitHorizontal, Inbox, Users } from "lucide-react";
+import { recoveryCoverage, recoveryMetrics, type CrisisState, type IncidentView } from "@crisiscrew/contracts";
+import { Check, CirclePlay, Clock, ExternalLink, GitCommitHorizontal, Inbox, Users, Wrench } from "lucide-react";
 import type { ScenarioSummary } from "../../api";
-import { clock, CREDIT_STATUS, inr, pct, plural, SEVERITY, since, STATUS_LABELS, STATUS_TONE } from "../../format";
+import { ADAPTER_LABELS, clock, inr, pct, plural, SEVERITY, since, STATUS_LABELS, STATUS_TONE } from "../../format";
 import { expectedOutcome, incidentTitle, progressSteps } from "../../view";
 import { Badge, Stat } from "../ui";
 
@@ -31,14 +31,16 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
           </Badge>
         </div>
         <p className="page-lede">
-          The Pattern Agent compares every new ticket with the last 15 minutes of tickets. It opens an incident only when a group of similar failure reports
-          passes all four gates.
+          CrisisCrew reads every new complaint. When a burst of them describes the same failure, it opens an incident, proves which customers were harmed from the
+          payment data, finds the ones who stayed silent, and runs each one's recovery until every affected customer is covered.
         </p>
       </div>
     );
   }
   const tickets = new Set([...incident.ticketIds, ...incident.linkedTicketIds]).size;
   const severity = SEVERITY[incident.severity];
+  const coverage = recoveryCoverage(incident);
+  const record = incident.engineering;
   return (
     <div className="page-header">
       <div className="page-title-row">
@@ -56,14 +58,28 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
         <span>
           <Inbox size={14} aria-hidden /> {plural(tickets, "ticket")}
         </span>
-        {incident.affected && (
+        {incident.impact && (
           <span>
-            <Users size={14} aria-hidden /> {plural(incident.affected.total, "customer")} affected
+            <Users size={14} aria-hidden /> {plural(coverage.confirmed, "customer")} harmed
           </span>
         )}
         {incident.rootCause && (
           <span>
             <GitCommitHorizontal size={14} aria-hidden /> Likely cause <strong>{incident.rootCause.label}</strong> ({pct(incident.rootCause.confidence)})
+          </span>
+        )}
+        {record && (
+          <span title="The incident engineering works from">
+            <Wrench size={14} aria-hidden />
+            {record.url ? (
+              <a href={record.url} target="_blank" rel="noreferrer">
+                {ADAPTER_LABELS[record.adapter] ?? record.adapter} {record.id} <ExternalLink size={12} aria-hidden />
+              </a>
+            ) : (
+              <>
+                Engineering incident <strong className="mono">{record.id}</strong> ({(ADAPTER_LABELS[record.adapter] ?? record.adapter).toLowerCase()})
+              </>
+            )}
           </span>
         )}
       </div>
@@ -85,7 +101,7 @@ export function Stepper({ incident, start }: { incident: IncidentView; start: nu
               {step.state === "done" ? <Check size={13} strokeWidth={3} /> : step.state === "current" ? <span className="pulse" /> : null}
             </span>
             <div className="step-label">{step.label}</div>
-            <div className="step-time">{step.at !== undefined ? since(step.at, start) : " "}</div>
+            <div className="step-time">{step.at !== undefined ? since(step.at, start) : " "}</div>
           </li>
         ))}
       </ol>
@@ -94,33 +110,61 @@ export function Stepper({ incident, start }: { incident: IncidentView; start: nu
 }
 
 export function Stats({ state, incident }: { state: CrisisState; incident?: IncidentView }) {
-  const tickets = state.ticketOrder.map((id) => state.tickets[id]!);
-  const failures = tickets.filter((t) => t.signal?.isFailure).length;
-  const affected = incident?.affected;
-  const credit = incident?.credit;
-  const proposed = credit ? credit.perCustomerInr * credit.customers : 0;
-  const creditSub = !credit
-    ? "Proposed after customers are updated"
-    : credit.amountInr === proposed
-      ? `${inr(credit.perCustomerInr)} × ${plural(credit.customers, "customer")} · ${CREDIT_STATUS[credit.status]}`
-      : `Changed from the proposed ${inr(proposed)} · ${CREDIT_STATUS[credit.status]}`;
+  const coverage = incident?.impact ? recoveryCoverage(incident) : undefined;
+  const metrics = incident?.impact ? recoveryMetrics(state, incident) : undefined;
+  const spent = metrics ? metrics.spend.issuedInr + metrics.spend.approvedInr : 0;
   return (
     <div className="stats" aria-label="Key numbers">
-      <Stat label="Tickets read" value={tickets.length} sub={`${plural(failures, "failure report")} · ${plural(tickets.length - failures, "question")}`} />
       <Stat
-        label="Customers affected"
-        value={affected ? affected.total : "–"}
-        sub={affected ? `${affected.ticketed.length} contacted us · ${affected.silent.length} silent` : "Found from failed payments once an incident opens"}
+        label="Customers harmed"
+        value={coverage ? coverage.confirmed : "–"}
+        sub={
+          coverage
+            ? `${coverage.complained} complained · ${coverage.silent} silent${coverage.unverified ? ` · ${coverage.unverified} not verified` : ""}`
+            : "Proved from payment data once an incident opens"
+        }
       />
       <Stat
-        label="Root cause confidence"
+        label="Recovery coverage"
+        value={
+          coverage && coverage.confirmed > 0 ? (
+            <>
+              {coverage.recovered}
+              <span className="of">/{coverage.confirmed}</span>
+            </>
+          ) : (
+            "–"
+          )
+        }
+        meter={coverage?.ratio ?? undefined}
+        tone={coverage?.complete ? "success" : coverage && coverage.needsHuman > 0 ? "warning" : "accent"}
+        sub={
+          !coverage
+            ? "Every affected customer, recovered"
+            : coverage.complete
+              ? "Every affected customer recovered"
+              : coverage.needsHuman > 0
+                ? `${plural(coverage.needsHuman, "customer")} ${coverage.needsHuman === 1 ? "needs" : "need"} a human`
+                : `${coverage.inProgress + coverage.attention} still in progress`
+        }
+      />
+      <Stat
+        label="Root cause"
         value={incident?.rootCause ? pct(incident.rootCause.confidence) : "–"}
         sub={incident?.rootCause ? incident.rootCause.label : "Ranked when the Investigator finishes"}
       />
       <Stat
-        label="Goodwill credit"
-        value={credit ? inr(credit.amountInr) : "–"}
-        sub={creditSub}
+        label="Recovery spend"
+        value={metrics ? inr(spent) : "–"}
+        sub={
+          !metrics
+            ? "Credits sized per customer, by the harm"
+            : metrics.spend.awaitingInr > 0
+              ? `${inr(metrics.spend.awaitingInr)} waiting for approval`
+              : metrics.spend.approvedInr > 0
+                ? `${inr(metrics.spend.approvedInr)} of it approved by a human`
+                : "All within the agents' authority"
+        }
       />
     </div>
   );

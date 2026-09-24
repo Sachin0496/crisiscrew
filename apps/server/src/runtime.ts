@@ -46,6 +46,13 @@ export type ScenarioSummary = Pick<Scenario, "id" | "title" | "purpose" | "speed
 
 export type DirectoryEntry = Pick<Customer, "ref" | "name" | "email" | "tier">;
 
+/**
+ * A live session's world is anchored this far in the past, so every payment
+ * in its timeline has already happened when someone types or files a
+ * complaint: the evidence is there to be found, as it would be in production.
+ */
+export const LIVE_WORLD_LEAD_MS = 2 * 60_000;
+
 export type FreshdeskIngest =
   | { status: "ingested"; ticket: Ticket; matched: boolean }
   | { status: "duplicate" | "too_old" | "empty"; freshdeskId: number };
@@ -75,7 +82,7 @@ export class Runtime {
 
   async startLive(): Promise<string> {
     const world = this.scenario(this.options.liveWorld);
-    return this.swap(world, { mode: "live", scenarioId: world.id, scenarioTitle: world.title, speed: 1 }, new SystemClock(), Date.now());
+    return this.swap(world, { mode: "live", scenarioId: world.id, scenarioTitle: world.title, speed: 1 }, new SystemClock(), Date.now() - LIVE_WORLD_LEAD_MS);
   }
 
   async startReplay(id: string, speed?: number): Promise<string> {
