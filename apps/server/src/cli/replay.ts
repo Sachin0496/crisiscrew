@@ -121,7 +121,8 @@ function print(e: CrisisEvent): void {
     case "recovery.planned": {
       const needsHuman = e.payload.actions.filter((a) => a.level === 3).length;
       const customers = new Set(e.payload.actions.map((a) => a.customerRef)).size;
-      console.log(`  recovery plan: ${e.payload.actions.length} actions for ${customers} customers${needsHuman ? yellow(`, ${needsHuman} credits need a human`) : ""}`);
+      const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+      console.log(`  recovery plan: ${n(e.payload.actions.length, "action")} for ${n(customers, "customer")}${needsHuman ? yellow(`, ${n(needsHuman, "credit")} for a human`) : ""}`);
       break;
     }
     case "recovery.updated":

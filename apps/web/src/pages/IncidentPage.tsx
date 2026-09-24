@@ -13,6 +13,7 @@ import { currentIncident } from "../view";
  * Everything the stage demo needs on one screen, customer impact first:
  * who was harmed and who stayed silent, recovery coverage, the human
  * decisions, then the root cause and the detection that triggered it.
+ * With no incident open, detection leads: what it refused, and why.
  */
 export function IncidentPage({ state, scenario, customerNames }: { state: CrisisState; scenario?: ScenarioSummary; customerNames: string[] }) {
   const incident = currentIncident(state);
@@ -25,10 +26,11 @@ export function IncidentPage({ state, scenario, customerNames }: { state: Crisis
       <Stats state={state} incident={incident} />
       <div className="incident-grid">
         <div className="col">
+          {!incident && <Detection state={state} />}
           <Impact incident={incident} />
           <Coverage state={state} incident={incident} />
           <RootCause incident={incident} />
-          <Detection state={state} />
+          {incident && <Detection state={state} />}
         </div>
         <div className="col">
           <Decisions state={state} incident={incident} />

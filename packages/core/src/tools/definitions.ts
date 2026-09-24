@@ -446,9 +446,10 @@ export function createTools(): Tool[] {
       },
       summarize: (r) => {
         const { planned, customers, needsHuman } = r as { planned: number; customers: number; needsHuman: number };
+        const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
         return planned === 0
           ? "nothing new to plan"
-          : `${planned} actions for ${customers} customers${needsHuman ? `; ${needsHuman} ${needsHuman === 1 ? "credit needs" : "credits need"} a human` : ""}`;
+          : `${n(planned, "action")} for ${n(customers, "customer")}${needsHuman ? `; ${needsHuman} ${needsHuman === 1 ? "credit needs" : "credits need"} a human` : ""}`;
       },
     },
     {

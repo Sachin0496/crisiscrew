@@ -4,8 +4,13 @@ import { routeHref } from "../../router";
 import { planSummary, type CustomerRow } from "../../view";
 import { Badge } from "../ui";
 
-/** Affected customers, one row each: who they are, whether they complained, the evidence, the recovery and where it stands. A row opens their evidence chain. */
-export function CustomerTable({ rows, selected, className = "" }: { rows: CustomerRow[]; selected?: string; className?: string }) {
+/**
+ * Affected customers, one row each: who they are, whether they complained,
+ * the evidence, the recovery and where it stands. A row opens their evidence
+ * chain. Beside the detail panel, the recovery column is left out: the panel
+ * shows the whole plan.
+ */
+export function CustomerTable({ rows, selected, className = "", showRecovery = true }: { rows: CustomerRow[]; selected?: string; className?: string; showRecovery?: boolean }) {
   const wrap = useRef<HTMLDivElement>(null);
   // A link to one customer (#/customers/s03) scrolls their row into view inside the table, without moving the page.
   useEffect(() => {
@@ -24,7 +29,7 @@ export function CustomerTable({ rows, selected, className = "" }: { rows: Custom
             <th>Customer</th>
             <th>Reported</th>
             <th>Evidence</th>
-            <th>Recovery</th>
+            {showRecovery && <th>Recovery</th>}
             <th>Status</th>
           </tr>
         </thead>
@@ -49,7 +54,7 @@ export function CustomerTable({ rows, selected, className = "" }: { rows: Custom
                   {customer.confidence !== "confirmed" ? <Badge>Not verified</Badge> : customer.complained ? <Badge>Complained</Badge> : <Badge tone="accent">Silent</Badge>}
                 </td>
                 <td className="evidence-cell">{headline}</td>
-                <td className="plan-cell">{planSummary(actions) || <span className="muted">Planning…</span>}</td>
+                {showRecovery && <td className="plan-cell">{planSummary(actions) || <span className="muted">Planning…</span>}</td>}
                 <td>
                   <Badge tone={status.tone} dot={state === "needs_human"}>
                     {status.label}

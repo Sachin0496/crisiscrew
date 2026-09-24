@@ -72,7 +72,7 @@ export function CustomersPage({ state, selected }: { state: CrisisState; selecte
             {shown.length === 0 ? (
               <Empty icon={<Users size={18} />} title="No customers match this filter" />
             ) : (
-              <CustomerTable rows={shown} selected={active?.customer.ref} className="tall" />
+              <CustomerTable rows={shown} selected={active?.customer.ref} className="tall" showRecovery={false} />
             )}
           </Card>
           {active && (
