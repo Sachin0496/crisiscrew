@@ -1,0 +1,8 @@
+{
+  "crisiscrew_host": {
+    "display_name": "CrisisCrew host",
+    "description": "The public HTTPS host of your CrisisCrew server, without https:// or a path. For example abc-def.trycloudflare.com",
+    "type": "text",
+    "required": true
+  }
+}
