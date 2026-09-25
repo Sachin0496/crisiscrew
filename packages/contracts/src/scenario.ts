@@ -36,6 +36,18 @@ export const ScenarioResponder = z.object({
   answers: z.enum(["acknowledges", "ignores", "no_answer", "busy"]).default("acknowledges"),
 });
 
+/** An operational alert in the scenario's timeline, as Freshservice Alert Management would send it. */
+export const ScenarioAlert = z.object({
+  id: z.string().min(1),
+  at: z.string(),
+  service: z.string().min(1),
+  metric: z.string().min(1),
+  value: z.string().optional(),
+  threshold: z.string().optional(),
+  severity: z.enum(["critical", "warning"]),
+  label: z.string().min(1),
+});
+
 export const ScenarioService = z.object({
   name: z.string().min(1),
   surfaces: z.array(Surface).min(1),
@@ -92,6 +104,10 @@ export const ScenarioExpected = z.object({
   /** The Incident Commander's importance once the scenario has played, and whether it pages on-call. */
   importance: z.enum(["P1", "P2", "P3"]).optional(),
   pages: z.boolean().optional(),
+  /** What opens the incident: complaints (the default) or an alert. */
+  trigger: z.enum(["complaints", "alert"]).optional(),
+  /** How many incidents the scenario opens, when it isn't one. */
+  incidents: z.number().int().min(0).optional(),
   /** Who acknowledges the page, when one is expected. */
   acknowledgedBy: z.string().optional(),
 });
@@ -110,6 +126,7 @@ export const ScenarioSchema = z
       customers: z.array(ScenarioCustomer),
       attempts: z.array(ScenarioAttempt),
       oncall: z.array(ScenarioResponder).default([]),
+      alerts: z.array(ScenarioAlert).default([]),
       baselinePerHour: z.partialRecord(Surface, z.number().positive()).default({}),
     }),
     tickets: z.array(ScenarioTicket).min(1),
@@ -142,3 +159,4 @@ export type ScenarioProvider = z.infer<typeof ScenarioProvider>;
 export type ScenarioAttempt = z.infer<typeof ScenarioAttempt>;
 export type ScenarioService = z.infer<typeof ScenarioService>;
 export type ScenarioResponder = z.infer<typeof ScenarioResponder>;
+export type ScenarioAlert = z.infer<typeof ScenarioAlert>;

@@ -345,6 +345,34 @@ export type ImportanceAssessment = {
   assessedAt: number;
 };
 
+/** How serious an operational alert is: a critical one can open an incident on its own. */
+export type AlertSeverity = "critical" | "warning";
+
+/**
+ * A deterministic threshold alert on a service (CPU, error rate, latency),
+ * from Freshservice Alert Management or a scenario. It can open an incident
+ * on its own, or be linked to one that complaints opened.
+ */
+export type Alert = {
+  id: string;
+  /** Where it came from: "freshservice" or "sandbox". */
+  source: string;
+  /** The alert's id in its source, used to ignore repeats. */
+  externalId?: string;
+  service: string;
+  metric: string;
+  value?: string;
+  threshold?: string;
+  severity: AlertSeverity;
+  /** What crossed which threshold, in a sentence. */
+  label: string;
+  firedAt: number;
+  resolvedAt?: number;
+  incidentId?: string;
+};
+
+export type AlertInput = Omit<Alert, "id" | "incidentId" | "resolvedAt">;
+
 /** Where a responder sits in the on-call schedule, in the order they're paged. */
 export type OnCallRole = "primary" | "secondary" | "tertiary";
 
@@ -390,6 +418,10 @@ export type IncidentView = {
   severity: Severity;
   importance?: ImportanceAssessment;
   paging?: PagingView;
+  /** What opened it: a burst of complaints (the default), or a critical alert. */
+  trigger?: "complaints" | "alert";
+  /** Alerts linked to it, the triggering one first. */
+  alertIds?: string[];
   openedAt: number;
   surface: Surface;
   clusterId: string;

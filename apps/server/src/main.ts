@@ -5,6 +5,7 @@ import {
   freshdeskMcpWriter,
   freshserviceIncidents,
   freshserviceOnCall,
+  FreshserviceAlertsClient,
   HashEmbedder,
   LocalEmbedder,
   restWriter,
@@ -62,6 +63,10 @@ function liveAdapters(): LiveAdapters {
   if (config.freshservice) {
     const { domain, apiKey, requesterEmail, workspaceId } = config.freshservice;
     live.incidents = freshserviceIncidents({ domain, apiKey, requesterEmail, ...(workspaceId !== null ? { workspaceId } : {}) });
+  }
+  if (config.alerts) {
+    const { domain, apiKey, rules } = config.alerts;
+    live.alerts = { client: new FreshserviceAlertsClient({ domain, apiKey }), rules };
   }
   if (config.oncall) {
     const { domain, apiKey, defaultScheduleId, schedules } = config.oncall;
@@ -127,6 +132,20 @@ if (config.freshdesk?.ingest === "poll") {
       .catch((error) => console.error("[crisiscrew] Freshdesk poll:", error instanceof Error ? error.message : error))
       .finally(() => (polling = false));
   }, config.freshdesk.pollSeconds * 1000);
+}
+
+// The poll for Freshservice alerts, the same way: one at a time, errors reported, never fatal.
+if (config.alerts?.ingest === "poll") {
+  let polling = false;
+  setInterval(() => {
+    if (polling) return;
+    polling = true;
+    runtime
+      .pollFreshserviceAlerts()
+      .then((n) => n > 0 && console.log(`[crisiscrew] ingested ${n} Freshservice alert${n === 1 ? "" : "s"}`))
+      .catch((error) => console.error("[crisiscrew] Freshservice alert poll:", error instanceof Error ? error.message : error))
+      .finally(() => (polling = false));
+  }, config.alerts.pollSeconds * 1000);
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

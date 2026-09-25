@@ -1,10 +1,16 @@
-import type { EvidenceItem, Hypothesis, RcaConfig } from "@crisiscrew/contracts";
+import type { AlertSeverity, AlertsConfig, EvidenceItem, Hypothesis, RcaConfig } from "@crisiscrew/contracts";
 import type { Deployment, ErrorRatePoint, ProviderHealth } from "../ports";
 
 const MIN = 60_000;
 
 export type RcaInput = {
+  /** When the first sign of trouble arrived: the first complaint, or the first alert. */
   firstComplaintAt: number;
+  /** What that first sign was, for the wording of the release timing. Defaults to a complaint. */
+  firstSignal?: "complaint" | "alert";
+  /** Alerts linked to the incident. A release on an alerting service gains evidence; weighed only with alertLr. */
+  alerts?: { service: string; severity: AlertSeverity; label: string; firedAt: number }[];
+  alertLr?: Pick<AlertsConfig, "criticalLr" | "warningLr">;
   /** Releases of the services behind the incident's product area; null when the check failed. */
   deployments: Deployment[] | null;
   /** Error-rate series per service; null when the check failed. */
@@ -24,17 +30,37 @@ function pct(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;
 }
 
-function describeGap(ms: number): string {
+function describeGap(ms: number, first: string): string {
   const minutes = Math.round(Math.abs(ms) / MIN);
   const text = minutes < 120 ? `${minutes} min` : `${Math.round(minutes / 60)} h`;
-  return ms >= 0 ? `released ${text} before the first complaint` : `released ${text} after the first complaint`;
+  return ms >= 0 ? `released ${text} before the first ${first}` : `released ${text} after the first ${first}`;
 }
 
-function timingEvidence(d: Deployment, firstAt: number, cfg: RcaConfig, adapter: string): EvidenceItem {
+function timingEvidence(d: Deployment, firstAt: number, first: string, cfg: RcaConfig, adapter: string): EvidenceItem {
   const gap = firstAt - d.at;
   const g = cfg.deployGap;
   const lr = gap < 0 ? g.afterLr : gap <= g.withinMin * MIN ? g.withinLr : gap <= g.nearMin * MIN ? g.nearLr : g.farLr;
-  return { source: "get_recent_deployments", observation: `${describeGap(gap)} (${d.sha.slice(0, 7)} by ${d.author}: "${d.message}")`, lr, adapter, checked: true };
+  return { source: "get_recent_deployments", observation: `${describeGap(gap, first)} (${d.sha.slice(0, 7)} by ${d.author}: "${d.message}")`, lr, adapter, checked: true };
+}
+
+/**
+ * A release gains evidence when its own service alerted soon after it
+ * shipped (within the deploy-gap "near" window); the strongest such alert
+ * counts once. An alert hours after an old release says nothing about it.
+ */
+function alertEvidence(d: Deployment, input: RcaInput, cfg: RcaConfig): EvidenceItem | null {
+  if (!input.alertLr) return null;
+  const after = (input.alerts ?? []).filter((a) => a.service === d.service && a.firedAt >= d.at && a.firedAt - d.at <= cfg.deployGap.nearMin * MIN);
+  const alert = after.find((a) => a.severity === "critical") ?? after[0];
+  if (!alert) return null;
+  const minutes = Math.round((alert.firedAt - d.at) / MIN);
+  return {
+    source: "alerts",
+    observation: `${alert.severity} alert on ${d.service} ${minutes} min after the release: ${alert.label}`,
+    lr: alert.severity === "critical" ? input.alertLr.criticalLr : input.alertLr.warningLr,
+    adapter: "core",
+    checked: true,
+  };
 }
 
 function errorEvidence(d: Deployment, series: ErrorRatePoint[] | undefined | null, cfg: RcaConfig, adapter: string): EvidenceItem {
@@ -101,8 +127,9 @@ export function scoreHypotheses(input: RcaInput, cfg: RcaConfig): Hypothesis[] {
         prior: cfg.priors.deploy / input.deployments.length,
         startedAt: d.at,
         evidence: [
-          timingEvidence(d, input.firstComplaintAt, cfg, input.adapters.deployments),
+          timingEvidence(d, input.firstComplaintAt, input.firstSignal ?? "complaint", cfg, input.adapters.deployments),
           errorEvidence(d, input.errorSeries === null ? null : input.errorSeries[d.service], cfg, input.adapters.metrics),
+          ...[alertEvidence(d, input, cfg)].filter((e): e is EvidenceItem => e !== null),
         ],
       });
     }

@@ -46,6 +46,7 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 | **Act within authority** | Recovery Agent | Updates, account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
 | **Stop for a human** | Handoff Agent | Any credit above that becomes an approval for **one customer**, with their evidence. The approver approves, changes the amount or rejects, and exactly that amount is paid to exactly that customer |
 | **Write back** | Recovery Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and a Freshservice incident for engineering |
+| **Alert first** | Incident Commander | A critical Freshservice alert on a service behind a tier-1 area opens an incident on its own, before anyone complains; complaints that follow join it. An alert during a complaint incident is linked to it and becomes evidence. See [Alerts](#alerts) |
 | **Decide how urgent** | Incident Commander | Sets the incident's importance, P1 to P3, from rules in `policy.json`: customers affected, money in failed payments, priority customers, a tier-1 area, a release as the likely cause. It rises as evidence arrives and never falls on its own; P1 means page on-call. See [Importance](#importance) |
 | **Page on-call** | Incident Commander | Phones whoever is on call (Freshservice on-call schedules) through Vobiz, and asks them to press 1. An unacknowledged call escalates to the next responder. See [Paging on-call](#paging-on-call) |
 | **Measure** | Incident Commander | Recovery Coverage = recovered confirmed customers / confirmed customers. The incident reaches **Recovered** only at 100% |
@@ -195,6 +196,22 @@ The Incident Commander decides how urgently engineering must act. The rules are 
 
 In the hero, 23 affected customers make it P1. The UPI outage stays P2: 10 customers affected and one priority customer, below the P1 thresholds.
 
+## Alerts
+
+Complaints are one way an incident starts; **Freshservice Alert Management** is the other. Deterministic threshold alerts (CPU, 5xx rate, latency) arrive by poll or webhook, and each one is:
+
+| The alert | What happens |
+|---|---|
+| on a service behind an **open incident's** area (within `alerts.joinWindowMin`, 60 min) | **linked** to it. The Investigator re-ranks the causes with it: a release on that service that shipped within 2 hours before the alert gains a likelihood ratio (critical 4, warning 1.5). Importance sees it (critical is P1) |
+| **critical**, on a service behind a **tier-1** area, with no incident open | **opens an incident on its own**, marked *opened by a critical alert*. It's P1 from the start, so on-call is paged at once. The impact graph comes from payment evidence, so the customers whose payments failed are found before anyone writes in |
+| anything else (a warning, or a service off the tier-1 areas) | **recorded**, and nothing more |
+
+Complaints that arrive while an alert-opened incident is open **join it** instead of opening a second incident. A repeat of the same alert (same Freshservice id) is recorded once; a resolved alert carries its resolution time.
+
+Freshservice severity *critical* (201) is critical; *error* (151) and *warning* (101) are warnings. The service comes from a `service:<name>` tag on the alert, or from `FRESHSERVICE_ALERT_SERVICES` rules matched against its resource, node, subject and tags; an alert no rule places is ignored. `POST /api/alerts` (admin) takes an alert by hand.
+
+In `alert-before-complaints`, the checkout-service 5xx alert opens the incident 20 seconds before the first failure report. The same 23 customers are found, the release is the cause (99%, with the alert as extra evidence), and all 8 complaints join the one incident. In `noisy-alert`, a latency warning and a critical alert on search-service open nothing.
+
 ## Paging on-call
 
 When the importance says to page (P1 by default), the Incident Commander phones the on-call engineer:
@@ -268,7 +285,7 @@ It reads `GET /api/freshdesk/tickets/:id`. Its README says how to run it with `f
 
 ## Scenarios
 
-Six hand-written worlds in [`scenarios/`](scenarios/). Half of them test restraint.
+Eight hand-written worlds in [`scenarios/`](scenarios/). Five of them test restraint.
 
 | Scenario | What happens | Outcome |
 |---|---|---|
@@ -278,6 +295,8 @@ Six hand-written worlds in [`scenarios/`](scenarios/). Half of them test restrai
 | `scattered-failures` | Five real failures about different things in ten minutes | No incident: no group reaches 4 similar tickets |
 | `two-card-complaints` | Two unrelated complaints that both mention a card | No incident: similarity 0.26, and only 2 tickets |
 | `quiet-day` | Two hours of normal traffic | No incident |
+| `alert-before-complaints` | The hero's broken release, but a critical checkout-service alert fires before the first complaint | The alert opens the incident and pages on-call; 23 harmed; the 8 complaints join it; one incident, not two |
+| `noisy-alert` | A quiet day with a latency warning and a critical alert on a non-tier-1 service | No incident: both alerts recorded |
 
 ## What you'll see
 
@@ -428,6 +447,8 @@ MCP Inspector, Claude, or Freshservice's Agent Studio MCP Gateway can connect th
 | `POST /api/replay` | start a replay: `{"scenario": "...", "speed": 2}` |
 | `POST /api/live` | start a fresh live session |
 | `POST /api/tickets` | type a ticket: `{"customerName": "...", "body": "..."}`; a known customer's name or `customerEmail` ties it to their payments |
+| `POST /api/alerts` | admin: `{"service", "metric", "severity": "critical" or "warning", "label", "value"?, "threshold"?}` takes an alert by hand |
+| `POST /api/webhooks/freshservice/alerts` | a Freshservice workflow: `{"alert_id": 9101}` with `X-CrisisCrew-Secret`; CrisisCrew reads the alert back from Alert Management |
 | `POST /api/incidents/:id/page/acknowledge` | admin: `{"by"?: "..."}` takes the on-call page, so no one else is called |
 | `POST /api/webhooks/freshservice/acknowledge` | a Freshservice workflow: `{"ticket_id": 314, "agent_name"?: "..."}` with `X-CrisisCrew-Secret` acknowledges the page for the incident filed as that ticket |
 | `POST /api/incidents/:id/importance` | admin: `{"level": "P1", "P2" or "P3", "note"?: "..."}` sets the importance by hand; the rules then leave it alone |
@@ -452,6 +473,7 @@ The `POST` routes need `ADMIN_TOKEN`, or `APPROVER_TOKEN` for approvals, when th
 | Deployments | sandbox: the scenario's releases | GitHub Deployments API (designed, not wired) | `GITHUB_*` |
 | Payment health | sandbox: the scenario's gateway status | Razorpay's public status API (designed, not wired) | `RAZORPAY_STATUS_URL` |
 | Metrics | sandbox: simulated from the scenario | none planned | none |
+| Alerts | sandbox: the scenario's alert timeline | `ALERTS=freshservice`: poll or webhook. **Wired; tested against a fake Freshservice** | `FRESHSERVICE_ALERTS_*`, `FRESHSERVICE_ALERT_SERVICES` |
 | On-call schedule | sandbox: the scenario's roster | `ONCALL=freshservice`, with `FRESHSERVICE_ONCALL_SCHEDULE_ID`. **Wired; tested against a fake Freshservice** | `FRESHSERVICE_ONCALL_*` |
 | Phone calls | sandbox: calls ring, then are answered, missed or busy, the same way on every replay | `TELEPHONY=vobiz`, with an https `PUBLIC_BASE_URL` and `ADMIN_TOKEN`. **Wired; tested against a fake Vobiz** | `VOBIZ_*` |
 | Voice | off: scripts are prepared, not spoken | ElevenLabs (designed, not wired) | `ELEVENLABS_*` |

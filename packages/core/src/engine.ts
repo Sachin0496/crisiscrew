@@ -9,6 +9,8 @@ import {
   type CrisisState,
   type DecisionBody,
   type EventInput,
+  type Alert,
+  type AlertInput,
   type ImportanceAssessment,
   type ImportanceLevel,
   type IncidentStatus,
@@ -19,7 +21,7 @@ import {
   type TicketInput,
   type TicketSource,
 } from "@crisiscrew/contracts";
-import { handleLateTicket, runIncident, setImportanceByHuman, settleDecision } from "./agents/commander";
+import { handleLateTicket, onAlertLinked, runAlertIncident, runIncident, setImportanceByHuman, settleDecision } from "./agents/commander";
 import { acknowledgeByOperator, onPageCall } from "./agents/paging";
 import type { AgentKit } from "./agents/kit";
 import type { EventBus } from "./bus";
@@ -61,7 +63,7 @@ export class CrisisEngine {
   private readonly pattern: PatternEngine;
   private readonly tasks = new Set<Promise<unknown>>();
   private queue: Promise<unknown> = Promise.resolve();
-  private readonly counters = { ticket: 1000, incident: 0, update: 0, approval: 0, action: 0 };
+  private readonly counters = { ticket: 1000, incident: 0, update: 0, approval: 0, action: 0, alert: 0 };
   private readonly drafts = new Map<string, { draft: Draft; since: number }>();
   private readonly spentApprovals = new Set<string>();
   private readonly opened = new Map<string, Promise<void>>();
@@ -141,6 +143,20 @@ export class CrisisEngine {
     return run;
   }
 
+  /**
+   * Takes one operational alert, in arrival order with tickets. A repeat of
+   * a known alert only updates whether it's resolved. Otherwise it's linked
+   * to an open incident on its service's product area, or, when it's
+   * critical and that area is tier 1, opens an incident of its own.
+   * Anything else is recorded and nothing more.
+   */
+  ingestAlert(input: AlertInput & { resolvedAt?: number }): Promise<Alert> {
+    const run = this.queue.then(() => this.ingestAlertNow(input));
+    this.queue = run.catch(() => undefined);
+    this.track(run);
+    return run;
+  }
+
   async decide(approvalId: string, body: DecisionBody, by: string): Promise<Approval> {
     const approval = this.view.approvals[approvalId];
     if (!approval) throw new Error(`no approval ${approvalId}`);
@@ -202,6 +218,76 @@ export class CrisisEngine {
     while (this.tasks.size > 0) await Promise.allSettled([...this.tasks]);
   }
 
+  private async ingestAlertNow(input: AlertInput & { resolvedAt?: number }): Promise<Alert> {
+    const known = input.externalId ? Object.values(this.view.alerts).find((a) => a.source === input.source && a.externalId === input.externalId) : undefined;
+    if (known) {
+      if (input.resolvedAt !== undefined && known.resolvedAt === undefined) this.emit({ type: "alert.resolved", payload: { alertId: known.id, at: input.resolvedAt } });
+      return this.view.alerts[known.id]!;
+    }
+    const { resolvedAt, ...fields } = input;
+    const alert: Alert = { ...fields, id: `ALR-${pad(++this.counters.alert)}` };
+    this.emit({ type: "alert.received", payload: { alert } });
+    if (resolvedAt !== undefined) {
+      this.emit({ type: "alert.resolved", payload: { alertId: alert.id, at: resolvedAt } });
+      return this.view.alerts[alert.id]!;
+    }
+
+    const surfaces = this.surfacesOf(alert.service);
+    const open = this.openIncidentFor(surfaces, alert.firedAt);
+    if (open) {
+      this.emit({ type: "alert.linked", payload: { alertId: alert.id, incidentId: open } });
+      this.setAgent("commander", "working", `${alert.severity === "critical" ? "Critical" : "Warning"} alert on ${alert.service} linked to ${open}`);
+      this.track(
+        (async () => {
+          await this.opened.get(open);
+          await onAlertLinked(this.kit, open);
+        })().catch((error) => this.fail("commander", error)),
+      );
+      return this.view.alerts[alert.id]!;
+    }
+
+    const tier1 = surfaces.find((s) => this.deps.policy.importance.tier1Surfaces.includes(s));
+    if (alert.severity !== "critical" || !tier1 || !this.deps.policy.alerts.openOnCritical) {
+      this.setAgent(
+        "commander",
+        "idle",
+        `${alert.severity === "critical" ? "Critical" : "Warning"} alert on ${alert.service} recorded; ${alert.severity !== "critical" ? "a warning doesn't open an incident" : "its service isn't behind a tier-1 area"}`,
+      );
+      return alert;
+    }
+    const incidentId = this.nextIncidentId();
+    let markOpened!: () => void;
+    this.opened.set(incidentId, new Promise((resolve) => (markOpened = resolve)));
+    this.track(
+      runAlertIncident(this.kit, alert, tier1, incidentId, markOpened).catch((error) => {
+        markOpened();
+        this.fail("commander", error);
+      }),
+    );
+    return alert;
+  }
+
+  /** The product areas a service is behind, per the service catalog. */
+  private surfacesOf(service: string): Surface[] {
+    const all: Surface[] = ["checkout_payments", "login_account", "delivery_orders", "refunds_billing", "app_performance", "other"];
+    return all.filter((s) => this.deps.ports.catalog.servicesFor(s).some((info) => info.name === service));
+  }
+
+  /** The most recent incident still being worked on in one of these areas, opened within the join window before `at`. */
+  private openIncidentFor(surfaces: Surface[], at: number): string | undefined {
+    const window = this.deps.policy.alerts.joinWindowMin * 60_000;
+    return [...this.view.incidentOrder]
+      .reverse()
+      .find((id) => {
+        const i = this.view.incidents[id]!;
+        return surfaces.includes(i.surface) && i.status !== "resolved" && i.status !== "dismissed" && at - i.openedAt <= window;
+      });
+  }
+
+  private nextIncidentId(): string {
+    return `INC-${new Date(this.deps.clock.now()).getUTCFullYear()}-${pad(++this.counters.incident)}`;
+  }
+
   private async ingestNow(input: TicketInput, source: TicketSource): Promise<Ticket> {
     const ticket: Ticket = { ...input, id: `T-${++this.counters.ticket}`, source, receivedAt: input.receivedAt ?? this.deps.clock.now() };
     this.emit({ type: "ticket.received", payload: { ticket } });
@@ -210,8 +296,23 @@ export class CrisisEngine {
     const result = await this.pattern.ingest(ticket);
     this.emit({ type: "signal.scored", payload: { signal: result.signal, nearest: result.nearest } });
 
+    // An incident an alert opened, in this ticket's area: a failure report joins it, and a burst merges into it rather than opening a second one.
+    const alertIncident = !result.joinIncidentId && result.signal.isFailure ? this.alertIncidentFor(result.candidate?.dominantSurface ?? result.signal.surface, ticket.receivedAt) : undefined;
+    if (alertIncident) {
+      const members = result.fires && result.candidate ? result.candidate.reportTicketIds : [ticket.id];
+      this.pattern.joinIncident(alertIncident, members);
+      this.setAgent("pattern", "done", `${members.length === 1 ? ticket.id : `${members.length} failure reports`} match ${alertIncident}, which an alert opened`);
+      this.track(
+        (async () => {
+          await this.opened.get(alertIncident);
+          for (const id of members) if (!this.linkedTo(alertIncident, id)) await handleLateTicket(this.kit, alertIncident, id);
+        })().catch((error) => this.fail("recovery", error)),
+      );
+      return ticket;
+    }
+
     if (result.fires && result.candidate) {
-      const incidentId = `INC-${new Date(this.deps.clock.now()).getUTCFullYear()}-${pad(++this.counters.incident)}`;
+      const incidentId = this.nextIncidentId();
       const cluster = { ...result.candidate, incidentId };
       this.emit({ type: "cluster.updated", payload: { cluster } });
       this.pattern.attachIncident(incidentId, cluster.reportTicketIds);
@@ -239,6 +340,17 @@ export class CrisisEngine {
       this.setAgent("pattern", "idle", `${ticket.id}: no incident`);
     }
     return ticket;
+  }
+
+  /** An open incident an alert opened in this area, recent enough for complaints to belong to it. */
+  private alertIncidentFor(surface: Surface, at: number): string | undefined {
+    const id = this.openIncidentFor([surface], at);
+    return id && this.view.incidents[id]?.trigger === "alert" ? id : undefined;
+  }
+
+  private linkedTo(incidentId: string, ticketId: string): boolean {
+    const incident = this.view.incidents[incidentId];
+    return Boolean(incident && (incident.ticketIds.includes(ticketId) || incident.linkedTicketIds.includes(ticketId)));
   }
 
   private emit(input: EventInput): void {
