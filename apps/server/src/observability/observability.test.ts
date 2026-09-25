@@ -75,10 +75,10 @@ describe("agent workflow traces", () => {
     expect(recovery).toMatchObject({ parentTraceId: detail.trace.id });
   });
 
-  it("describes the five workflow graphs used by the current incident flow", async () => {
+  it("describes the six workflow graphs used by the current incident flow", async () => {
     const { app } = await setup();
     const workflows = await get<WorkflowGraph[]>(app, "/api/workflows");
-    expect(workflows.map((w) => w.name)).toEqual(["ticket", "incident", "recovery_pass", "late_ticket", "decision"]);
+    expect(workflows.map((w) => w.name)).toEqual(["ticket", "incident", "recovery_pass", "late_ticket", "decision", "autofix"]);
     const incident = workflows.find((w) => w.name === "incident")!;
     const from = (id: string) => incident.edges.filter((e) => e.from === id).map((e) => `${e.to}${e.conditional ? "?" : ""}`);
     expect(from("__start__")).toEqual(["respond"]);

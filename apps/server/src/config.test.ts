@@ -24,6 +24,7 @@ describe("loadConfig", () => {
       tracing: "local",
       credits: "sandbox",
       translate: "off",
+      autofix: "off",
     });
     expect(config.embeddingsModel).toBe(DEFAULT_EMBEDDING_MODEL);
     expect(config).toMatchObject({ freshdesk: null, freshservice: null, vobiz: null });
@@ -192,7 +193,7 @@ describe("wiringReport", () => {
     const report = wiringReport(loadConfig({}));
     // The embedding model, built-in classifier, guard and local tracing run on this machine.
     expect(report.liveCount).toBe(4);
-    expect(report.ports).toHaveLength(18);
+    expect(report.ports).toHaveLength(19);
     expect(report.ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "sandbox", available: ["freshservice"], env: "ONCALL" });
     expect(report.ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "sandbox", available: ["vobiz"], planned: [], env: "TELEPHONY" });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });

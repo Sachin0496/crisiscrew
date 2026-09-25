@@ -17,10 +17,16 @@ export const MOCK = {
   vobizAuthId: "MOCKVOBIZ",
   vobizAuthToken: "mock-vobiz-token",
   vobizFrom: "+918065550100",
+  githubToken: "mock-github-token",
+  googleToken: "mock-google-token",
+  slackToken: "mock-slack-token",
+  /** The repository the mock GitHub hosts for each service. */
+  repos: { "checkout-service": "acme-shop/checkout-service" } as Record<string, string>,
 } as const;
 
-export type MockPorts = { freshdesk: number; freshservice: number; vobiz: number };
+/** Freshdesk and the cockpit on the first port, then Freshservice, Vobiz, GitHub, Google (Docs and Drive) and Slack. */
+export type MockPorts = { freshdesk: number; freshservice: number; vobiz: number; github: number; google: number; slack: number };
 
 export function mockPorts(base: number = MOCK.defaultPort): MockPorts {
-  return { freshdesk: base, freshservice: base + 1, vobiz: base + 2 };
+  return { freshdesk: base, freshservice: base + 1, vobiz: base + 2, github: base + 3, google: base + 4, slack: base + 5 };
 }

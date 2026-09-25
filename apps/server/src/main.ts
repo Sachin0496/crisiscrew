@@ -17,7 +17,16 @@ import {
   LocalEmbedder,
   restWriter,
   vobizTelephony,
+  githubCodeHost,
+  gitWorkspace,
+  googleDocs,
+  replayCodingAgent,
+  teamKnowledge,
+  type ReplaySession,
 } from "@crisiscrew/adapters";
+import { MOCK } from "@crisiscrew/contracts";
+import { readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { heuristicGuard, type Embedder, type PromptGuard, type TicketClassifier, type TraceSink } from "@crisiscrew/core";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -84,6 +93,18 @@ function liveAdapters(): LiveAdapters {
     const { authId, authToken, from, ringTimeoutSec, timeLimitSec, apiBase, callbackBaseUrl } = config.vobiz;
     live.telephony = vobizTelephony({ authId, authToken, from, publicBaseUrl: callbackBaseUrl, apiBase, ringTimeoutSec, timeLimitSec });
   }
+  if (config.autofix) {
+    const a = config.autofix;
+    const at = (path: string) => (isAbsolute(path) ? path : join(REPO_ROOT, path));
+    const session = JSON.parse(readFileSync(at(a.replayFile), "utf8")) as ReplaySession;
+    live.fix = {
+      codeHost: githubCodeHost({ apiBase: a.githubBase, token: MOCK.githubToken, repos: a.repos }),
+      workspace: gitWorkspace({ root: at(a.workspaceRoot), author: { name: "CrisisCrew Fix Agent", email: "fix-agent@crisiscrew.dev" } }),
+      coding: replayCodingAgent({ session, pace: Number(process.env.AUTOFIX_REPLAY_PACE) || 2.6 }),
+      docs: googleDocs({ docsBase: a.googleBase, driveBase: a.googleBase, token: MOCK.googleToken, viewBase: a.viewBase }),
+      knowledge: teamKnowledge({ slack: { apiBase: a.slackBase, token: MOCK.slackToken }, drive: { apiBase: a.googleBase, token: MOCK.googleToken } }),
+    };
+  }
   return live;
 }
 
@@ -140,7 +161,7 @@ const runtime = new Runtime({
   scenarios: loadScenarios(),
   embedder: embedder(),
   latencyMs: config.sandboxLatencyMs,
-  liveWorld: "checkout-v4.21.7",
+  liveWorld: config.liveWorld,
   live: liveAdapters(),
   guard: promptGuard(),
   classifier: classifier(),

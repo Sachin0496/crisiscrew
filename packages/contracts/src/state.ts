@@ -11,6 +11,7 @@ import type {
   Ticket,
 } from "./domain";
 import type { CrisisEvent, SessionMode } from "./events";
+import { FIX_SESSION_CAP, type FixView } from "./fix";
 import type { GuardFlag } from "./guard";
 import type { TraceSummary } from "./trace";
 
@@ -46,6 +47,8 @@ export type CrisisState = {
   alertOrder: string[];
   /** Outbound phone calls, by id. */
   calls: Record<string, CallView>;
+  /** The Fix Agent's work, by incident. */
+  fixes: Record<string, FixView>;
   replayFinished: boolean;
   /** Workflow traces of this session, oldest first; the latest summary of each. */
   traces: TraceSummary[];
@@ -60,6 +63,7 @@ const DEFAULT_AGENTS: Record<AgentId, AgentView> = {
   issue_creator: { id: "issue_creator", name: "Issue Creator", level: 1, status: "idle" },
   recovery: { id: "recovery", name: "Recovery Agent", level: 2, status: "idle" },
   handoff: { id: "handoff", name: "Handoff Agent", level: 3, status: "idle" },
+  fixer: { id: "fixer", name: "Fix Agent", level: 1, status: "idle" },
 };
 
 export function initialState(): CrisisState {
@@ -76,6 +80,7 @@ export function initialState(): CrisisState {
     approvals: {},
     credits: [],
     calls: {},
+    fixes: {},
     alerts: {},
     alertOrder: [],
     replayFinished: false,
@@ -265,6 +270,11 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
     case "call.updated": {
       const { call } = event.payload;
       return { ...state, calls: { ...state.calls, [call.id]: call } };
+    }
+
+    case "fix.updated": {
+      const fix = event.payload.fix;
+      return { ...state, fixes: { ...state.fixes, [event.payload.incidentId]: { ...fix, session: fix.session.slice(-FIX_SESSION_CAP) } } };
     }
 
     case "replay.finished":

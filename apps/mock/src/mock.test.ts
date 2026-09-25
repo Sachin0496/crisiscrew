@@ -166,7 +166,7 @@ describe("mock Vobiz", () => {
     await until(() => mock.store.calls[0]?.state === "completed");
     const view = await telephony.status(callId);
     expect(view).toMatchObject({ state: "completed", digits: "1" });
-    expect(mock.store.calls[0]!.said).toEqual(["P1 incident on checkout.", "Press 1 to acknowledge.", "Thank you. Goodbye."]);
+    expect(mock.store.calls[0]!.lines.map((l) => `${l.who}: ${l.text}`)).toEqual(["agent: P1 incident on checkout.", "agent: Press 1 to acknowledge.", "callee: Pressed 1", "agent: Thank you. Goodbye."]);
   });
 
   it("lets a customer's call go unanswered, as the scenario says for Farhan", async () => {
@@ -198,6 +198,6 @@ describe("mock Vobiz", () => {
 describe("parseAnswerXml", () => {
   it("reads what's said and where the key press goes", () => {
     const xml = `<?xml version="1.0"?><Response><Speak>Hi &amp; hello.</Speak><Gather action="http://x/digits" method="POST"><Speak>Press 1.</Speak></Gather><Hangup/></Response>`;
-    expect(parseAnswerXml(xml)).toEqual({ said: ["Hi & hello."], gather: { action: "http://x/digits", prompt: "Press 1." } });
+    expect(parseAnswerXml(xml)).toEqual({ said: ["Hi & hello."], gather: { action: "http://x/digits", prompt: "Press 1.", speech: false }, fallback: [] });
   });
 });

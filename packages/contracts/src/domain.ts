@@ -96,10 +96,10 @@ export type ClusterView = {
   incidentId?: string;
 };
 
-export const Identity = z.enum(["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff", "operator"]);
+export const Identity = z.enum(["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff", "fixer", "operator"]);
 export type Identity = z.infer<typeof Identity>;
 export type AgentId = Exclude<Identity, "operator">;
-export const AGENT_IDS: readonly AgentId[] = ["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff"];
+export const AGENT_IDS: readonly AgentId[] = ["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff", "fixer"];
 
 export type Level = 0 | 1 | 2 | 3;
 export const LEVEL_NAMES: Record<Level, string> = {
@@ -182,7 +182,11 @@ export type CallView = {
   /** Why a call failed or ended without an answer, in the provider's words. */
   reason?: string;
   metadata?: Record<string, string>;
+  /** A conversational call's turns: what CrisisCrew said, and what the callee said (speech to text). */
+  transcript?: CallLine[];
 };
+
+export type CallLine = { speaker: "agent" | "callee"; text: string; at: number };
 
 export type UpdateChannel = "ticket_reply" | "proactive_message" | "voice";
 export type CustomerUpdate = {

@@ -1,6 +1,6 @@
 import { MOCK } from "@crisiscrew/contracts";
 
-export type Product = "freshdesk" | "freshservice" | "vobiz" | "mock";
+export type Product = "freshdesk" | "freshservice" | "vobiz" | "github" | "google" | "slack" | "mock";
 
 export type Contact = { id: number; name: string; email: string; phone: string | null; mobile: string | null };
 
@@ -90,9 +90,10 @@ export type Call = {
   ringUrl: string | null;
   hangupUrl: string | null;
   ringTimeoutSec: number;
-  /** What the call said, in order: the script, the key prompt, the reply to the key. */
-  said: string[];
-  gather: { action: string; prompt: string } | null;
+  /** The conversation, in order: what CrisisCrew said, and what the person said or pressed. */
+  lines: { who: "agent" | "callee"; text: string; at: string }[];
+  /** The open question: where the next key press or answer goes. speech: the person can answer in words. */
+  gather: { action: string; prompt: string; speech: boolean } | null;
   digits: string | null;
   cause: string | null;
   created_at: string;
@@ -101,6 +102,9 @@ export type Call = {
   /** manual: waiting for someone to click; autopilot: following the scenario. */
   driver: "autopilot" | "manual";
 };
+
+/** Something that lands on someone's phone: a Google Docs share, a GitHub assignment or review request. */
+export type Notification = { id: number; at: string; to: string; app: "Google Docs" | "GitHub" | "CrisisCrew"; title: string; body: string; url: string };
 
 export type LogEntry = { id: number; at: string; product: Product; direction: "in" | "out"; text: string; ok: boolean };
 
@@ -136,10 +140,11 @@ export class Store {
   alerts: Alert[] = [];
   calls: Call[] = [];
   log: LogEntry[] = [];
+  notifications: Notification[] = [];
   autopilot = true;
   /** Bumped on every change, so the UI knows when to redraw. */
   version = 0;
-  private ids = { contact: 7000, desk: 1000, service: 300, conversation: 50_000, record: 20, alert: 9100, log: 0 };
+  private ids = { contact: 7000, desk: 1000, service: 300, conversation: 50_000, record: 20, alert: 9100, log: 0, notification: 0 };
 
   constructor(private readonly webhooks: Webhooks) {}
 
@@ -155,6 +160,11 @@ export class Store {
   record(product: Product, direction: "in" | "out", text: string, ok = true): void {
     this.log.push({ id: this.next("log"), at: iso(), product, direction, text, ok });
     if (this.log.length > 300) this.log.splice(0, this.log.length - 300);
+    this.touch();
+  }
+
+  notify(input: Omit<Notification, "id" | "at">): void {
+    this.notifications.push({ ...input, id: this.next("notification"), at: iso() });
     this.touch();
   }
 
@@ -197,6 +207,7 @@ export class Store {
     this.alerts = [];
     this.calls = [];
     this.log = [];
+    this.notifications = [];
     this.touch();
   }
 }

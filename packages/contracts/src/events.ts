@@ -19,6 +19,7 @@ import type {
   SignalView,
   Ticket,
 } from "./domain";
+import type { FixView } from "./fix";
 import type { GuardFlag } from "./guard";
 import type { TraceSummary } from "./trace";
 
@@ -77,6 +78,8 @@ export type CrisisEvent =
   | E<"engineering.recorded", { incidentId: string; record: EngineeringRecord }>
   /** A phone call's new state, from the telephony adapter (Vobiz, or its sandbox). */
   | E<"call.updated", { call: CallView }>
+  /** The Fix Agent's work on an incident, whole: context, workspace, the coding session, tests, pull request and report. */
+  | E<"fix.updated", { incidentId: string; fix: FixView }>
   | E<"replay.finished", { scenarioId: string }>
   | E<"trace.updated", { trace: TraceSummary }>
   | E<"guard.flagged", { flag: GuardFlag }>;

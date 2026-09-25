@@ -9,3 +9,4 @@ export * from "./wiring";
 export * from "./tools";
 export * from "./trace";
 export * from "./mock";
+export * from "./fix";

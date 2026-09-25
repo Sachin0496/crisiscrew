@@ -6,6 +6,7 @@ describe("loadScenarios", () => {
     const scenarios = loadScenarios();
     expect([...scenarios.keys()].sort()).toEqual([
       "alert-before-complaints",
+      "checkout-autofix",
       "checkout-v4.21.7",
       "lookalike-checkout-questions",
       "noisy-alert",

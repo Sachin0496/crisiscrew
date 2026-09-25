@@ -52,6 +52,17 @@ export class CallBook {
     return next;
   }
 
+  /** Adds one turn to a conversational call's transcript. */
+  line(id: string, speaker: "agent" | "callee", text: string): CallView | null {
+    const call = this.calls.get(id);
+    if (!call || !text.trim()) return call ?? null;
+    const at = this.now();
+    const next: CallView = { ...call, transcript: [...(call.transcript ?? []), { speaker, text: text.trim(), at }], updatedAt: at };
+    this.calls.set(id, next);
+    this.notify(next);
+    return next;
+  }
+
   subscribe(listener: (call: CallView) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

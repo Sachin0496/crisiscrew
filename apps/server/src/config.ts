@@ -1,6 +1,6 @@
 import { normalizeDomain, type McpServerConfig } from "@crisiscrew/adapters";
 import { z } from "zod";
-import { MOCK, mockPorts, type Identity, type PortMode, type PortName, type WiringReport } from "@crisiscrew/contracts";
+import { MOCK, mockPorts, type Identity, type MockPorts, type PortMode, type PortName, type WiringReport } from "@crisiscrew/contracts";
 import { randomBytes } from "node:crypto";
 import { MODELS_DIR } from "./paths";
 
@@ -138,6 +138,16 @@ const PORTS: Record<PortName, PortSpec> = {
   },
   credits: { env: "CREDITS", options: ["sandbox", "dodo"], wired: ["sandbox"], mode: sandboxMode, detail: () => "An in-memory ledger" },
   translate: { env: "TRANSLATE", options: ["off", "sarvam"], wired: ["off"], mode: () => "off", detail: () => "Tickets are embedded as written" },
+  autofix: {
+    env: "AUTOFIX",
+    options: ["off", "mock"],
+    wired: ["off", "mock"],
+    mode: (v) => (v === "mock" ? "mock" : "off"),
+    detail: (v, c) =>
+      v === "mock" && c.autofix
+        ? `Fix Agent: mock GitHub (${hostOf(c.autofix.githubBase)}), a recorded OpenCode session replayed on a real git checkout with real tests, mock Google Docs and Slack`
+        : "The Fix Agent is off: P1 incidents get a rollback request, not a pull request",
+  },
 };
 
 const MCP_IDENTITIES: Identity[] = ["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff", "operator"];
@@ -184,6 +194,9 @@ export type AlertsConfig = {
 
 export type InfraConfig = { servers: McpServerConfig[] };
 
+/** The Fix Agent's services (mock mode): the code host, Google Docs and Drive, Slack, the recorded coding session and where checkouts go. */
+export type AutofixConfig = { githubBase: string; googleBase: string; slackBase: string; viewBase: string; repos: Record<string, string>; replayFile: string; workspaceRoot: string };
+
 const McpServerSchema = z
   .object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/i, "letters, digits and dashes"),
@@ -206,8 +219,11 @@ export type LangSmithConfig = { apiKey: string; project: string; endpoint: strin
 
 export type Config = {
   integrations: IntegrationsMode;
+  /** The scenario whose world backs live sessions (LIVE_WORLD): the customers Freshdesk tickets are matched to. */
+  liveWorld: string;
+  autofix: AutofixConfig | null;
   /** The mock's ports, in mock mode. */
-  mock: { freshdesk: number; freshservice: number; vobiz: number } | null;
+  mock: MockPorts | null;
   port: number;
   publicBaseUrl: string | null;
   adminToken: string | null;
@@ -453,7 +469,7 @@ function langsmithConfig(env: Env): LangSmithConfig {
   };
 }
 
-type MockPortsConfig = { freshdesk: number; freshservice: number; vobiz: number };
+type MockPortsConfig = MockPorts;
 
 /** The ports INTEGRATIONS switches together, and the adapter each one uses outside the sandbox. */
 const EXTERNAL_SWITCHES: Record<string, string> = { TICKETS: "freshdesk", INCIDENTS: "freshservice", ONCALL: "freshservice", ALERTS: "freshservice", TELEPHONY: "vobiz" };
@@ -481,6 +497,8 @@ function withIntegrations(env: Env): { env: Env; integrations: IntegrationsMode;
     env: {
       ...env,
       ...switches,
+      AUTOFIX: text(env, "AUTOFIX") === "off" ? "off" : "mock",
+      LIVE_WORLD: text(env, "LIVE_WORLD") ?? "checkout-autofix",
       FRESHDESK_DOMAIN: `localhost:${mock.freshdesk}`,
       FRESHDESK_API_KEY: MOCK.freshdeskApiKey,
       FRESHDESK_INGEST: "webhook",
@@ -534,9 +552,25 @@ export function loadConfig(input: Env): Config {
   const langsmith = switches.tracing === "langsmith" ? langsmithConfig(env) : null;
   const egress = [...new Set([laya && hostOf(laya.baseUrl), lakera && "api.lakera.ai", langsmith && hostOf(langsmith.endpoint)].filter((h): h is string => Boolean(h)))];
 
+  const autofix: AutofixConfig | null =
+    switches.autofix === "mock" && mock
+      ? {
+          githubBase: `http://localhost:${mock.github}`,
+          googleBase: `http://localhost:${mock.google}`,
+          slackBase: `http://localhost:${mock.slack}`,
+          viewBase: `http://localhost:${mock.freshdesk}/#/docs/`,
+          repos: { ...MOCK.repos },
+          replayFile: text(env, "AUTOFIX_REPLAY") ?? "apps/mock/fixtures/checkout-service.opencode.json",
+          workspaceRoot: text(env, "AUTOFIX_WORKSPACES") ?? "data/workspaces",
+        }
+      : null;
+  if (switches.autofix === "mock" && !mock) throw new ConfigError("AUTOFIX=mock needs INTEGRATIONS=mock: the Fix Agent's mock services come with the other mocks");
+
   return {
     integrations,
     mock,
+    liveWorld: text(env, "LIVE_WORLD") ?? "checkout-v4.21.7",
+    autofix,
     port: int(env, "PORT", 8787),
     publicBaseUrl: text(env, "PUBLIC_BASE_URL"),
     adminToken: text(env, "ADMIN_TOKEN"),

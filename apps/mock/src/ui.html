@@ -3,22 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CrisisCrew Demo Cockpit</title>
+<title>CrisisCrew Live Demo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #f7f7f8; --surface: #ffffff; --subtle: #f4f4f5; --border: #e4e4e7; --border-strong: #d4d4d8;
+  --bg: #f6f6f7; --surface: #ffffff; --subtle: #f4f4f5; --border: #e4e4e7; --border-strong: #d4d4d8;
   --text: #09090b; --muted: #71717a; --faint: #a1a1aa;
-  --accent: #4f46e5; --accent-soft: #eef2ff; --on-accent: #ffffff;
-  --done: #16a34a; --done-soft: #f0fdf4; --done-line: #bbf7d0;
+  --accent: #4f46e5; --accent-soft: #eef2ff; --accent-line: #c7d2fe;
+  --ok: #16a34a; --ok-soft: #f0fdf4; --ok-line: #bbf7d0;
   --work: #d97706; --work-soft: #fffbeb; --work-line: #fde68a;
-  --alert: #dc2626; --alert-soft: #fef2f2; --alert-line: #fecaca;
-  --fd: #16a34a; --fs: #2563eb; --vb: #7c3aed;
-  --note: #fefce8; --note-line: #fde68a; --reply: #eff6ff; --reply-line: #bfdbfe;
-  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.04);
-  --shadow-lg: 0 24px 48px -12px rgba(0,0,0,.25);
+  --bad: #dc2626; --bad-soft: #fef2f2; --bad-line: #fecaca;
+  --p3: #64748b; --p3-soft: #f1f5f9;
+  --fd: #16a34a; --fs: #2563eb; --vb: #7c3aed; --gd: #1a73e8;
+  --term: #0c0e14; --term-2: #151823; --term-text: #e4e4e7; --term-dim: #8b8fa3;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.05);
+  --shadow-lg: 0 24px 48px -12px rgba(0,0,0,.28);
   --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -26,24 +27,22 @@
   :root:not([data-theme="light"]) {
     --bg: #09090b; --surface: #111113; --subtle: #18181b; --border: #27272a; --border-strong: #3f3f46;
     --text: #fafafa; --muted: #a1a1aa; --faint: #71717a;
-    --accent: #818cf8; --accent-soft: #1e1b4b; --on-accent: #0b0b1a;
-    --done: #4ade80; --done-soft: #052e16; --done-line: #14532d;
+    --accent: #818cf8; --accent-soft: #1e1b4b; --accent-line: #3730a3;
+    --ok: #4ade80; --ok-soft: #052e16; --ok-line: #14532d;
     --work: #fbbf24; --work-soft: #2a1d05; --work-line: #78350f;
-    --alert: #f87171; --alert-soft: #2a0a0a; --alert-line: #7f1d1d;
-    --fd: #4ade80; --fs: #60a5fa; --vb: #a78bfa;
-    --note: #262208; --note-line: #713f12; --reply: #0c1a33; --reply-line: #1e3a8a;
+    --bad: #f87171; --bad-soft: #2a0a0a; --bad-line: #7f1d1d;
+    --p3: #94a3b8; --p3-soft: #1e293b;
     --shadow: none;
   }
 }
 :root[data-theme="dark"] {
   --bg: #09090b; --surface: #111113; --subtle: #18181b; --border: #27272a; --border-strong: #3f3f46;
   --text: #fafafa; --muted: #a1a1aa; --faint: #71717a;
-  --accent: #818cf8; --accent-soft: #1e1b4b; --on-accent: #0b0b1a;
-  --done: #4ade80; --done-soft: #052e16; --done-line: #14532d;
+  --accent: #818cf8; --accent-soft: #1e1b4b; --accent-line: #3730a3;
+  --ok: #4ade80; --ok-soft: #052e16; --ok-line: #14532d;
   --work: #fbbf24; --work-soft: #2a1d05; --work-line: #78350f;
-  --alert: #f87171; --alert-soft: #2a0a0a; --alert-line: #7f1d1d;
-  --fd: #4ade80; --fs: #60a5fa; --vb: #a78bfa;
-  --note: #262208; --note-line: #713f12; --reply: #0c1a33; --reply-line: #1e3a8a;
+  --bad: #f87171; --bad-soft: #2a0a0a; --bad-line: #7f1d1d;
+  --p3: #94a3b8; --p3-soft: #1e293b;
   --shadow: none;
 }
 * { box-sizing: border-box; }
@@ -54,214 +53,338 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 a { color: inherit; }
-.frame { max-width: 1440px; margin: 0 auto; padding: 20px 24px 48px; display: grid; gap: 16px; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); min-width: 0; }
-.eyebrow { font-size: 12px; font-weight: 500; color: var(--muted); }
-
-/* Status dots: grey waiting, amber working, green done, red needs a person. */
-.shape { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; background: var(--faint); }
-.shape.circle { background: var(--done); }
-.shape.square { background: var(--work); box-shadow: 0 0 0 3px color-mix(in srgb, var(--work) 25%, transparent); animation: pulse 1.6s ease-in-out infinite; }
-.shape.triangle { background: var(--alert); box-shadow: 0 0 0 3px color-mix(in srgb, var(--alert) 22%, transparent); }
-.shape.hollow { background: transparent; border: 1.5px solid var(--faint); }
-@keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--work) 10%, transparent); } }
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }
+.frame { max-width: 1500px; margin: 0 auto; padding: 18px 24px 64px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); min-width: 0; }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } }
+@keyframes pop { 0% { transform: scale(.6); opacity: 0; } 70% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--work) 12%, transparent); } }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes glow { 0%, 100% { box-shadow: 0 0 0 1px var(--accent-line), 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 1px var(--accent-line), 0 0 0 6px color-mix(in srgb, var(--accent) 10%, transparent); } }
+@keyframes flow { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.enter { animation: enter .35s ease-out both; }
 
 /* ---------- Top bar ---------- */
-.topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.topbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .brand { display: flex; align-items: center; gap: 12px; margin-right: auto; min-width: 0; }
 .logo { width: 36px; height: 36px; border-radius: 10px; background: var(--text); color: var(--bg); display: grid; place-items: center; flex: none; }
 .brand h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
-.brand .badge { font-size: 11px; font-weight: 500; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+.badge { font-size: 11px; font-weight: 500; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; background: var(--surface); }
 .brand p { margin: 1px 0 0; color: var(--muted); font-size: 13px; }
 .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.status { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; font-weight: 500; white-space: nowrap; }
-.toggle { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.pillbtn, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background .12s, border-color .12s, transform .08s; }
+.pillbtn:hover, .btn:hover:not(:disabled) { background: var(--subtle); border-color: var(--border-strong); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 86%, var(--bg)); }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.small { height: 28px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
+.btn.big { height: 44px; padding: 0 20px; font-size: 15px; border-radius: 11px; font-weight: 600; }
+.btn:disabled { opacity: .5; cursor: default; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; display: inline-block; }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.work { background: var(--work); animation: pulse 1.6s infinite; } .dot.accent { background: var(--accent); }
 .toggle .box { width: 28px; height: 16px; border-radius: 999px; background: var(--border-strong); position: relative; transition: background .15s; flex: none; }
-.toggle .box::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.toggle .box::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
 .toggle[aria-pressed="true"] .box { background: var(--accent); }
 .toggle[aria-pressed="true"] .box::after { transform: translateX(12px); }
-.cbtn, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background .12s, border-color .12s; }
-.cbtn:hover, .btn:hover:not(:disabled) { background: var(--subtle); border-color: var(--border-strong); }
-.btn.solid { background: var(--text); border-color: var(--text); color: var(--bg); }
-.btn.solid:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 85%, var(--bg)); }
-.btn.solid .shape { display: none; }
-.btn.small { height: 28px; padding: 0 10px; font-size: 12.5px; border-radius: 7px; }
-.btn:disabled { opacity: .45; cursor: default; }
-.row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-
-.notice { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border: 1px solid var(--work-line); background: var(--work-soft); border-radius: 12px; font-size: 13.5px; }
+.notice { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border: 1px solid var(--work-line); background: var(--work-soft); border-radius: 12px; font-size: 13.5px; margin-bottom: 16px; }
 .notice code { font-family: var(--mono); font-size: 12.5px; background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
 
-/* ---------- Workflow ---------- */
-.board { padding: 20px; display: grid; gap: 18px; }
-.board-head { display: grid; grid-template-columns: 1fr minmax(300px, 380px); gap: 20px; align-items: start; }
-.board-head h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
-.legend { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend .shape { animation: none; box-shadow: none; }
-.cover { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: var(--subtle); display: grid; gap: 8px; }
-.cover-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.label { font-size: 12px; font-weight: 500; color: var(--muted); }
-.cover-num { font-size: 28px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.cover-num small { font-size: 14px; color: var(--muted); font-weight: 500; letter-spacing: 0; }
-.cover-note { color: var(--muted); font-size: 12.5px; }
-.cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(9px, 1fr)); gap: 3px; min-height: 9px; }
-.cells i { display: block; aspect-ratio: 1; border-radius: 2px; background: var(--border); }
-.cells i.r { background: var(--done); }
-.cells i.h { background: var(--alert); }
-.cells i.p { background: var(--work); }
+/* ---------- Hero ---------- */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 22px 24px; margin-bottom: 16px; position: relative; overflow: hidden; }
+.hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(600px 180px at 0% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%); pointer-events: none; }
+.hero h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -.02em; line-height: 1.2; }
+.hero p { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 760px; }
+.hero p b { color: var(--text); }
+.hero .cta { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: 320px; text-align: right; }
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.kpi { padding: 12px 14px; }
+.kpi .label { font-size: 12px; color: var(--muted); }
+.kpi .value { font-size: 24px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 2px; line-height: 1.2; }
+.kpi .value small { font-size: 13px; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+.kpi .sub { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.lane { display: grid; gap: 8px; }
-.lane-tag span { font-size: 12px; font-weight: 500; color: var(--muted); }
-.steps { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; }
-.step { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px 14px; background: var(--surface); display: flex; flex-direction: column; gap: 6px; min-width: 0; transition: border-color .25s, background .25s; }
-.step.done { border-color: var(--done-line); }
-.step.working { border-color: var(--work-line); background: var(--work-soft); }
-.step.attention { border-color: var(--alert-line); background: var(--alert-soft); }
-.step.skipped, .step.idle { background: var(--surface); }
-.step.skipped .step-name, .step.idle .step-name { color: var(--muted); }
-.step.side { border-style: dashed; background: transparent; }
-.step-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.step-num { font: 500 12px/1 var(--mono); color: var(--faint); }
-.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 500; color: var(--muted); white-space: nowrap; }
-.step.done .pill { color: var(--done); } .step.working .pill { color: var(--work); } .step.attention .pill { color: var(--alert); }
-.step-name { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
-.step-via { font-size: 12px; color: var(--muted); margin-top: 1px; }
-.step-cap { font-size: 13px; line-height: 1.45; color: var(--muted); margin-top: 2px; }
-.step-cap b { color: var(--text); font-weight: 600; }
-.step-act { margin-top: 8px; width: max-content; }
+/* ---------- Stage ---------- */
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+.acts { display: grid; gap: 14px; }
+.act { overflow: hidden; transition: border-color .3s, opacity .3s; }
+.act.idle { opacity: .6; }
+.act.working { border-color: var(--accent-line); animation: glow 2.4s ease-in-out infinite; }
+.act.attention { border-color: var(--bad-line); }
+.act-head { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.act.idle .act-head { border-bottom-color: transparent; }
+.act-num { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font: 600 13px var(--mono); background: var(--subtle); color: var(--muted); border: 1px solid var(--border); flex: none; transition: background .3s, color .3s; }
+.act.working .act-num { background: var(--accent); color: #fff; border-color: var(--accent); }
+.act.done .act-num { background: var(--ok); color: #fff; border-color: var(--ok); }
+.act.attention .act-num { background: var(--bad); color: #fff; border-color: var(--bad); }
+.act-title { min-width: 0; flex: 1; }
+.act-title h3 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.act-title p { margin: 1px 0 0; font-size: 13px; color: var(--muted); }
+.state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.act.working .state { color: var(--accent); } .act.done .state { color: var(--ok); } .act.attention .state { color: var(--bad); }
+.act-body { padding: 16px 18px 18px; }
+.act.idle .act-body { display: none; }
+.caption { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+.caption b { color: var(--text); font-weight: 600; }
+.chipsvc { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); white-space: nowrap; }
+.chipsvc i { width: 7px; height: 7px; border-radius: 2px; background: var(--c); }
 
-.feed { display: grid; gap: 8px; }
-.feed ol { margin: 0; padding: 0; list-style: none; max-height: 184px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
-.feed li { display: grid; grid-template-columns: 72px 96px 1fr; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 13px; align-items: baseline; }
-.feed li:last-child { border-bottom: 0; }
-.feed li:first-child { background: var(--subtle); }
-.feed time { font: 12px var(--mono); color: var(--faint); }
-.feed .src { font-size: 12px; color: var(--muted); }
-.feed li.fail { color: var(--alert); }
-.feed .empty-line { grid-template-columns: 1fr; color: var(--muted); }
+/* Act 1: triage */
+.triage { display: grid; grid-template-columns: minmax(170px, .75fr) minmax(0, 1.45fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+.bucket { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: var(--subtle); min-height: 120px; transition: background .4s, border-color .4s; }
+.bucket.p1 { background: var(--bad-soft); border-color: var(--bad-line); }
+.bucket.p2 { background: var(--work-soft); border-color: var(--work-line); }
+.bucket.p3 { background: var(--p3-soft); border-color: var(--border); }
+.bucket-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.bucket-head h4 { margin: 0; font-size: 13.5px; font-weight: 600; flex: 1; min-width: 0; }
+.bucket-head .count { font: 600 22px/1 var(--sans); font-variant-numeric: tabular-nums; }
+.bucket-foot { margin-top: 10px; font-size: 12px; color: var(--muted); display: grid; gap: 3px; }
+.bucket-foot b { color: var(--text); font-weight: 600; }
+.prio { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; letter-spacing: .02em; color: #fff; background: var(--p3); }
+.prio.P1 { background: var(--bad); } .prio.P2 { background: var(--work); } .prio.P3 { background: var(--p3); }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.chip .ch { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none; }
+.bucket.p1 .chip .ch { background: var(--bad); } .bucket.p3 .chip .ch { background: var(--p3); }
+.chip.new { animation: pop .45s ease-out both; }
+.chip.pending .ch { background: var(--work); animation: blink 1s infinite; }
 
-/* ---------- Systems ---------- */
-.systems { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 16px; align-items: start; }
-.sys { display: flex; flex-direction: column; overflow: hidden; }
-.sys-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
-.sys-head h3 { margin: 0; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-.sys-head h3::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--c, var(--accent)); }
-.sys.fd { --c: var(--fd); } .sys.fs { --c: var(--fs); } .sys.phone { --c: var(--vb); }
-.sys-head .count { font-size: 12px; color: var(--muted); }
-.block { padding: 14px 16px 16px; border-bottom: 1px solid var(--border); }
-.block:last-child { border-bottom: 0; }
-.block > .label { display: block; margin-bottom: 10px; }
-.block > .label b { display: none; }
+/* Act 2: on-call */
+.pipeline { display: grid; grid-template-columns: 1fr 28px 1fr 28px 1fr; align-items: stretch; }
+.node { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: var(--surface); transition: border-color .3s, background .3s; }
+.node.on { border-color: var(--ok-line); background: var(--ok-soft); }
+.node.live { border-color: var(--accent-line); background: var(--accent-soft); }
+.node .svc { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.node .svc i { width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+.node h5 { margin: 6px 0 2px; font-size: 14px; font-weight: 600; }
+.node p { margin: 0; font-size: 12.5px; color: var(--muted); }
+.link { display: grid; place-items: center; }
+.link span { width: 100%; height: 2px; background: var(--border); position: relative; overflow: hidden; border-radius: 2px; }
+.link.on span::after { content: ""; position: absolute; inset: 0; width: 40%; background: var(--accent); animation: flow 1.2s linear infinite; }
+.link.done span { background: var(--ok); }
+.quote { margin-top: 12px; border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--subtle); border-radius: 0 10px 10px 0; font-size: 13.5px; }
+.quote .who { font-size: 11.5px; color: var(--muted); font-weight: 500; }
+.nopage { margin-top: 10px; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.nopage b { color: var(--text); }
 
-.field { display: grid; margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
-.field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.field .split { display: grid; grid-template-columns: 1fr 104px; border-bottom: 1px solid var(--border); }
-.field input, .field select, .field textarea { border: 0; background: transparent; padding: 9px 12px; width: 100%; min-width: 0; outline: none; }
-.field select { border-left: 1px solid var(--border); }
-.field textarea { resize: vertical; min-height: 60px; display: block; }
-.field .foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; border-top: 1px solid var(--border); background: var(--subtle); }
-.field .foot .hint { font-size: 12px; color: var(--muted); }
-.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.presets button { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 4px 10px; font-size: 12px; max-width: 100%; display: inline-flex; gap: 6px; }
-.presets button:hover { border-color: var(--border-strong); background: var(--subtle); }
-.presets b { font-weight: 500; }
-.presets span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+/* Act 3: auto-fix */
+.stepper { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+.stp { display: grid; gap: 6px; }
+.stp .bar { height: 4px; border-radius: 4px; background: var(--border); overflow: hidden; position: relative; }
+.stp.running .bar::after { content: ""; position: absolute; inset: 0; width: 35%; background: var(--accent); animation: flow 1.1s linear infinite; }
+.stp.done .bar { background: var(--ok); } .stp.failed .bar { background: var(--bad); }
+.stp .nm { font-size: 11.5px; color: var(--muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stp.running .nm { color: var(--accent); } .stp.done .nm { color: var(--text); }
+.fixgrid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.5fr); gap: 14px; align-items: start; }
+.sources { display: grid; gap: 6px; }
+.src { display: grid; grid-template-columns: 26px 1fr; gap: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.src .ic { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 13px; background: var(--subtle); }
+.src b { font-size: 12.5px; font-weight: 600; display: block; }
+.src span { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.prompt { margin-top: 8px; font-size: 12px; }
+.prompt summary { cursor: pointer; color: var(--muted); font-weight: 500; }
+.prompt pre { white-space: pre-wrap; font: 11.5px/1.5 var(--mono); background: var(--subtle); border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin: 8px 0 0; max-height: 220px; overflow: auto; }
+.term { background: var(--term); color: var(--term-text); border-radius: 12px; overflow: hidden; border: 1px solid #1f2230; }
+.term-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--term-2); border-bottom: 1px solid #1f2230; font: 12px var(--mono); color: var(--term-dim); }
+.term-head .lights { display: flex; gap: 6px; margin-right: 6px; flex: none; }
+.term-head .lights i { width: 10px; height: 10px; border-radius: 50%; }
+.term-head .lights i:nth-child(1) { background: #ff5f57; } .term-head .lights i:nth-child(2) { background: #febc2e; } .term-head .lights i:nth-child(3) { background: #28c840; }
+.term-head .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-body { font: 12px/1.55 var(--mono); padding: 12px 14px; height: 430px; overflow: auto; }
+.ev { margin-bottom: 8px; animation: enter .3s ease-out both; }
+.ev .ln { display: flex; gap: 8px; align-items: baseline; }
+.ev .tl { color: #c4b5fd; font-weight: 500; flex: none; }
+.ev.read .tl { color: #93c5fd; } .ev.bash .tl { color: #fcd34d; } .ev.edit .tl { color: #c4b5fd; } .ev.write .tl { color: #86efac; } .ev.grep .tl { color: #67e8f9; }
+.ev .ti { color: var(--term-text); word-break: break-word; }
+.ev .out { margin: 4px 0 0 18px; padding: 6px 10px; border-left: 2px solid #2a2e3f; color: var(--term-dim); white-space: pre-wrap; word-break: break-word; max-height: 170px; overflow: auto; }
+.ev .out .add { color: #86efac; background: rgba(34,197,94,.08); display: block; }
+.ev .out .del { color: #fca5a5; background: rgba(239,68,68,.08); display: block; }
+.ev .out .pass { color: #86efac; } .ev .out .fail { color: #fca5a5; }
+.ev.text .ti { color: #d4d4d8; font-family: var(--sans); font-size: 13px; }
+.ev.text .tl { color: #71717a; }
+.ev.diag .ti { color: #fde68a; font-weight: 500; }
+.ev.diag .tl { color: #fbbf24; }
+.caret { display: inline-block; width: 7px; height: 14px; background: var(--term-text); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+.tests { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.test { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.test .k { font-size: 12px; color: var(--muted); }
+.test .v { font-size: 18px; font-weight: 600; margin-top: 2px; }
+.test.red { border-color: var(--bad-line); background: var(--bad-soft); } .test.red .v { color: var(--bad); }
+.test.green { border-color: var(--ok-line); background: var(--ok-soft); } .test.green .v { color: var(--ok); }
+.test.enter-pop { animation: pop .5s ease-out both; }
 
-.list { display: grid; gap: 6px; max-height: 440px; overflow: auto; }
-.item { display: grid; grid-template-columns: 52px 1fr; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); text-align: left; padding: 0; width: 100%; transition: border-color .12s, background .12s; }
-button.item:hover, .item.link:hover { border-color: var(--border-strong); background: var(--subtle); }
-.item .id { font: 12px var(--mono); padding: 10px 0 10px 10px; color: var(--faint); }
-.item .body { padding: 9px 10px 9px 0; min-width: 0; }
-.item .subject { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; font-size: 12px; color: var(--muted); align-items: center; }
-.item.fresh { animation: arrive 1.8s ease-out; }
-@keyframes arrive { from { background: var(--accent-soft); border-color: var(--accent); } }
-.empty { color: var(--muted); font-size: 13px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 8px; }
+/* Act 4: review */
+.review { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; }
+.pr { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; animation: enter .4s ease-out both; }
+.pr-head { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.pr-head .t { font-size: 15px; font-weight: 600; line-height: 1.3; }
+.pr-head .t span { color: var(--muted); font-weight: 400; }
+.pr-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #fff; background: #1f883d; border-radius: 999px; padding: 3px 10px; margin-right: 8px; }
+.pr-meta { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.pr-meta code { font: 11.5px var(--mono); background: var(--accent-soft); color: var(--accent); padding: 1px 6px; border-radius: 6px; }
+.pr-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.pr-row .k { width: 92px; color: var(--muted); font-size: 12.5px; flex: none; }
+.avatar { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px; font-weight: 600; background: var(--subtle); border: 1px solid var(--border); flex: none; }
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.pill.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
+.pill.work { color: var(--work); border-color: var(--work-line); background: var(--work-soft); }
+.files { display: grid; gap: 2px; font: 12px var(--mono); }
+.files b { color: var(--ok); font-weight: 500; } .files i { color: var(--bad); font-style: normal; }
+.pr-actions { display: flex; gap: 8px; padding: 12px 14px; background: var(--subtle); flex-wrap: wrap; align-items: center; }
+.doccard { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; animation: enter .4s ease-out both; }
+.docthumb { background: var(--subtle); padding: 14px 14px 0; flex: 1; }
+.paper { background: #fff; color: #202124; border-radius: 6px 6px 0 0; box-shadow: 0 1px 3px rgba(0,0,0,.12); padding: 16px 18px; min-height: 180px; font-family: Arial, Helvetica, sans-serif; font-size: 10.5px; line-height: 1.5; overflow: hidden; max-height: 240px; position: relative; }
+.paper::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 50px; background: linear-gradient(transparent, #fff); }
+.paper .t { font-size: 15px; margin-bottom: 6px; }
+.paper .h { font-size: 12px; font-weight: 700; margin: 8px 0 2px; }
+.doc-meta { padding: 10px 14px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.human { margin-top: 12px; display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); border: 1px solid var(--accent-line); font-size: 13px; }
 
-.tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; color: var(--muted); }
-.tag .shape { width: 6px; height: 6px; animation: none; box-shadow: none; }
-.tag.boxed { border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; background: var(--subtle) !important; color: var(--text); cursor: pointer; }
-.tag.red { color: var(--alert); } .tag.blue { color: var(--done); }
-.prio { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 6px; }
-.prio.p4 { background: var(--alert-soft); color: var(--alert); border: 1px solid var(--alert-line); }
-.prio.p3 { background: var(--work-soft); color: var(--work); border: 1px solid var(--work-line); }
-.prio.p2, .prio.p1 { border: 1px solid var(--border); color: var(--muted); }
+/* Act 5: recover */
+.recover { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; }
+.cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(18px, 1fr)); gap: 4px; margin-top: 8px; }
+.cells i { aspect-ratio: 1; border-radius: 4px; background: var(--border); display: block; transition: background .5s; }
+.cells i.r { background: var(--ok); } .cells i.p { background: var(--work); } .cells i.s { outline: 2px solid var(--accent); outline-offset: -2px; }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-content: start; }
+.stat { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; }
+.stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .k { font-size: 12px; color: var(--muted); }
 
-.roster { display: grid; gap: 6px; }
-.roster div { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
-.roster strong { font-weight: 500; }
-.roster span { font: 12px var(--mono); color: var(--muted); }
-.alert-bar { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 10px; }
-.alert-bar select { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 0 10px; height: 34px; min-width: 0; }
+/* ---------- The phone ---------- */
+.phone-col { position: sticky; top: 16px; display: grid; gap: 10px; justify-items: center; }
+.phone { width: 320px; height: 660px; border-radius: 50px; background: #0b0b0d; padding: 11px; box-shadow: var(--shadow-lg), inset 0 0 0 2px #2a2a2e; position: relative; }
+.screen { width: 100%; height: 100%; border-radius: 40px; overflow: hidden; position: relative; background: linear-gradient(160deg, #1e1b4b 0%, #312e81 45%, #0f172a 100%); color: #fff; display: flex; flex-direction: column; }
+.island { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 110px; height: 30px; background: #000; border-radius: 20px; z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; transition: width .4s; }
+.island.active { width: 190px; }
+.island .live { font: 600 11px var(--sans); color: #4ade80; visibility: hidden; }
+.island.active .live { visibility: visible; }
+.wave { display: flex; gap: 2px; align-items: center; height: 14px; visibility: hidden; }
+.island.active .wave { visibility: visible; }
+.wave i { width: 3px; border-radius: 2px; background: #4ade80; height: 4px; }
+.wave.talk i { animation: wv .7s ease-in-out infinite; }
+.wave i:nth-child(2) { animation-delay: .12s; } .wave i:nth-child(3) { animation-delay: .24s; } .wave i:nth-child(4) { animation-delay: .36s; }
+@keyframes wv { 50% { height: 14px; } }
+.sbar { height: 50px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 14px 30px 0; font: 600 13px var(--sans); }
+.sbar .ic { font-size: 10px; letter-spacing: 1px; }
+.lock { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 18px 14px 20px; min-height: 0; }
+.lock .date { font-size: 14px; opacity: .85; font-weight: 500; }
+.lock .clock { font-size: 72px; font-weight: 600; letter-spacing: -.03em; line-height: 1; margin: 2px 0 8px; }
+.lock .who { font-size: 12px; opacity: .85; background: rgba(255,255,255,.12); padding: 4px 10px; border-radius: 999px; }
+.notifs { width: 100%; margin-top: auto; display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow: auto; }
+.notif { background: rgba(255,255,255,.16); backdrop-filter: blur(12px); border-radius: 18px; padding: 10px 12px; color: #fff; text-align: left; border: 0; width: 100%; animation: drop .5s cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes drop { from { opacity: 0; transform: translateY(-14px) scale(.96); } }
+.notif .app { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .85; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.notif .app i { width: 16px; height: 16px; border-radius: 5px; display: grid; place-items: center; font-style: normal; font-size: 9px; }
+.notif .app .time { margin-left: auto; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.notif .ttl { font-size: 13px; font-weight: 600; margin-top: 3px; line-height: 1.3; }
+.notif .bd { font-size: 12px; opacity: .85; margin-top: 1px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.banner { position: absolute; top: 48px; left: 10px; right: 10px; z-index: 6; }
+.banner .notif { background: rgba(30,30,40,.92); box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+.incoming { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 40px 20px 34px; background: linear-gradient(180deg, #111827, #1f2937 60%, #111827); }
+.incoming .lbl { font-size: 13px; opacity: .7; }
+.incoming .name { font-size: 28px; font-weight: 600; margin-top: 6px; }
+.incoming .sub { font-size: 13px; opacity: .75; margin-top: 4px; text-align: center; }
+.ringer { width: 92px; height: 92px; border-radius: 50%; margin: 48px 0 auto; display: grid; place-items: center; background: #4f46e5; position: relative; font-size: 34px; }
+.ringer::before, .ringer::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2px solid #818cf8; animation: rp 1.6s ease-out infinite; }
+.ringer::after { animation-delay: .8s; }
+@keyframes rp { from { transform: scale(1); opacity: .9; } to { transform: scale(1.9); opacity: 0; } }
+.callbtns { display: flex; justify-content: space-between; width: 100%; padding: 0 20px; }
+.cb { display: grid; justify-items: center; gap: 6px; font-size: 12px; opacity: .92; background: none; border: 0; color: #fff; }
+.cb span { width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; }
+.cb.no span { background: #ef4444; } .cb.yes span { background: #22c55e; animation: pulseg 1.2s infinite; }
+@keyframes pulseg { 50% { box-shadow: 0 0 0 8px rgba(34,197,94,.25); } }
+.incall { flex: 1; display: flex; flex-direction: column; min-height: 0; background: linear-gradient(180deg, #0f172a, #111827); }
+.incall-head { text-align: center; padding: 6px 16px 10px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.incall-head .name { font-size: 18px; font-weight: 600; }
+.incall-head .sub { font-size: 12px; opacity: .7; margin-top: 2px; }
+.incall-head .tag { display: inline-flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 10.5px; background: rgba(129,140,248,.18); color: #c7d2fe; border-radius: 999px; padding: 2px 9px; }
+.transcript { flex: 1; overflow: auto; padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 8px; }
+.bub { max-width: 88%; padding: 8px 11px; border-radius: 16px; font-size: 12.5px; line-height: 1.4; animation: enter .3s ease-out both; }
+.bub .by { font-size: 10px; opacity: .6; margin-bottom: 2px; font-weight: 600; letter-spacing: .02em; }
+.bub.agent { background: rgba(255,255,255,.1); align-self: flex-start; border-bottom-left-radius: 5px; }
+.bub.callee { background: #4f46e5; align-self: flex-end; border-bottom-right-radius: 5px; }
+.dots { display: inline-flex; gap: 3px; }
+.dots i { width: 5px; height: 5px; border-radius: 50%; background: #fff; opacity: .5; animation: blink 1.2s infinite; }
+.dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
+.incall-foot { padding: 10px 12px 18px; border-top: 1px solid rgba(255,255,255,.08); display: grid; gap: 8px; }
+.replies { display: flex; flex-wrap: wrap; gap: 6px; }
+.replies button { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.06); color: #fff; border-radius: 999px; padding: 4px 10px; font-size: 11.5px; text-align: left; }
+.replies button:hover { background: rgba(255,255,255,.16); }
+.sayrow { display: flex; gap: 6px; }
+.sayrow input { flex: 1; min-width: 0; border-radius: 999px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.08); color: #fff; padding: 7px 12px; font-size: 12.5px; }
+.sayrow button { border: 0; border-radius: 999px; background: #4f46e5; color: #fff; padding: 0 12px; font-size: 12.5px; }
+.endrow { display: flex; justify-content: center; }
+.endrow button { width: 50px; height: 50px; border-radius: 50%; background: #ef4444; border: 0; color: #fff; font-size: 20px; transform: rotate(135deg); }
+.callmeta { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; opacity: .7; }
+.callmeta button { height: 22px; font-size: 11px; border-radius: 999px; background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.2); padding: 0 8px; }
+.phone-cap { font-size: 12.5px; color: var(--muted); text-align: center; max-width: 320px; }
+.phone-cap b { color: var(--text); font-weight: 600; }
+.home { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 110px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.55); }
 
-/* Calls */
-.calls { display: grid; gap: 8px; max-height: 760px; overflow: auto; }
-.call { border: 1px solid var(--border); border-radius: 10px; display: grid; grid-template-columns: 1fr; background: var(--surface); }
-.call .strip { display: none; }
-.call.ringing, .call.queued { border-color: var(--vb); box-shadow: 0 0 0 3px color-mix(in srgb, var(--vb) 16%, transparent); }
-.call.answered { border-color: var(--work-line); }
-.call-in { padding: 12px; min-width: 0; }
-.call-top { display: flex; align-items: center; gap: 10px; }
-.initials { width: 34px; height: 34px; display: grid; place-items: center; font-size: 12.5px; font-weight: 600; background: var(--subtle); border: 1px solid var(--border); border-radius: 50%; flex: none; }
-.initials.oncall { background: color-mix(in srgb, var(--fs) 14%, var(--surface)); border-color: color-mix(in srgb, var(--fs) 35%, var(--border)); color: var(--fs); }
-.call-who { min-width: 0; flex: 1; }
-.call-who strong { display: block; font-size: 14px; font-weight: 600; }
-.call-who span { font-size: 12px; color: var(--muted); }
-.call-state { font-size: 11.5px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
-.call.ringing .call-state, .call.queued .call-state { color: var(--vb); border-color: color-mix(in srgb, var(--vb) 35%, var(--border)); }
-.call.answered .call-state { color: var(--work); border-color: var(--work-line); }
-.call.completed .call-state { color: var(--done); border-color: var(--done-line); }
-.call.no_answer .call-state, .call.busy .call-state, .call.failed .call-state { color: var(--alert); border-color: var(--alert-line); }
-.transcript { margin: 10px 0 0 44px; padding: 0; list-style: none; display: grid; gap: 6px; }
-.transcript li { font-size: 13px; background: var(--subtle); border-radius: 8px; padding: 6px 10px; }
-.transcript li.key { font: 500 12.5px var(--mono); background: var(--done-soft); color: var(--done); justify-self: start; }
-.keypad { display: flex; gap: 6px; margin: 10px 0 0 44px; align-items: center; }
-.keypad button { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); font-weight: 600; }
-.keypad button:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.keypad .end { width: auto; padding: 0 12px; border-radius: 8px; font-size: 12.5px; font-weight: 500; }
-.keypad .end:hover { background: var(--alert); border-color: var(--alert); color: #fff; }
-.call .row-actions { margin: 10px 0 0 44px; }
-.auto { font-size: 12px; color: var(--muted); }
+/* ---------- Under the hood ---------- */
+.hood { margin-top: 20px; }
+.hood-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 0; }
+.hood-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.tabs { display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.tab { border: 0; background: none; padding: 8px 12px; font-size: 13px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+.tabpanel { padding: 14px 16px 18px; }
+.rows { display: grid; gap: 6px; max-height: 420px; overflow: auto; }
+.row { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; align-items: baseline; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; font-size: 13px; text-align: left; background: var(--surface); width: 100%; }
+button.row:hover { background: var(--subtle); }
+.row .k { font: 12px var(--mono); color: var(--faint); }
+.row .m { font-size: 12px; color: var(--muted); }
+.logrow { display: grid; grid-template-columns: 72px 92px 1fr; gap: 10px; padding: 5px 10px; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+.logrow time, .logrow .p { font: 11.5px var(--mono); color: var(--muted); }
+.logrow.fail { color: var(--bad); }
+.empty { color: var(--muted); font-size: 13px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 10px; }
 
-/* Record view */
-dialog { border: 1px solid var(--border); border-radius: 14px; padding: 0; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 64px); background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg); }
-dialog::backdrop { background: rgba(9,9,11,.4); backdrop-filter: blur(2px); }
-.rec-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1; }
-.rec-head > div { min-width: 0; flex: 1; }
-.rec-head .label { display: block; }
-.rec-head h3 { margin: 4px 0 0; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
-.rec-head .sub { margin-top: 6px; color: var(--muted); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
-.rec-head .close { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; height: 30px; padding: 0 10px; font-size: 12.5px; font-weight: 500; }
-.rec-head .close:hover { background: var(--subtle); }
-.thread { display: grid; gap: 10px; padding: 16px 18px 18px; }
-.msg { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); }
-.msg .bar { display: none; }
-.msg.customer { background: var(--subtle); }
-.msg.note { background: var(--note); border-color: var(--note-line); }
-.msg.reply { background: var(--reply); border-color: var(--reply-line); }
-.msg .by { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; color: var(--muted); }
-.msg .text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
-.msg.none { color: var(--muted); border-style: dashed; }
+/* ---------- Records ---------- */
+dialog { border: 1px solid var(--border); border-radius: 16px; padding: 0; width: min(900px, calc(100vw - 32px)); max-height: calc(100vh - 56px); background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg); }
+dialog::backdrop { background: rgba(9,9,11,.45); backdrop-filter: blur(3px); }
+.dlg-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.dlg-head > div { flex: 1; min-width: 0; }
+.dlg-head .k { font-size: 12px; color: var(--muted); font-weight: 500; }
+.dlg-head h3 { margin: 3px 0 0; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.dlg-body { padding: 18px 20px 22px; display: grid; gap: 14px; }
+.diff { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.diff-h { padding: 8px 12px; background: var(--subtle); border-bottom: 1px solid var(--border); font: 12.5px var(--mono); display: flex; gap: 10px; }
+.diff pre { margin: 0; font: 12px/1.55 var(--mono); overflow: auto; padding: 6px 0; }
+.diff pre span { display: block; padding: 0 12px; white-space: pre; }
+.diff pre .a { background: rgba(34,197,94,.12); } .diff pre .d { background: rgba(239,68,68,.12); } .diff pre .h { color: var(--muted); background: var(--accent-soft); }
+.md { font-size: 14px; line-height: 1.6; }
+.md blockquote { margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--border-strong); color: var(--muted); }
+.gdoc { background: #f1f3f4; padding: 24px; display: flex; justify-content: center; }
+.gdoc .page { background: #fff; color: #202124; width: 100%; max-width: 720px; padding: 48px 56px; box-shadow: 0 1px 3px rgba(60,64,67,.3); font-family: Arial, Helvetica, sans-serif; font-size: 13.5px; line-height: 1.55; }
+.gdoc .TITLE { font-size: 24px; margin: 0 0 8px; }
+.gdoc .HEADING_1 { font-size: 17px; margin: 18px 0 4px; }
+.gdoc .HEADING_2 { font-size: 14px; font-weight: 700; margin: 12px 0 4px; }
+.gdoc p { margin: 0 0 6px; } .gdoc ul { margin: 0 0 8px; padding-left: 22px; } .gdoc a { color: #1a73e8; }
+.thread { display: grid; gap: 10px; }
+.msg { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.msg .by { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.msg.note { background: var(--work-soft); border-color: var(--work-line); }
+.msg.reply { background: var(--accent-soft); border-color: var(--accent-line); }
+.msg .text { white-space: pre-wrap; overflow-wrap: anywhere; }
 
-@media (max-width: 1240px) {
-  .systems { grid-template-columns: 1fr 1fr; }
-  .sys.phone { grid-column: span 2; }
-  .steps { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1180px) {
+  .stage { grid-template-columns: 1fr; }
+  .phone-col { position: static; order: -1; }
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 860px) {
-  .frame { padding: 16px; }
-  .board { padding: 16px; }
-  .board-head { grid-template-columns: 1fr; }
-  .steps { grid-template-columns: 1fr 1fr; }
-  .feed li { grid-template-columns: 64px 1fr; }
-  .feed .src { display: none; }
-  .systems { grid-template-columns: 1fr; }
-  .sys.phone { grid-column: auto; }
-  .controls { width: 100%; }
-  .controls > * { flex: 1 1 auto; }
+  .frame { padding: 14px 14px 48px; }
+  .hero { grid-template-columns: 1fr; }
+  .hero .cta { align-items: stretch; text-align: left; max-width: none; }
+  .triage, .fixgrid, .review, .recover { grid-template-columns: 1fr; }
+  .pipeline { grid-template-columns: 1fr; gap: 8px; }
+  .pipeline .link { display: none; }
+  .stepper { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tests { grid-template-columns: 1fr; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 480px) { .steps { grid-template-columns: 1fr; } .transcript, .keypad, .call .row-actions { margin-left: 0; } }
+@media (max-width: 380px) { .phone { transform: scale(.9); transform-origin: top center; margin-bottom: -60px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -271,113 +394,111 @@ dialog::backdrop { background: rgba(9,9,11,.4); backdrop-filter: blur(2px); }
     <div class="brand">
       <div class="logo" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
       <div>
-        <h1>CrisisCrew <span class="badge">Demo cockpit</span></h1>
-        <p>Mock Freshdesk, Freshservice and Vobiz, reached over their real APIs.</p>
+        <h1>CrisisCrew <span class="badge">Live demo</span></h1>
+        <p>From customer tickets to a reviewed fix, with the on-call engineer still on the phone.</p>
       </div>
     </div>
     <div class="controls">
-      <div class="status" id="conn"><span class="shape hollow"></span><span>Connecting</span></div>
-      <button class="toggle" id="autopilot" type="button" aria-pressed="true" title="On: every phone answers the way the scenario says. Off: you answer each call."><span class="box"></span>Phones on autopilot</button>
-      <a class="cbtn" id="console" href="http://localhost:8787" target="_blank" rel="noopener">Open console ↗</a>
-      <button class="cbtn" id="reset" type="button">Reset</button>
+      <span class="pillbtn" id="conn"><span class="dot"></span><span>Connecting</span></span>
+      <button class="pillbtn toggle" id="sound" type="button" aria-pressed="false" title="Read the call aloud in this browser"><span class="box"></span>Voice</button>
+      <button class="pillbtn toggle" id="autopilot" type="button" aria-pressed="true" title="On: Neha answers from the script. Off: you answer the call and speak for her."><span class="box"></span>Autopilot</button>
+      <a class="pillbtn" id="console" href="#" target="_blank" rel="noopener">Console ↗</a>
+      <button class="pillbtn" id="reset" type="button">Reset</button>
     </div>
   </header>
 
   <div class="notice" id="notice" hidden></div>
 
-  <section class="card board" aria-labelledby="board-title">
-    <div class="board-head">
-      <div>
-        <h2 id="board-title">What CrisisCrew is doing</h2>
-        <div class="legend">
-          <span><i class="shape hollow"></i>Waiting</span>
-          <span><i class="shape square"></i>Working</span>
-          <span><i class="shape circle"></i>Done</span>
-          <span><i class="shape triangle"></i>Needs a person</span>
-        </div>
-      </div>
-      <div class="cover" aria-live="polite">
-        <div class="cover-top"><span class="label">Recovery coverage</span><span class="cover-note" id="cov-note">No incident yet</span></div>
-        <div class="cover-num" id="cov-num">—</div>
-        <div class="cells" id="cov-cells" aria-hidden="true"></div>
-      </div>
+  <section class="card hero">
+    <div>
+      <h2>24 customers write in. Watch CrisisCrew take it from tickets to a reviewed fix.</h2>
+      <p>It groups the tickets, pages the on-call engineer and briefs her by phone. While she's still on the call, it clones the repo, reproduces the bug, fixes it with OpenCode, and sends her the report and a pull request. <b>She reviews the fix. She doesn't write it.</b></p>
     </div>
-    <div id="lanes" style="display:grid;gap:16px"></div>
-    <div class="feed">
-      <div class="lane-tag"><span>Activity</span></div>
-      <ol id="story" aria-live="polite"></ol>
+    <div class="cta">
+      <button class="btn primary big" id="start" type="button">▶&nbsp; Start the incident</button>
+      <span class="muted" style="font-size:12px" id="cta-sub">Mock Freshdesk, Freshservice, Vobiz, GitHub, Google Docs and Slack, reached through their real APIs</span>
     </div>
   </section>
 
-  <div class="systems">
-    <section class="card sys fd" aria-labelledby="fd-title">
-      <div class="sys-head"><h3 id="fd-title">Freshdesk</h3><span class="count" id="fd-count">0 tickets</span></div>
-      <div class="block">
-        <div class="label">Customers write in</div>
-        <div class="row-actions">
-          <button class="btn solid" id="burst" type="button">File the 4 demo complaints</button>
-          <button class="btn" id="burst-hero" type="button" title="All 13 tickets from the hero scenario, including questions that aren't failures">Replay all 13 at 4×</button>
-        </div>
-        <form class="field" id="compose">
-          <div class="split">
-            <input id="c-who" list="people" placeholder="Customer email" autocomplete="off" aria-label="Customer email" required>
-            <select id="c-channel" aria-label="Channel"><option>chat</option><option>email</option><option>portal</option><option>phone</option></select>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="stage">
+    <div class="acts">
+      <article class="card act idle" id="act1">
+        <div class="act-head"><div class="act-num">01</div><div class="act-title"><h3>Triage</h3><p>The Pattern Agent groups the tickets by what's actually broken</p></div><span class="state"></span></div>
+        <div class="act-body"><p class="caption" id="triage-cap"></p><div class="triage" id="triage"></div></div>
+      </article>
+      <article class="card act idle" id="act2">
+        <div class="act-head"><div class="act-num">02</div><div class="act-title"><h3>Page on-call</h3><p>Freshservice says who's on call, Vobiz rings them, the voice agent briefs them</p></div><span class="state"></span></div>
+        <div class="act-body"><p class="caption" id="oncall-cap"></p><div class="pipeline" id="pipeline"></div><div id="oncall-extra"></div></div>
+      </article>
+      <article class="card act idle" id="act3">
+        <div class="act-head"><div class="act-num">03</div><div class="act-title"><h3>Auto-fix, during the call</h3><p>The Fix Agent clones the repo and runs OpenCode headless on the bug</p></div><span class="state"></span></div>
+        <div class="act-body">
+          <div class="stepper" id="stepper"></div>
+          <div class="fixgrid">
+            <div>
+              <div class="sources" id="sources"></div>
+              <details class="prompt" id="prompt-box" hidden><summary>The exact task CrisisCrew gave OpenCode</summary><pre id="prompt"></pre></details>
+            </div>
+            <div class="term">
+              <div class="term-head"><span class="lights"><i></i><i></i><i></i></span><span class="title" id="term-title">opencode run</span></div>
+              <div class="term-body" id="term"></div>
+            </div>
           </div>
-          <textarea id="c-body" placeholder="What the customer says" aria-label="Complaint" required></textarea>
-          <div class="foot"><span class="hint">Known customers are checked against their payments.</span><button class="btn small solid" type="submit">Create ticket</button></div>
-          <datalist id="people"></datalist>
-        </form>
-        <div class="presets" id="quick" aria-label="Rehearsed complaints"></div>
-      </div>
-      <div class="block">
-        <div class="label">Tickets · CrisisCrew's notes and replies appear here</div>
-        <div class="list" id="fd-list"></div>
-      </div>
-    </section>
-
-    <section class="card sys fs" aria-labelledby="fs-title">
-      <div class="sys-head"><h3 id="fs-title">Freshservice</h3><span class="count" id="fs-count"></span></div>
-      <div class="block">
-        <div class="label">Engineering incidents</div>
-        <div class="list" id="fs-incidents"></div>
-      </div>
-      <div class="block">
-        <div class="label">Alert management</div>
-        <div class="alert-bar">
-          <select id="alert-preset" aria-label="Alert to fire"></select>
-          <button class="btn" id="fire" type="button">Fire alert</button>
+          <div class="tests" id="tests"></div>
         </div>
-        <div class="list" id="fs-alerts"></div>
-      </div>
-      <div class="block">
-        <div class="label">On call now</div>
-        <div class="roster" id="fs-oncall"></div>
-      </div>
-    </section>
-
-    <section class="card sys phone" aria-labelledby="vb-title">
-      <div class="sys-head"><h3 id="vb-title">Vobiz</h3><span class="count" id="vb-count"></span></div>
-      <div class="block">
-        <div class="label">Phone calls</div>
-        <div class="calls" id="calls"></div>
-      </div>
-    </section>
+      </article>
+      <article class="card act idle" id="act4">
+        <div class="act-head"><div class="act-num">04</div><div class="act-title"><h3>Review, not rewrite</h3><p>A pull request and an incident report land on the engineer's phone</p></div><span class="state"></span></div>
+        <div class="act-body">
+          <div class="review" id="review"></div>
+          <div class="human"><span class="dot accent"></span><span>Nothing merges or deploys without a human. The Fix Agent can open a pull request; it can't merge one. Every step it took is in the audit log below.</span></div>
+        </div>
+      </article>
+      <article class="card act idle" id="act5">
+        <div class="act-head"><div class="act-num">05</div><div class="act-title"><h3>Recover every customer</h3><p>Including the ones who never complained</p></div><span class="state"></span></div>
+        <div class="act-body"><div class="recover" id="recover"></div></div>
+      </article>
+    </div>
+    <aside class="phone-col">
+      <div class="phone"><div class="screen" id="screen"></div><div class="home"></div></div>
+      <div class="phone-cap" id="phone-cap">The on-call engineer's phone</div>
+    </aside>
   </div>
+
+  <section class="card hood">
+    <div class="hood-head"><h3>Under the hood</h3><span class="muted" style="font-size:12.5px">Every record here was written through the service's API</span></div>
+    <div class="tabs" role="tablist" id="tabs">
+      <button class="tab" role="tab" data-tab="freshdesk" aria-selected="true">Freshdesk</button>
+      <button class="tab" role="tab" data-tab="freshservice" aria-selected="false">Freshservice</button>
+      <button class="tab" role="tab" data-tab="github" aria-selected="false">GitHub</button>
+      <button class="tab" role="tab" data-tab="docs" aria-selected="false">Google Docs</button>
+      <button class="tab" role="tab" data-tab="calls" aria-selected="false">All calls</button>
+      <button class="tab" role="tab" data-tab="audit" aria-selected="false">Audit log</button>
+      <button class="tab" role="tab" data-tab="log" aria-selected="false">API traffic</button>
+    </div>
+    <div class="tabpanel" id="tabpanel"></div>
+  </section>
 </div>
 
-<dialog id="modal" aria-labelledby="rec-title"><div id="modal-content"></div></dialog>
+<dialog id="modal"><div id="modal-content"></div></dialog>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-const initials = (name) => name.split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase();
-const pad = (n) => String(n).padStart(2, "0");
+const hhmm = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+const hms = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const initials = (name) => String(name || "?").split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+const inr = (n) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const PRIORITY = { 4: "Urgent", 3: "High", 2: "Medium", 1: "Low" };
-const STATUS = { 2: "Open", 3: "Pending", 4: "Resolved", 5: "Closed" };
-const SHAPE = { idle: "hollow", skipped: "hollow", working: "square", done: "circle", attention: "triangle" };
-const STATE_LABEL = { idle: "Waiting", skipped: "Skipped", working: "Working", done: "Done", attention: "Needs you" };
-let S = null, version = -1, seenTickets = new Set(), firstLoad = true, modalRoute = null;
+const STAGES = [["context", "Context"], ["workspace", "Clone"], ["reproduce", "Reproduce"], ["patch", "Patch"], ["verify", "Verify"], ["pull_request", "Pull request"], ["report", "Report"]];
+const STATE_LABEL = { idle: "Waiting", working: "In progress", done: "Done", attention: "Needs a person" };
+let S = null, version = -1, skew = 0, modalRoute = null, tab = "freshdesk", termCount = 0, bannerShown = new Set();
+const testsSeen = new Set(), spoken = new Set();
+let soundOn = false;
+const now = () => Date.now() + skew;
 
 async function post(path, body) {
   const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
@@ -385,306 +506,535 @@ async function post(path, body) {
   return res.ok;
 }
 
-/* ---------- Steps ---------- */
-function steps() {
-  const c = S.crisis, inc = c.incident, calls = S.calls;
-  const oncallCalls = calls.filter((x) => x.who?.kind === "oncall");
-  const customerCalls = calls.filter((x) => x.who?.kind !== "oncall");
-  const live = (xs) => xs.some((x) => ["queued", "ringing", "answered"].includes(x.state));
-  const replies = S.freshdesk.reduce((n, t) => n + t.conversations.filter((m) => m.kind === "reply").length, 0);
-  const notes = S.freshdesk.reduce((n, t) => n + t.conversations.filter((m) => m.kind === "note").length, 0);
-  const agent = (id) => c.agents?.[id]?.status === "working";
-  const pct = (x) => `${Math.round(x * 100)}%`;
-  const s = {};
+const routeOf = (t) => S.crisis.routes.find((r) => r.externalId === `freshdesk:${t.id}`);
 
-  s.tickets = { state: S.burst.running ? "working" : S.freshdesk.length ? "done" : "idle",
-    cap: S.burst.running ? `Filing <b>${S.burst.filed} of ${S.burst.total}</b>` : S.freshdesk.length ? `<b>${S.freshdesk.length}</b> tickets in Freshdesk` : "Customers write in" };
-  const alerts = S.freshservice.alerts;
-  s.alert = { state: alerts.length ? "done" : "idle",
-    cap: alerts.length ? `<b>${esc(alerts.at(-1).subject)}</b>` : "Optional. A threshold alert can open the incident first" };
-  s.pattern = { state: inc ? "done" : c.candidate || agent("pattern") ? "working" : "idle",
-    cap: inc ? (inc.trigger === "alert" ? `Opened <b>${esc(inc.id)}</b> from a critical alert${inc.complaintsLinked ? `, <b>${inc.complaintsLinked}</b> complaints joined` : ""}` : `<b>${inc.complaintsLinked}</b> complaints, one failure: <b>${esc(inc.id)}</b>`)
-      : c.candidate ? `<b>${c.candidate.reports}</b> matching failure reports. Opens at 4` : "Groups complaints that describe the same failure" };
-  s.commander = { state: inc?.importance ? "done" : inc ? "working" : "idle",
-    cap: inc?.importance ? `<b>${inc.importance}</b>. ${esc(inc.importanceWhy[0] ?? "")}` : "Sets the importance, P1 to P3" };
-  const pg = inc?.paging;
-  s.page = pg ? { state: pg.status === "acknowledged" ? "done" : pg.status === "paging" ? "working" : "attention",
-      cap: pg.status === "acknowledged" ? `<b>${esc(pg.by)}</b> acknowledged` : pg.status === "paging" ? `Calling <b>${esc(pg.attempts.at(-1)?.responder ?? "on-call")}</b>. Press 1 to acknowledge` : `<b>${esc(pg.status.replace("_", " "))}</b>` }
-    : inc?.importance && inc.importance !== "P1" ? { state: "skipped", cap: `Not needed at ${inc.importance}` }
-    : { state: live(oncallCalls) ? "working" : "idle", cap: "A P1 phones the on-call engineer" };
-  const eng = inc?.engineering;
-  s.issue = { state: eng ? "done" : inc && agent("issue_creator") ? "working" : "idle",
-    cap: eng ? `Incident <b>${esc(eng.id)}</b>${inc.rootCause ? `. Likely <b>${esc(inc.rootCause.label)}</b>, ${pct(inc.rootCause.confidence)}` : ""}${eng.change ? `. Rollback <b>${esc(eng.change)}</b>` : ""}`
-      : inc?.rootCause ? `Likely <b>${esc(inc.rootCause.label)}</b>, ${pct(inc.rootCause.confidence)}` : "Files it for engineering with the likely cause" };
-  const cov = inc?.coverage;
-  s.recovery = { state: cov?.confirmed ? "done" : inc && agent("recovery") ? "working" : "idle",
-    cap: cov?.confirmed ? `<b>${cov.confirmed}</b> harmed. <b>${cov.complained}</b> complained, <b>${cov.silent}</b> silent${cov.unverified ? `, ${cov.unverified} not verified` : ""}` : "Proves who was harmed, including the silent" };
-  const out = inc?.outreach;
-  const sent = (out?.replies ?? 0) + (out?.proactive ?? 0);
-  s.messages = { state: sent || replies ? (agent("handoff") ? "working" : "done") : inc && agent("handoff") ? "working" : "idle",
-    cap: sent || replies ? `<b>${replies}</b> ticket replies, <b>${out?.proactive ?? 0}</b> proactive messages, <b>${notes}</b> private notes` : "A reply if they complained, a message if they didn't" };
-  const answered = customerCalls.filter((x) => x.answer_time).length, missed = customerCalls.filter((x) => ["no_answer", "busy"].includes(x.state)).length;
-  s.calls = { state: live(customerCalls) ? "working" : customerCalls.length ? "done" : "idle",
-    cap: customerCalls.length ? `<b>${customerCalls.length}</b> calls. <b>${answered}</b> answered, <b>${missed}</b> missed` : "Rings customers who agreed to calls, 09:00 to 21:00 IST" };
-  s.human = inc?.approvals.length ? { state: "attention", cap: `<b>${inc.approvals.length}</b> credit${inc.approvals.length > 1 ? "s" : ""} over ₹500: ${inc.approvals.map((a) => `${esc(a.customer)} ₹${a.amountInr.toLocaleString("en-IN")}`).join(", ")}<a class="btn solid small step-act" href="${esc(S.crisiscrewUrl)}/#/incident" target="_blank" rel="noopener">Approve in console ↗</a>` }
-    : cov?.complete ? { state: "done", cap: `<b>Recovered.</b> ${inc.credits.auto} automatic credits, ${inc.credits.decided} decided by a person` }
-    : { state: inc?.credits.auto ? "working" : "idle", cap: inc?.credits.auto ? `<b>${inc.credits.auto}</b> credits issued within policy` : "Money above policy stops for a person" };
-  return s;
+/* ---------- The story so far ---------- */
+function story() {
+  const c = S.crisis, inc = c.incident, fix = c.fix;
+  const owner = S.oncall.find((p) => p.role === "primary") ?? S.oncall[0];
+  const pageCall = [...S.calls].reverse().find((x) => x.who?.kind === "oncall");
+  const pr = fix?.pullRequest ? S.github.pulls.find((p) => p.number === fix.pullRequest.number) : S.github.pulls.at(-1);
+  const doc = fix?.report ? S.docs.find((d) => fix.report.url.endsWith(d.id)) : S.docs.at(-1);
+  const routed = S.freshdesk.filter((t) => routeOf(t)?.incidentId).length;
+  const acts = {
+    act1: !S.freshdesk.length ? "idle" : S.burst.running || routed < S.freshdesk.length ? "working" : "done",
+    act2: !inc?.paging && !pageCall ? "idle" : inc?.paging?.status === "acknowledged" && pageCall?.state !== "answered" ? "done" : inc?.paging && ["exhausted", "no_responder"].includes(inc.paging.status) ? "attention" : "working",
+    act3: !fix ? "idle" : fix.status === "running" ? "working" : fix.status === "ready_for_review" ? "done" : "attention",
+    act4: !pr ? "idle" : pr.reviews?.length ? "done" : "working",
+    act5: !inc?.coverage?.confirmed ? "idle" : inc.coverage.complete ? "done" : inc.approvals.length ? "attention" : "working",
+  };
+  return { c, inc, fix, owner, pageCall, pr, doc, acts };
 }
 
-const LANES = [
-  { name: "Detect", steps: [
-    ["tickets", 1, "Tickets arrive", "Freshdesk"],
-    ["pattern", 2, "Pattern Agent", "Laya + embeddings"],
-    ["commander", 3, "Incident Commander", "Importance rules"],
-    ["page", 4, "Page on-call", "Freshservice on-call · Vobiz"],
-    ["alert", "+", "Alert fires", "Freshservice alerts", "side"],
-  ] },
-  { name: "Respond", steps: [
-    ["issue", 5, "Issue Creator", "Freshservice"],
-    ["recovery", 6, "Recovery Agent", "Customer impact graph"],
-    ["messages", 7, "Outreach", "Freshdesk replies"],
-    ["calls", 8, "Voice calls", "Vobiz"],
-    ["human", 9, "Human approval", "CrisisCrew console"],
-  ] },
-];
+/* ---------- Keyed lists: new items animate in, old ones stay put ---------- */
+function sync(container, items, key, html) {
+  const existing = new Map([...container.children].filter((el) => el.dataset.key).map((el) => [el.dataset.key, el]));
+  for (const el of [...container.children]) if (!el.dataset.key) el.remove();
+  let prev = null;
+  for (const item of items) {
+    const k = String(key(item));
+    const markup = html(item);
+    let el = existing.get(k);
+    if (!el || el.dataset.hash !== markup) {
+      const tpl = document.createElement("template");
+      tpl.innerHTML = markup.trim();
+      const fresh = tpl.content.firstElementChild;
+      fresh.dataset.key = k;
+      fresh.dataset.hash = markup;
+      if (el) { fresh.style.animation = "none"; el.replaceWith(fresh); }
+      el = fresh;
+    }
+    existing.delete(k);
+    if (prev ? prev.nextElementSibling !== el : container.firstElementChild !== el) prev ? prev.after(el) : container.prepend(el);
+    prev = el;
+  }
+  for (const el of existing.values()) el.remove();
+}
 
-function renderFlow() {
-  const s = steps();
-  const card = ([key, n, title, via, extra]) => `<div class="step ${s[key].state} ${extra ?? ""}" role="group" aria-label="Step ${n}, ${esc(title)}: ${s[key].state}">
-    <div class="step-top"><span class="step-num">${typeof n === "number" ? pad(n) : "Optional"}</span><span class="pill"><i class="shape ${SHAPE[s[key].state]}" aria-hidden="true"></i>${STATE_LABEL[s[key].state]}</span></div>
-    <div><div class="step-name">${esc(title)}</div><div class="step-via">${esc(via)}</div></div>
-    <div class="step-cap">${s[key].cap}</div></div>`;
-  $("lanes").innerHTML = LANES.map((lane) => `<div class="lane"><div class="lane-tag"><span>${lane.name}</span></div><div class="steps">${lane.steps.map(card).join("")}</div></div>`).join("");
+/* ---------- KPIs ---------- */
+function renderKpis(st) {
+  const { c, inc, fix, pr } = st;
+  const p1 = c.incidents.filter((i) => i.importance === "P1").length;
+  const t0 = S.burst.startedAt;
+  const prAt = fix?.stages?.pull_request?.status === "done" ? fix.stages.pull_request.at : null;
+  const elapsed = t0 ? (prAt ? prAt - t0 : now() - t0) : null;
+  const k = [
+    ["Tickets", `${S.freshdesk.length}<small> / ${S.scenario.tickets}</small>`, S.burst.running ? "arriving now" : S.freshdesk.length ? "in Freshdesk" : "none yet"],
+    ["Incidents", `${c.incidents.length}`, c.incidents.length ? `${p1} P1 · ${c.incidents.length - p1} lower priority` : "grouped by meaning"],
+    ["Customers harmed", inc?.coverage?.confirmed ? `${inc.coverage.confirmed}` : "—", inc?.coverage?.confirmed ? `${inc.coverage.silent} never complained` : "from payment evidence"],
+    ["On-call", inc?.paging?.status === "acknowledged" ? "Acked" : inc?.paging ? "Calling" : "—", inc?.paging ? `${inc.paging.attempts[0]?.responder ?? ""} · by voice` : "Freshservice + Vobiz"],
+    ["Time to PR", elapsed !== null && (prAt || fix || S.burst.running) ? mmss(elapsed) : "—", prAt ? "first ticket → PR" : fix ? "clock running" : "first ticket → PR"],
+    ["Code she wrote", pr ? "0 lines" : "—", pr ? `the Fix Agent wrote +${pr.files.reduce((n, f) => n + f.additions, 0)}` : "her job is review"],
+  ];
+  $("kpis").innerHTML = k.map(([l, v, s]) => `<div class="card kpi"><div class="label">${esc(l)}</div><div class="value">${v}</div><div class="sub">${esc(s)}</div></div>`).join("");
+}
 
-  const cov = S.crisis.incident?.coverage;
-  if (cov?.confirmed) {
-    $("cov-num").innerHTML = `${cov.recovered}<small> / ${cov.confirmed} customers</small>`;
-    $("cov-note").textContent = cov.complete ? "Complete" : cov.needsHuman ? `${cov.needsHuman} need a person` : "Recovering";
-    const cells = [...Array(cov.recovered).fill("r"), ...Array(cov.needsHuman + cov.attention).fill("h"), ...Array(cov.inProgress).fill("p")];
-    while (cells.length < cov.confirmed) cells.push("");
-    $("cov-cells").innerHTML = cells.map((k) => `<i class="${k}"></i>`).join("");
-  } else {
-    $("cov-num").textContent = "—";
-    $("cov-note").textContent = "No incident yet";
-    $("cov-cells").innerHTML = "";
+/* ---------- 1 · Triage: tickets fly into their groups ---------- */
+function renderTriage(st) {
+  const box = $("triage");
+  const tickets = [...S.freshdesk].sort((a, b) => a.id - b.id);
+  const byIncident = new Map(), inbox = [];
+  for (const t of tickets) {
+    const r = routeOf(t);
+    if (r?.incidentId) { if (!byIncident.has(r.incidentId)) byIncident.set(r.incidentId, []); byIncident.get(r.incidentId).push(t); }
+    else inbox.push({ t, r });
+  }
+  const incidents = [...st.c.incidents].sort((a, b) => a.openedAt - b.openedAt);
+  $("triage-cap").innerHTML = incidents.length
+    ? `<b>${tickets.length}</b> tickets → <b>${incidents.length}</b> incident${incidents.length > 1 ? "s" : ""}: ${incidents.map((i) => `<b>${(byIncident.get(i.id) ?? []).length}</b> about ${esc(i.title.toLowerCase())} (<b>${esc(i.importance ?? "…")}</b>)`).join(" and ")}. Similar words aren't enough: a group has to describe the same failure in the same product area.`
+    : tickets.length ? "Tickets arriving from Freshdesk. The Pattern Agent compares each one's meaning and product area with the last 15 minutes." : "";
+  const wanted = ["inbox", ...incidents.map((i) => i.id)];
+  for (const el of [...box.children]) if (!wanted.includes(el.dataset.bucket)) el.remove();
+  const before = new Map([...box.querySelectorAll(".chip")].map((el) => [el.dataset.key, el.getBoundingClientRect()]));
+  const bucket = (key, cls, head, foot) => {
+    let el = box.querySelector(`[data-bucket="${key}"]`);
+    if (!el) {
+      el = document.createElement("div");
+      el.dataset.bucket = key;
+      el.innerHTML = `<div class="bucket-head"></div><div class="chips"></div><div class="bucket-foot"></div>`;
+      el.style.animation = "enter .4s ease-out both";
+      box.append(el);
+    }
+    el.className = `bucket ${cls}`;
+    if (el.querySelector(".bucket-head").innerHTML !== head) el.querySelector(".bucket-head").innerHTML = head;
+    if (el.querySelector(".bucket-foot").innerHTML !== foot) el.querySelector(".bucket-foot").innerHTML = foot;
+    return el.querySelector(".chips");
+  };
+  const place = (container, items, pending) => {
+    for (const t of items) {
+      let el = box.querySelector(`.chip[data-key="${t.id}"]`);
+      if (!el) {
+        el = document.createElement("span");
+        el.className = "chip new";
+        el.dataset.key = String(t.id);
+        el.dataset.open = `freshdesk/tickets/${t.id}`;
+        el.title = `${t.requester.name}: ${t.description_text}`;
+        el.innerHTML = `<span class="ch"></span>${esc(t.subject)}`;
+      }
+      el.classList.toggle("pending", pending);
+      if (el.parentElement !== container) container.append(el);
+    }
+  };
+  const reading = inbox.filter((x) => !x.r).length, waiting = inbox.length - reading;
+  place(bucket("inbox", "", `<h4>Freshdesk inbox</h4><span class="count">${inbox.length}</span>`, inbox.length ? `<span>${reading} being read · ${waiting} waiting for a pattern</span>` : `<span>All ${tickets.length} tickets grouped</span>`), inbox.map((x) => x.t), true);
+  for (const i of incidents) {
+    const items = byIncident.get(i.id) ?? [];
+    const cause = i.rootCause ? `<span>Likely <b>${esc(i.rootCause.label)}</b> · ${Math.round(i.rootCause.confidence * 100)}%</span>` : `<span>Cause: still investigating</span>`;
+    const why = i.importance === "P1" ? `<span><b>${i.coverage.confirmed}</b> customers harmed · pages on-call</span>` : `<span>${esc(i.importanceWhy[0] ?? "Nothing makes it urgent")} · no page</span>`;
+    place(bucket(i.id, (i.importance ?? "p3").toLowerCase(), `<span class="prio ${esc(i.importance ?? "")}">${esc(i.importance ?? "…")}</span><h4>${esc(i.title)} <span class="muted mono" style="font-weight:400;font-size:11.5px">${esc(i.id)}</span></h4><span class="count">${items.length}</span>`, cause + why), items, false);
+  }
+  for (const el of box.querySelectorAll(".chip")) {
+    const from = before.get(el.dataset.key);
+    if (!from) continue;
+    const to = el.getBoundingClientRect();
+    const dx = from.left - to.left, dy = from.top - to.top;
+    if (Math.abs(dx) + Math.abs(dy) > 2) { el.classList.remove("new"); el.animate([{ transform: `translate(${dx}px, ${dy}px)`, boxShadow: "0 8px 20px rgba(0,0,0,.18)" }, { transform: "translate(0,0)", boxShadow: "none" }], { duration: 700, easing: "cubic-bezier(.2,.8,.2,1)" }); }
   }
 }
 
-/* ---------- Log, in plain words ---------- */
+/* ---------- 2 · Page on-call ---------- */
+function renderOncall(st) {
+  const { inc, pageCall, c } = st;
+  const attempt = inc?.paging?.attempts?.[0];
+  const state = pageCall?.state;
+  const dur = pageCall?.answer_time ? mmss((pageCall.end_time ? Date.parse(pageCall.end_time) : now()) - Date.parse(pageCall.answer_time)) : null;
+  const acked = inc?.paging?.status === "acknowledged";
+  $("oncall-cap").innerHTML = inc?.importance === "P1" ? `<b>${esc(inc.id)}</b> is <b>P1</b>: ${esc(inc.importanceWhy.slice(0, 2).join("; "))}. P1 means someone gets woken up.` : "Only a P1 pages anyone.";
+  const node = (cls, color, svc, title, sub) => `<div class="node ${cls}" style="--c:${color}"><div class="svc"><i></i>${svc}</div><h5>${title}</h5><p>${sub}</p></div>`;
+  const link = (s) => `<div class="link ${s}"><span></span></div>`;
+  const callTitle = pageCall ? ({ queued: "Dialling…", ringing: "Ringing…", answered: `Connected · ${dur}`, completed: `Call ended · ${dur ?? "0:00"}`, no_answer: "No answer", busy: "Line busy", failed: "Call failed" }[state] ?? state) : "Outbound call";
+  const html = [
+    node(attempt ? "on" : "", "var(--fs)", "Freshservice On-Call", attempt ? esc(attempt.responder) : "Who's on call?", attempt ? `${esc(attempt.role)} on the Payments schedule` : "Reads the service's schedule"),
+    link(attempt ? (pageCall ? "done" : "on") : ""),
+    node(state === "answered" || state === "ringing" || state === "queued" ? "live" : pageCall ? "on" : "", "var(--vb)", "Vobiz voice call", callTitle, pageCall ? `${esc(pageCall.to.replace(/^(\+\d{2})\d+(\d{4})$/, "$1 ••••• $2"))} · signed callbacks` : "Places the call, reports every step"),
+    link(pageCall ? (acked ? "done" : "on") : ""),
+    node(acked ? "on" : state === "answered" ? "live" : "", "var(--accent)", "CrisisCrew voice agent", acked ? `Acknowledged by ${esc(inc.paging.by ?? "")}` : state === "answered" ? "Briefing the engineer" : "Speech ↔ text", acked ? "By voice. Answers come from live incident data" : "Answers questions from live incident data"),
+  ].join("");
+  if ($("pipeline").innerHTML !== html) $("pipeline").innerHTML = html;
+  const last = pageCall?.lines?.at(-1);
+  // Only incidents that really page nobody: not the story's incident (which may be P2 for a moment before its impact is known).
+  const lower = c.incidents.filter((i) => i.id !== inc?.id && !i.paging && i.importance && i.importance !== "P1");
+  const extra = (last ? `<div class="quote"><div class="who">${last.who === "agent" ? "CrisisCrew" : esc(pageCall.who?.name ?? "Engineer")}</div>${esc(last.text)}</div>` : "")
+    + lower.map((i) => `<div class="nopage"><span class="prio ${esc(i.importance)}">${esc(i.importance)}</span><span><b>${esc(i.id)}</b> · ${esc(i.title)}: nobody is paged. ${esc(i.importanceWhy[0] ?? "Nothing makes it urgent")}. Filed for the day team${i.engineering ? ` as Freshservice ${esc(i.engineering.id)}` : ""}.</span></div>`).join("");
+  if ($("oncall-extra").innerHTML !== extra) $("oncall-extra").innerHTML = extra;
+}
+
+/* ---------- 3 · Auto-fix ---------- */
+const ICONS = { tickets: ["🎫", "Freshdesk"], engineering: ["🛠", "Freshservice"], release: ["⎇", "GitHub"], metrics: ["📈", "Metrics"], slack: ["#", "Slack"], runbook: ["📘", "Google Drive"], architecture: ["◫", "Architecture"] };
+function renderFix(st) {
+  const { fix, inc } = st;
+  $("stepper").innerHTML = STAGES.map(([k, label]) => { const s = fix?.stages?.[k]?.status ?? "pending"; return `<div class="stp ${s}" title="${esc(fix?.stages?.[k]?.detail ?? "")}"><div class="bar"></div><div class="nm">${s === "done" ? "✓ " : ""}${label}</div></div>`; }).join("");
+  if (!fix) $("sources").innerHTML = `<div class="empty">Starts on a P1 whose likely cause is a release.</div>`;
+  else {
+    const ctx = fix.context.map((s) => (s.kind === "tickets" && inc ? { ...s, title: `${inc.complaintsLinked} customer tickets` } : s));
+    sync($("sources"), ctx, (s) => s.kind + s.title.replace(/^\d+/, ""), (s) => { const [ic, from] = ICONS[s.kind] ?? ["•", s.kind]; return `<div class="src enter"><div class="ic">${ic}</div><div><b>${esc(s.title)}</b><span>${esc(from)} · ${esc(s.detail)}</span></div></div>`; });
+  }
+  $("prompt-box").hidden = !fix?.prompt;
+  if (fix?.prompt && $("prompt").textContent !== fix.prompt) $("prompt").textContent = fix.prompt;
+  $("term-title").textContent = fix ? `opencode run --model ${fix.agent?.model ?? "…"}  ·  ${fix.repo?.fullName ?? ""} @ ${fix.branch ?? ""}` : "opencode run (headless)";
+  const term = $("term");
+  const events = fix?.session ?? [];
+  if (!fix) { if (!term.querySelector("[data-idle]")) term.innerHTML = `<div data-idle style="color:var(--term-dim)">$ waiting for an incident a release caused <span class="caret"></span></div>`; termCount = 0; }
+  else {
+    if (term.querySelector("[data-idle]") || termCount > events.length) { term.innerHTML = ""; termCount = 0; }
+    if (!term.querySelector("[data-clone]")) term.insertAdjacentHTML("afterbegin", `<div class="ev" data-clone><div class="ln"><span class="tl">$</span><span class="ti">git clone ${esc(fix.repo?.fullName ?? "")} &amp;&amp; git checkout -b ${esc(fix.branch ?? "")}</span></div></div>`);
+    term.querySelector(".caret")?.remove();
+    for (const e of events.slice(termCount)) term.insertAdjacentHTML("beforeend", renderEvent(e, fix));
+    termCount = events.length;
+    if (fix.status === "running") term.insertAdjacentHTML("beforeend", `<span class="caret"></span>`);
+    term.scrollTop = term.scrollHeight;
+  }
+  const t = fix?.tests ?? {};
+  const card = (key, label, run) => {
+    if (!run) return `<div class="test"><div class="k">${label}</div><div class="v muted" style="font-size:14px;font-weight:500">—</div></div>`;
+    const pop = testsSeen.has(key) ? "" : " enter-pop";
+    testsSeen.add(key);
+    return `<div class="test ${run.ok ? "green" : "red"}${pop}"><div class="k">${label}</div><div class="v">${run.ok ? `✓ ${run.passed} passing` : `✕ ${run.failed} failing`}</div><div class="k mono" style="margin-top:2px">${esc(run.command)}</div></div>`;
+  };
+  const tests = card("b", "Reproduced first (OpenCode)", t.before) + card("a", "After the patch (OpenCode)", t.after) + card("v", "Verified by CrisisCrew itself", t.verified);
+  if ($("tests").dataset.hash !== tests.replace(/ enter-pop/g, "")) { $("tests").innerHTML = tests; $("tests").dataset.hash = tests.replace(/ enter-pop/g, ""); }
+}
+function renderEvent(e, fix) {
+  if (e.kind === "text") {
+    const diag = fix.diagnosis && e.title === fix.diagnosis;
+    return `<div class="ev text ${diag ? "diag" : ""}"><div class="ln"><span class="tl">${diag ? "◆ cause" : "›"}</span><span class="ti">${esc(e.title)}</span></div></div>`;
+  }
+  const tool = e.tool ?? "tool";
+  let out = "";
+  if (e.detail) {
+    const diffy = tool === "edit" || tool === "write" || /diff/.test(e.title);
+    out = `<div class="out">${e.detail.split("\n").map((l) => {
+      if (diffy && /^\+(?!\+\+)/.test(l)) return `<span class="add">${esc(l)}</span>`;
+      if (diffy && /^-(?!--)/.test(l)) return `<span class="del">${esc(l)}</span>`;
+      if (/^✔|ℹ pass [1-9]/.test(l)) return `<span class="pass">${esc(l)}</span>`;
+      if (/^✖|ℹ fail [1-9]/.test(l)) return `<span class="fail">${esc(l)}</span>`;
+      return esc(l);
+    }).join("\n")}</div>`;
+  }
+  return `<div class="ev ${esc(tool)}"><div class="ln"><span class="tl">● ${esc(tool)}</span><span class="ti">${esc(e.title)}</span></div>${out}</div>`;
+}
+
+/* ---------- 4 · Review ---------- */
+function renderReview(st) {
+  const { pr, doc, owner } = st;
+  let html;
+  if (!pr) html = `<div class="empty">The pull request and the report appear here, and on the engineer's phone.</div>`;
+  else {
+    const user = (login) => S.github.users.find((u) => u.login === login) ?? { login, name: login };
+    const approved = pr.reviews?.length > 0;
+    const add = pr.files.reduce((n, f) => n + f.additions, 0), del = pr.files.reduce((n, f) => n + f.deletions, 0);
+    html = `<div class="pr">
+      <div class="pr-head"><div class="t">${esc(pr.title)} <span>#${pr.number}</span></div><div class="pr-meta"><span class="pr-state">⎇ Open</span><b>crisiscrew-bot</b> wants to merge ${pr.commits.length} commit into <code>${esc(pr.base)}</code> from <code>${esc(pr.head)}</code></div></div>
+      <div class="pr-row"><span class="k">Reviewer</span>${pr.requested_reviewers.map((l) => `<span class="avatar">${initials(user(l).name)}</span><span>${esc(user(l).name)}</span><span class="pill">code owner · required</span>`).join("") || "<span class=muted>none</span>"}</div>
+      <div class="pr-row"><span class="k">Assignee</span>${pr.assignees.map((l) => `<span class="avatar">${initials(user(l).name)}</span><span>${esc(user(l).name)}</span><span class="pill">on call</span>`).join("")}${approved ? `<span class="pill ok">✓ approved</span>` : ""}</div>
+      <div class="pr-row"><span class="k">Checks</span>${pr.checks ? `<span class="pill ${pr.checks.conclusion === "success" ? "ok" : ""}">${pr.checks.conclusion === "success" ? "✓" : "✕"} ${esc(pr.checks.name)}</span><span class="muted">${esc(pr.checks.summary)}</span>` : `<span class="pill work">● running</span>`}</div>
+      <div class="pr-row" style="align-items:flex-start"><span class="k">Files <b style="color:var(--ok)">+${add}</b> <b style="color:var(--bad)">−${del}</b></span><div class="files">${pr.files.map((f) => `<span>${esc(f.filename)} <b>+${f.additions}</b> <i>−${f.deletions}</i></span>`).join("")}</div></div>
+      <div class="pr-actions"><button class="btn small" data-open="github/pull/${pr.number}">View changes</button>${approved ? `<span class="pill ok">✓ ${esc(user(pr.reviews[0].by).name)} approved</span><span class="muted" style="font-size:12px">${esc(user(pr.requested_reviewers[0] ?? "").name)}'s review is still required to merge</span>` : `<button class="btn small accent" data-approve="${pr.number}">Approve as ${esc(owner?.name ?? "the engineer")}</button><span class="muted" style="font-size:12px">merging stays a human decision</span>`}</div>
+    </div>`;
+    html += doc
+      ? `<div class="doccard"><div class="docthumb"><div class="paper">${doc.paragraphs.slice(0, 16).map((p) => p.style === "TITLE" ? `<div class="t">${esc(p.text)}</div>` : p.style.startsWith("HEADING") ? `<div class="h">${esc(p.text)}</div>` : `<div>${p.bullet ? "• " : ""}${esc(p.text)}</div>`).join("")}</div></div><div class="doc-meta"><span class="chipsvc" style="--c:var(--gd)"><i></i>Google Docs</span><span>Shared with ${doc.shares.map((s) => esc(s.email.split("@")[0])).join(", ")}</span><button class="btn small" style="margin-left:auto" data-open="docs/${doc.id}">Open report</button></div></div>`
+      : `<div class="doccard"><div class="docthumb"><div class="paper"><div class="t" style="color:#9aa0a6">Writing the report…</div></div></div></div>`;
+  }
+  if ($("review").dataset.hash !== html) { $("review").innerHTML = html; $("review").dataset.hash = html; }
+}
+
+/* ---------- 5 · Recover ---------- */
+function renderRecover(st) {
+  const { inc, c } = st;
+  let html;
+  if (!inc?.coverage?.confirmed) html = `<div class="empty">Starts as soon as the harmed customers are known.</div>`;
+  else {
+    const cov = inc.coverage;
+    const cells = inc.customers.filter((x) => x.confirmed).map((x) => `<i class="${x.recovered ? "r" : "p"} ${x.complained ? "" : "s"}" title="${esc(x.name)}${x.complained ? "" : " · never complained"} · ${inr(x.amountInr)}"></i>`).join("");
+    const lower = c.incidents.filter((i) => i.id !== inc.id);
+    html = `<div><p class="caption"><b>${cov.recovered}</b> of <b>${cov.confirmed}</b> harmed customers recovered. Outlined squares are the <b>${cov.silent}</b> who never complained: CrisisCrew found them from their failed payments.</p><div class="cells">${cells}</div>
+      ${inc.approvals.length ? `<div class="human" style="background:var(--bad-soft);border-color:var(--bad-line)"><span class="dot bad"></span><span>${inc.approvals.length} credit${inc.approvals.length > 1 ? "s" : ""} above ₹500 wait for a human: ${inc.approvals.map((a) => `${esc(a.customer)} ${inr(a.amountInr)}`).join(", ")}. <a href="${esc(S.crisiscrewUrl)}/#/incident" target="_blank" rel="noopener"><b>Decide in the console ↗</b></a></span></div>` : ""}</div>
+      <div class="stats">
+        <div class="stat"><div class="v">${inc.outreach.replies}</div><div class="k">replies on their Freshdesk tickets</div></div>
+        <div class="stat"><div class="v">${inc.outreach.proactive}</div><div class="k">proactive messages, before they wrote in or instead</div></div>
+        <div class="stat"><div class="v">${inr(inc.credits.autoInr)}</div><div class="k">${inc.credits.auto} goodwill credits within policy</div></div>
+        <div class="stat"><div class="v">${inc.approvals.length}</div><div class="k">credits waiting for a human</div></div>
+        ${lower.map((i) => `<div class="stat" style="grid-column:1/-1"><div class="k"><span class="prio ${esc(i.importance ?? "")}">${esc(i.importance ?? "")}</span> <b style="color:var(--text)">${esc(i.id)}</b> · ${esc(i.title)}: ${i.outreach.acknowledgements} customers told we're on it and asked for their order number. No credit without evidence.</div></div>`).join("")}
+      </div>`;
+  }
+  if ($("recover").dataset.hash !== html) { $("recover").innerHTML = html; $("recover").dataset.hash = html; }
+}
+
+/* ---------- The phone ---------- */
+const APP_ICON = { "Google Docs": ["#1a73e8", "D"], GitHub: ["#24292f", "G"], CrisisCrew: ["#4f46e5", "C"] };
+function lineTimes(call) {
+  let cursor = 0;
+  return call.lines.map((l, i) => {
+    const at = Date.parse(l.at);
+    const dur = l.who === "agent" ? call.speakingMs[i] : 700;
+    const start = l.who === "agent" ? Math.max(at, cursor) : at;
+    cursor = start + dur;
+    return { start, dur };
+  });
+}
+function notifHtml(n) {
+  const [bg, ch] = APP_ICON[n.app] ?? ["#444", "•"];
+  return `<button class="notif" data-url="${esc(n.url)}"><div class="app"><i style="background:${bg}">${ch}</i>${esc(n.app)}<span class="time">${hms(n.at).slice(0, 5)}</span></div><div class="ttl">${esc(n.title)}</div><div class="bd">${esc(n.body)}</div></button>`;
+}
+function renderPhone(st) {
+  const { pageCall, owner, inc } = st;
+  const screen = $("screen");
+  const mine = S.notifications.filter((n) => n.to === owner?.email);
+  let mode = "lock";
+  if (pageCall && ["queued", "ringing"].includes(pageCall.state)) mode = "ring";
+  else if (pageCall?.state === "answered") mode = "call";
+  const key = `${mode}:${pageCall?.uuid ?? ""}:${pageCall?.driver ?? ""}`;
+  if (screen.dataset.key !== key) {
+    screen.dataset.key = key;
+    const island = `<div class="island ${mode === "call" ? "active" : ""}"><span class="live" id="calltime"></span><span class="wave" id="wave"><i></i><i></i><i></i><i></i></span></div><div class="sbar"><span id="sbtime"></span><span class="ic">●●●● ◢ ▭</span></div>`;
+    if (mode === "ring") {
+      const manual = pageCall.driver === "manual";
+      screen.innerHTML = `${island}<div class="incoming"><div class="lbl">Incoming call · via Vobiz</div><div class="name">CrisisCrew</div><div class="sub">P1 · ${esc(inc?.id ?? "")}<br>${esc(inc?.title ?? "")}</div><div class="ringer">☎</div><div class="callbtns">${manual ? `<button class="cb no" data-call="${pageCall.uuid}" data-act="miss"><span>✕</span>Decline</button><button class="cb yes" data-call="${pageCall.uuid}" data-act="answer"><span>✆</span>Accept</button>` : `<div class="cb no"><span>✕</span>Decline</div><div class="cb yes"><span>✆</span>Answering…</div>`}</div></div>`;
+    } else if (mode === "call") {
+      screen.innerHTML = `${island}<div class="incall"><div class="incall-head"><div class="name">CrisisCrew</div><div class="sub">P1 · ${esc(inc?.id ?? "")} · via Vobiz</div><span class="tag">AI voice agent · speech ↔ text</span></div><div class="transcript" id="transcript"></div><div class="incall-foot" id="incall-foot"></div></div><div class="banner" id="banner"></div>`;
+    } else {
+      screen.innerHTML = `${island}<div class="lock"><div class="date">${new Date(now()).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}</div><div class="clock" id="lockclock"></div><div class="who">● On call · Payments · primary</div><div class="notifs" id="notifs"></div></div>`;
+    }
+  }
+  if ($("sbtime")) $("sbtime").textContent = hhmm(now());
+  if (mode === "call") {
+    $("calltime").textContent = mmss(now() - Date.parse(pageCall.answer_time));
+    const manual = pageCall.driver === "manual";
+    const first = owner?.name?.split(" ")[0] ?? "the engineer";
+    const sugg = [pageCall.next, "What changed in that release?", "Do I need to roll back?", "How many customers are hit?", "Send me the report and the pull request.", "Thanks, I'll review it."].filter((x, i, a) => x && a.indexOf(x) === i).slice(0, 4);
+    const foot = manual
+      ? `${pageCall.gather?.speech ? `<div class="replies">${sugg.map((s) => `<button data-say="${esc(s)}">${esc(s)}</button>`).join("")}</div><form class="sayrow" id="sayform"><input id="sayinput" placeholder="Speak as ${esc(first)}…" autocomplete="off"><button type="submit">Say</button></form>` : `<div class="callmeta"><span>Listening…</span></div>`}<div class="endrow"><button data-call="${pageCall.uuid}" data-act="hangup" aria-label="Hang up">✆</button></div>`
+      : `<div class="callmeta"><span>Autopilot: ${esc(first)} answers from the script</span><button data-call="${pageCall.uuid}" data-act="takeover">Take over</button></div><div class="endrow"><button data-call="${pageCall.uuid}" data-act="hangup" aria-label="Hang up">✆</button></div>`;
+    const f = $("incall-foot");
+    if (f.dataset.hash !== foot) { const typed = $("sayinput")?.value; f.innerHTML = foot; f.dataset.hash = foot; if (typed && $("sayinput")) $("sayinput").value = typed; }
+    renderTranscript(pageCall);
+    renderBanner(mine);
+  } else if (mode === "lock") {
+    $("lockclock").textContent = hhmm(now());
+    const last = [...S.calls].reverse().find((x) => x.who?.kind === "oncall" && x.end_time);
+    const items = mine.slice().reverse().map((n) => ({ id: `n${n.id}`, html: notifHtml(n) }));
+    if (last) items.push({ id: `call-${last.uuid}`, html: `<button class="notif"><div class="app"><i style="background:#22c55e">✆</i>Phone<span class="time">${hms(last.end_time).slice(0, 5)}</span></div><div class="ttl">CrisisCrew · call ended · ${mmss(Date.parse(last.end_time) - Date.parse(last.answer_time ?? last.end_time))}</div><div class="bd">${inc?.paging?.status === "acknowledged" ? `You took ${esc(inc.id)}. The fix is waiting for your review.` : "Missed call."}</div></button>` });
+    sync($("notifs"), items, (x) => x.id, (x) => x.html);
+  }
+  $("phone-cap").innerHTML = owner ? `<b>${esc(owner.name)}</b>'s phone · ${esc(owner.role)} on call${pageCall?.driver === "manual" && pageCall.state === "answered" ? " · you're speaking for her" : ""}` : "The on-call engineer's phone";
+}
+function renderBanner(mine) {
+  const b = $("banner");
+  if (!b) return;
+  const fresh = mine.filter((n) => !bannerShown.has(n.id) && now() - Date.parse(n.at) < 8_000);
+  for (const n of mine) if (!fresh.includes(n)) bannerShown.add(n.id);
+  if (!fresh.length || b.childElementCount) return;
+  const n = fresh[0];
+  bannerShown.add(n.id);
+  b.innerHTML = notifHtml(n);
+  setTimeout(() => { b.innerHTML = ""; }, 4_200);
+}
+function renderTranscript(call) {
+  const box = $("transcript");
+  if (!box) return;
+  const times = lineTimes(call);
+  const t = now();
+  const items = [];
+  let talking = false;
+  call.lines.forEach((l, i) => {
+    const { start, dur } = times[i];
+    if (t < start) return;
+    const frac = Math.min(1, (t - start) / dur);
+    const words = l.text.split(/\s+/);
+    const text = l.who === "agent" ? words.slice(0, Math.max(1, Math.ceil(words.length * frac))).join(" ") : l.text;
+    if (frac < 1 && l.who === "agent") talking = true;
+    items.push({ i, who: l.who, text });
+    speak(call, i, l);
+  });
+  const waiting = !talking && call.lines.at(-1)?.who === "callee";
+  if (waiting) items.push({ i: "typing", typing: true });
+  const who = (call.who?.name?.split(" ")[0] ?? "Engineer").toUpperCase();
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  sync(box, items, (x) => x.i, (x) => x.typing ? `<div class="bub agent"><div class="by">CRISISCREW</div><span class="dots"><i></i><i></i><i></i></span></div>` : `<div class="bub ${x.who}"><div class="by">${x.who === "agent" ? "CRISISCREW" : esc(who)}</div>${esc(x.text)}</div>`);
+  if (stick || talking) box.scrollTop = box.scrollHeight;
+  $("wave")?.classList.toggle("talk", talking);
+}
+function speak(call, i, line) {
+  const k = `${call.uuid}:${i}`;
+  if (spoken.has(k)) return;
+  spoken.add(k);
+  if (!soundOn || !("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(line.text);
+  const voices = speechSynthesis.getVoices();
+  const pick = (re) => voices.find((v) => re.test(v.name) || re.test(v.lang));
+  u.voice = (line.who === "agent" ? pick(/Samantha|Google UK English Female|en-GB/) : pick(/Veena|Rishi|en-IN/) ?? pick(/Karen|Moira|en-AU/)) ?? null;
+  u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+
+/* ---------- Under the hood ---------- */
 function narrate(e) {
-  const t = e.text;
-  let m;
-  if (e.product === "freshdesk" && /webhook POST \/api\/webhooks\/freshdesk → 202/.test(t)) return "New ticket. Freshdesk notifies CrisisCrew";
-  if (e.product === "freshdesk" && (m = /GET \/api\/v2\/tickets\/(\d+)/.exec(t))) return `CrisisCrew reads ticket #${m[1]}. The Pattern Agent classifies it`;
+  const t = e.text; let m;
+  if (e.product === "freshdesk" && /webhook POST \/api\/webhooks\/freshdesk → 202/.test(t)) return "New ticket: Freshdesk notifies CrisisCrew";
+  if (e.product === "freshdesk" && (m = /GET \/api\/v2\/tickets\/(\d+)/.exec(t))) return `CrisisCrew reads ticket #${m[1]}`;
   if (e.product === "freshdesk" && (m = /POST \/api\/v2\/tickets\/(\d+)\/notes/.exec(t))) return `Private note on ticket #${m[1]}`;
   if (e.product === "freshdesk" && (m = /POST \/api\/v2\/tickets\/(\d+)\/reply/.exec(t))) return `Reply to the customer on ticket #${m[1]}`;
-  if (e.product === "freshservice" && /POST \/api\/v2\/tickets → 201/.test(t)) return "Issue Creator files the engineering incident";
-  if (e.product === "freshservice" && (m = /PUT \/api\/v2\/tickets\/(\d+)/.exec(t))) return `Engineering incident #${m[1]} updated`;
-  if (e.product === "freshservice" && (m = /POST \/api\/v2\/tickets\/(\d+)\/notes/.exec(t))) return `Note on engineering incident #${m[1]}`;
+  if (e.product === "freshservice" && /POST \/api\/v2\/tickets → 201/.test(t)) return "Issue Creator files an engineering incident";
+  if (e.product === "freshservice" && /oncall\/shift-events/.test(t)) return "Asks Freshservice who's on call";
   if (e.product === "freshservice" && /POST \/api\/v2\/changes/.test(t)) return "Rollback change requested";
-  if (e.product === "freshservice" && /POST \/api\/v2\/problems/.test(t)) return "Problem record opened for the review";
-  if (e.product === "freshservice" && /oncall\/shift-events/.test(t)) return "Incident Commander looks up who's on call";
-  if (e.product === "freshservice" && (m = /GET \/api\/v2\/ams\/alerts\/(\d+)/.exec(t))) return `CrisisCrew reads alert #${m[1]}`;
-  if (e.product === "freshservice" && /acknowledge → 200/.test(t)) return "Acknowledged in Freshservice. Paging stops";
-  if (e.product === "vobiz" && /Call\/ → 201/.test(t)) return "CrisisCrew places a call";
-  if (e.product === "vobiz" && (m = /callback digits for (\S+)/.exec(t))) {
-    const call = S.calls.find((c) => c.to === m[1]);
-    return `${call?.who?.name ?? m[1]} presses ${call?.digits ?? "a key"}`;
+  if (e.product === "vobiz" && /Call\/ → 201/.test(t)) return "Vobiz places a call";
+  if (e.product === "vobiz" && (m = /said “([^”]+)”/.exec(t))) return `Engineer says: “${m[1]}…”`;
+  if (e.product === "github" && /compare/.test(t)) return "Fix Agent reads the release diff";
+  if (e.product === "github" && /\/pulls → 201/.test(t)) return "Fix Agent opens the pull request";
+  if (e.product === "github" && /requested_reviewers/.test(t)) return "Review requested from the code owner";
+  if (e.product === "github" && /assignees/.test(t)) return "Pull request assigned to the on-call engineer";
+  if (e.product === "google" && /POST \/v1\/documents →/.test(t)) return "Fix Agent creates the report in Google Docs";
+  if (e.product === "google" && /permissions/.test(t)) return "Report shared; Google emails the engineer";
+  if (e.product === "google" && /drive\/v3\/files\?/.test(t)) return "Fix Agent searches the runbooks in Google Drive";
+  if (e.product === "slack") return "Fix Agent searches Slack";
+  return t;
+}
+function renderHood(st) {
+  for (const el of document.querySelectorAll(".tab")) el.setAttribute("aria-selected", String(el.dataset.tab === tab));
+  let html;
+  if (tab === "freshdesk") html = `<div class="rows">${[...S.freshdesk].reverse().map((t) => { const r = routeOf(t); const n = t.conversations.filter((m) => m.kind === "note").length, rp = t.conversations.filter((m) => m.kind === "reply").length; return `<button class="row" data-open="freshdesk/tickets/${t.id}"><span class="k">#${t.id}</span><span>${esc(t.subject)} <span class="m">· ${esc(t.requester.name)}</span></span><span class="m">${r?.incidentId ? esc(r.incidentId) : "—"} · ${n} note${n === 1 ? "" : "s"} · ${rp} repl${rp === 1 ? "y" : "ies"}</span></button>`; }).join("") || `<div class="empty">No tickets yet.</div>`}</div>`;
+  else if (tab === "freshservice") html = `<div class="rows">${[...S.freshservice.tickets].reverse().map((t) => `<button class="row" data-open="freshservice/tickets/${t.id}"><span class="k">#${t.id}</span><span>${esc(t.subject)}</span><span class="m">${PRIORITY[t.priority]} · ${t.notes.length} notes</span></button>`).join("")}${S.freshservice.records.map((r) => `<div class="row"><span class="k">${r.kind === "change" ? "CHN" : "PRB"}-${r.id}</span><span>${esc(r.subject)}</span><span class="m">${r.ticket_id ? `from #${r.ticket_id}` : ""}</span></div>`).join("") || (S.freshservice.tickets.length ? "" : `<div class="empty">Nothing filed yet.</div>`)}</div>`;
+  else if (tab === "github") html = `<div class="rows">${S.github.pulls.map((pr) => `<button class="row" data-open="github/pull/${pr.number}"><span class="k">#${pr.number}</span><span>${esc(pr.title)}</span><span class="m">${pr.files.length} files · ${pr.checks ? esc(pr.checks.summary) : "CI running"}</span></button>`).join("") || `<div class="empty">No pull requests yet. acme-shop/checkout-service is a real git repository with releases v4.21.6 and v4.21.7.</div>`}</div>`;
+  else if (tab === "docs") html = `<div class="rows">${S.docs.map((d) => `<button class="row" data-open="docs/${d.id}"><span class="k">Doc</span><span>${esc(d.title)}</span><span class="m">shared with ${d.shares.length}</span></button>`).join("") || `<div class="empty">No documents yet.</div>`}</div>`;
+  else if (tab === "calls") html = `<div class="rows">${[...S.calls].reverse().map((c) => `<div class="row"><span class="k">${hms(c.created_at)}</span><span>${esc(c.who?.name ?? c.to)} <span class="m">· ${c.who?.kind === "oncall" ? "on-call page" : "customer call"}</span></span><span class="m">${esc(c.state)}${c.digits ? ` · pressed ${esc(c.digits)}` : ""} · ${c.lines.length} turns</span></div>`).join("") || `<div class="empty">No calls yet.</div>`}</div>`;
+  else if (tab === "audit") html = `<div class="rows">${[...st.c.audit].reverse().map((a) => `<div class="row" style="grid-template-columns:52px 230px 1fr"><span class="k">#${a.seq}</span><span class="mono" style="font-size:12px">${esc(a.identity)} → ${esc(a.tool)}</span><span class="m" style="${a.decision === "denied" ? "color:var(--bad)" : ""}">${a.decision === "denied" ? "DENIED · " : a.level !== null ? `L${a.level} · ` : ""}${esc(a.summary)}</span></div>`).join("") || `<div class="empty">No tool calls yet.</div>`}</div>`;
+  else html = `<div style="max-height:420px;overflow:auto">${[...S.log].reverse().map((e) => `<div class="logrow ${e.ok ? "" : "fail"}"><time>${hms(e.at)}</time><span class="p">${esc(e.product)}</span><span>${esc(narrate(e))}</span></div>`).join("") || `<div class="empty">No traffic yet.</div>`}</div>`;
+  const p = $("tabpanel");
+  if (p.dataset.hash !== html) { p.innerHTML = html; p.dataset.hash = html; }
+}
+
+/* ---------- Records ---------- */
+function record() {
+  const r = modalRoute;
+  const head = (k, t, extra = "") => `<div class="dlg-head"><div><div class="k">${k}</div><h3>${t}</h3>${extra}</div><button class="btn small" data-close>Close</button></div>`;
+  if (r.product === "freshdesk") {
+    const t = S.freshdesk.find((x) => x.id === Number(r.id));
+    if (!t) return head("Freshdesk", "No such ticket");
+    return head(`Freshdesk ticket #${t.id} · ${esc(t.requester.name)} · ${esc(t.channel)}`, esc(t.subject)) + `<div class="dlg-body thread"><div class="msg"><div class="by">${esc(t.requester.name)} · ${hms(t.created_at)}</div><div class="text">${esc(t.description_text)}</div></div>${t.conversations.map((m) => `<div class="msg ${m.kind}"><div class="by">${m.kind === "note" ? "Private note · CrisisCrew" : `Reply · CrisisCrew → ${esc(t.requester.name)}`} · ${hms(m.created_at)}</div><div class="text">${esc(m.body_text)}</div></div>`).join("")}</div>`;
   }
-  if (!e.ok) return t;
-  return null;
-}
-
-let lastStoryId = -1;
-function renderStory() {
-  const items = [];
-  for (const e of S.log) { const text = narrate(e); if (text) items.push({ ...e, text }); }
-  const latest = items.slice(-50).reverse();
-  if ((latest[0]?.id ?? 0) === lastStoryId) return;
-  lastStoryId = latest[0]?.id ?? 0;
-  $("story").innerHTML = latest.length
-    ? latest.map((e) => `<li class="${e.ok ? "" : "fail"}"><time>${time(e.at)}</time><span class="src">${esc(e.product)}</span><span>${esc(e.text)}</span></li>`).join("")
-    : `<li class="empty-line">Nothing yet. Start with “File the 4 demo complaints”.</li>`;
-}
-
-/* ---------- Freshdesk ---------- */
-function renderFreshdesk() {
-  $("fd-count").textContent = `${S.freshdesk.length} ticket${S.freshdesk.length === 1 ? "" : "s"}`;
-  $("fd-list").innerHTML = [...S.freshdesk].reverse().map((t) => {
-    const n = t.conversations.filter((m) => m.kind === "note").length, r = t.conversations.filter((m) => m.kind === "reply").length;
-    const fresh = !firstLoad && !seenTickets.has(t.id);
-    seenTickets.add(t.id);
-    return `<button type="button" class="item ${fresh ? "fresh" : ""}" data-open="freshdesk/tickets/${t.id}">
-      <span class="id">#${t.id}</span>
-      <span class="body"><span class="subject">${esc(t.subject)}</span>
-      <span class="meta"><span>${esc(t.requester.name)}</span><span>${esc(t.channel)}</span><span>${STATUS[t.status] ?? t.status}</span>
-      ${t.requester.known ? "" : '<span class="tag red" title="Not a customer in the store: stays not verified"><i class="shape triangle"></i>Walk-in</span>'}
-      ${n ? `<span class="tag"><i class="shape square"></i>${n} note${n > 1 ? "s" : ""}</span>` : ""}
-      ${r ? `<span class="tag blue"><i class="shape circle"></i>${r} repl${r > 1 ? "ies" : "y"}</span>` : ""}</span></span></button>`;
-  }).join("") || '<div class="empty">No tickets yet.</div>';
-  $("burst").disabled = $("burst-hero").disabled = S.burst.running;
-}
-
-function recordHead(kicker, title, sub) {
-  return `<div class="rec-head"><div><span class="label">${kicker}</span><h3 id="rec-title">${title}</h3>${sub ? `<div class="sub">${sub}</div>` : ""}</div><button class="close" type="button" data-close>Close</button></div>`;
-}
-const msg = (cls, by, text) => `<div class="msg ${cls}"><div class="bar"></div><div><div class="by">${by}</div><div class="text">${text}</div></div></div>`;
-
-function openFreshdesk(id) {
-  const t = S.freshdesk.find((x) => x.id === Number(id));
-  if (!t) return recordHead("Freshdesk", "No such ticket");
-  const convo = t.conversations.map((m) => msg(m.kind,
-    m.kind === "note" ? `<span class="tag"><i class="shape square"></i>Private note</span> CrisisCrew. Only agents see this. ${time(m.created_at)}` : `<span class="tag blue"><i class="shape circle"></i>Reply</span> CrisisCrew to ${esc(t.requester.name)}. ${time(m.created_at)}`,
-    esc(m.body_text))).join("");
-  return recordHead(`Freshdesk ticket #${t.id}`, esc(t.subject), `<span>${esc(t.requester.name)} · ${esc(t.requester.email)}</span><span>${esc(t.channel)}</span><span>${STATUS[t.status] ?? t.status}</span>`)
-    + `<div class="thread">${msg("customer", `${esc(t.requester.name)}. ${time(t.created_at)}`, esc(t.description_text))}${convo || msg("none", "", "CrisisCrew hasn't written on this ticket yet.")}</div>`;
-}
-
-/* ---------- Freshservice ---------- */
-function renderFreshservice() {
-  const fs = S.freshservice, oncall = fs.oncall;
-  $("fs-count").textContent = fs.tickets.length ? `${fs.tickets.length} incident${fs.tickets.length > 1 ? "s" : ""}` : "";
-  const primary = oncall.find((o) => o.roster_type === "PRIMARY")?.user.name ?? "On-call engineer";
-  const inc = S.crisis.incident;
-  const phoneAck = (t) => inc?.engineering?.id === `#${t.id}` && inc.paging?.status === "acknowledged" ? inc.paging.by : null;
-  $("fs-incidents").innerHTML = [...fs.tickets].reverse().map((t) => {
-    const change = fs.records.find((r) => r.id === t.change_id), problem = fs.records.find((r) => r.id === t.problem_id);
-    return `<div class="item link"><span class="id">#${t.id}</span><span class="body">
-      <button type="button" data-open="freshservice/tickets/${t.id}" style="all:unset;cursor:pointer;display:block"><span class="subject">${esc(t.subject)}</span></button>
-      <span class="meta"><span class="prio p${t.priority}">${PRIORITY[t.priority] ?? t.priority}</span>
-      ${t.notes.length ? `<span class="tag"><i class="shape square"></i>${t.notes.length} notes</span>` : ""}
-      ${change ? `<button type="button" class="tag boxed" data-open="freshservice/changes/${change.id}" style="background:none">Change ${change.id}</button>` : ""}
-      ${problem ? `<button type="button" class="tag boxed" data-open="freshservice/problems/${problem.id}" style="background:none">Problem ${problem.id}</button>` : ""}
-      ${t.acknowledged ? `<span class="tag blue"><i class="shape circle"></i>Acknowledged by ${esc(t.acknowledged.by)}</span>` : phoneAck(t) ? `<span class="tag blue"><i class="shape circle"></i>${esc(phoneAck(t))} acknowledged by phone</span>` : `<button class="btn small" type="button" data-ack="${t.id}" data-by="${esc(primary)}">Acknowledge as ${esc(primary)}</button>`}
-      </span></span></div>`;
-  }).join("") || '<div class="empty">None yet. CrisisCrew files one when it opens an incident.</div>';
-  $("fs-alerts").innerHTML = [...fs.alerts].reverse().map((a) => `<div class="item"><span class="id">#${a.id}</span><span class="body"><span class="subject">${esc(a.subject)}</span>
-    <span class="meta"><span class="tag ${a.severity >= 201 ? "red" : ""}"><i class="shape ${a.severity >= 201 ? "triangle" : "square"}"></i>${a.severity >= 201 ? "Critical" : "Warning"}</span><span>${esc(a.resource)}</span>
-    ${a.state === 2 ? '<span class="tag blue"><i class="shape circle"></i>Resolved</span>' : `<button class="btn small" type="button" data-resolve="${a.id}">Resolve</button>`}</span></span></div>`).join("")
-    || '<div class="empty">No alerts. A critical one on checkout opens an incident before anyone complains.</div>';
-  $("fs-oncall").innerHTML = oncall.map((o) => `<div><strong>${esc(o.user.name)}</strong><span>${o.roster_type.toLowerCase()} · ${esc(o.user.mobile)}</span></div>`).join("") || '<div class="empty">Nobody on the roster.</div>';
-  const sel = $("alert-preset");
-  if (!sel.options.length) sel.innerHTML = S.alertPresets.map((p, i) => `<option value="${i}">${p.severity === "critical" ? "Critical" : "Warning"}: ${esc(p.label)}</option>`).join("");
-}
-
-function openFreshservice(kind, id) {
-  const fs = S.freshservice;
-  if (kind !== "tickets") {
-    const r = fs.records.find((x) => x.id === Number(id));
-    if (!r) return recordHead("Freshservice", "No such record");
-    return recordHead(`Freshservice ${r.kind} ${r.id}`, esc(r.subject), r.ticket_id ? `<span>Raised from incident #${r.ticket_id}</span>` : "")
-      + `<div class="thread">${msg("", "", esc(r.description_text))}</div>`;
+  if (r.product === "freshservice") {
+    const t = S.freshservice.tickets.find((x) => x.id === Number(r.id));
+    if (!t) return head("Freshservice", "No such record");
+    return head(`Freshservice incident #${t.id} · ${PRIORITY[t.priority]}`, esc(t.subject)) + `<div class="dlg-body thread"><div class="msg"><div class="by">Filed by CrisisCrew's Issue Creator · ${hms(t.created_at)}</div><div class="text">${esc(t.description_text)}</div></div>${t.notes.map((m) => `<div class="msg note"><div class="by">Private note · ${hms(m.created_at)}</div><div class="text">${esc(m.body_text)}</div></div>`).join("")}</div>`;
   }
-  const t = fs.tickets.find((x) => x.id === Number(id));
-  if (!t) return recordHead("Freshservice", "No such incident");
-  const links = fs.records.filter((r) => r.ticket_id === t.id).map((r) => `<button class="tag boxed" type="button" style="background:none" data-open="freshservice/${r.kind}s/${r.id}">${r.kind} ${r.id}</button>`).join("");
-  return recordHead(`Freshservice incident #${t.id}`, esc(t.subject), `<span class="prio p${t.priority}">${PRIORITY[t.priority]}</span><span>Urgency ${t.urgency} · impact ${t.impact}</span>${t.tags.length ? `<span>${t.tags.map(esc).join(", ")}</span>` : ""}${links}`)
-    + `<div class="thread">${msg("customer", `Filed by CrisisCrew's Issue Creator. ${time(t.created_at)}`, esc(t.description_text))}${t.notes.map((m) => msg("note", `<span class="tag"><i class="shape square"></i>Private note</span> CrisisCrew. ${time(m.created_at)}`, esc(m.body_text))).join("")}</div>`;
+  if (r.product === "github") {
+    const pr = S.github.pulls.find((p) => p.number === Number(r.id));
+    if (!pr) return head("GitHub", "No such pull request");
+    const md = esc(pr.body).replace(/^## (.*)$/gm, "<b>$1</b>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/^&gt; (.*)$/gm, "<blockquote>$1</blockquote>").replace(/\n/g, "<br>");
+    return head(`acme-shop/checkout-service · pull request #${pr.number}`, esc(pr.title), `<div class="pr-meta"><span class="pr-state">⎇ Open</span><code>${esc(pr.head)}</code> → <code>${esc(pr.base)}</code> · ${pr.checks ? esc(`${pr.checks.name}: ${pr.checks.summary}`) : "CI running"}</div>`)
+      + `<div class="dlg-body"><div class="md">${md}</div>${pr.files.map((f) => `<div class="diff"><div class="diff-h"><span>${esc(f.filename)}</span><span style="color:var(--ok)">+${f.additions}</span><span style="color:var(--bad)">−${f.deletions}</span></div><pre>${f.patch.split("\n").map((l) => `<span class="${l.startsWith("@@") ? "h" : l.startsWith("+") ? "a" : l.startsWith("-") ? "d" : ""}">${esc(l) || " "}</span>`).join("")}</pre></div>`).join("")}</div>`;
+  }
+  if (r.product === "docs") {
+    const d = S.docs.find((x) => x.id === r.id);
+    if (!d) return head("Google Docs", "No such document");
+    let html = "", list = false;
+    for (const p of d.paragraphs) {
+      if (p.bullet && !list) { html += "<ul>"; list = true; }
+      if (!p.bullet && list) { html += "</ul>"; list = false; }
+      const text = p.link ? `<a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.text)}</a>` : esc(p.text);
+      if (p.bullet) html += `<li>${text}</li>`;
+      else if (p.style === "TITLE") html += `<div class="TITLE">${text}</div>`;
+      else if (p.style.startsWith("HEADING")) html += `<div class="${esc(p.style)}">${text}</div>`;
+      else if (p.text) html += `<p>${text}</p>`;
+    }
+    if (list) html += "</ul>";
+    return head(`Google Docs · shared with ${d.shares.map((s) => esc(s.email)).join(", ")}`, esc(d.title)) + `<div class="gdoc"><div class="page">${html}</div></div>`;
+  }
+  return head("", "Not found");
 }
-
-/* ---------- Vobiz ---------- */
-const CALL_STATE = { queued: "Dialling", ringing: "Ringing", answered: "On the call", completed: "Ended", no_answer: "No answer", busy: "Busy", failed: "Failed" };
-function renderCalls() {
-  const calls = [...S.calls].reverse();
-  $("vb-count").textContent = calls.length ? `${calls.length} call${calls.length > 1 ? "s" : ""}` : "";
-  $("calls").innerHTML = calls.map((c) => {
-    const oncall = c.who?.kind === "oncall";
-    const role = oncall ? `On-call ${esc(c.who.role)}` : c.who ? "Customer" : "Unknown";
-    const manual = c.driver === "manual";
-    let controls = "";
-    if (manual && c.state === "ringing") controls = `<div class="row-actions"><button class="btn solid small" type="button" data-call="${c.uuid}" data-act="answer">Answer</button><button class="btn small" type="button" data-call="${c.uuid}" data-act="miss">Let it ring out</button><button class="btn small" type="button" data-call="${c.uuid}" data-act="busy">Busy</button></div>`;
-    else if (manual && c.state === "answered" && c.gather && c.digits === null) controls = `<div class="keypad" role="group" aria-label="Keypad">${["1", "2", "3"].map((d) => `<button type="button" data-call="${c.uuid}" data-act="press" data-digit="${d}" aria-label="Press ${d}">${d}</button>`).join("")}<button class="end" type="button" data-call="${c.uuid}" data-act="hangup">Hang up</button></div>`;
-    else if (manual && c.state === "answered") controls = `<div class="keypad"><button class="end" type="button" data-call="${c.uuid}" data-act="hangup">Hang up</button></div>`;
-    else if (!manual && ["queued", "ringing", "answered"].includes(c.state)) controls = `<div class="row-actions"><span class="auto">Autopilot answers as the scenario says.</span><button class="btn small" type="button" data-call="${c.uuid}" data-act="takeover">Take over</button></div>`;
-    const said = c.said.map((line) => `<li>${esc(line)}</li>`).join("") + (c.digits ? `<li class="key">Pressed ${esc(c.digits)}</li>` : "");
-    return `<div class="call ${c.state}"><div class="strip"></div><div class="call-in">
-      <div class="call-top"><div class="initials ${oncall ? "oncall" : ""}">${esc(initials(c.who?.name ?? "?"))}</div>
-      <div class="call-who"><strong>${esc(c.who?.name ?? "Unknown number")}</strong><span>${role} · ${esc(c.to)} · ${time(c.created_at)}</span></div>
-      <div class="call-state">${CALL_STATE[c.state]}</div></div>
-      ${said ? `<ul class="transcript">${said}</ul>` : ""}${controls}</div></div>`;
-  }).join("") || '<div class="empty">No calls yet. A P1 pages on-call first, then customers who agreed to calls are rung.</div>';
-}
-
-/* ---------- Record view, routed by hash (#/freshdesk/tickets/1001) ---------- */
 function route() {
-  const m = /^#\/(freshdesk|freshservice)\/(tickets|changes|problems)\/(\d+)/.exec(location.hash);
-  modalRoute = m ? { product: m[1], kind: m[2], id: m[3] } : null;
+  const m = /^#\/(freshdesk|freshservice|github|docs)\/(?:(?:tickets|pull)\/)?([\w-]+)/.exec(location.hash);
+  modalRoute = m ? { product: m[1], id: m[2] } : null;
   renderModal();
 }
 function renderModal() {
   const dlg = $("modal");
   if (!modalRoute || !S) { if (dlg.open) dlg.close(); return; }
-  $("modal-content").innerHTML = modalRoute.product === "freshdesk" ? openFreshdesk(modalRoute.id) : openFreshservice(modalRoute.kind, modalRoute.id);
+  const html = record();
+  if ($("modal-content").dataset.hash !== html) { $("modal-content").innerHTML = html; $("modal-content").dataset.hash = html; }
   if (!dlg.open) dlg.showModal();
 }
 $("modal").addEventListener("close", () => { if (modalRoute) { modalRoute = null; history.replaceState(null, "", location.pathname); } });
 $("modal").addEventListener("click", (e) => { if (e.target === $("modal")) $("modal").close(); });
 window.addEventListener("hashchange", route);
 
-/* ---------- Events ---------- */
+/* ---------- Controls ---------- */
 document.addEventListener("click", async (e) => {
-  const el = e.target.closest("[data-open],[data-close],[data-ack],[data-resolve],[data-call],[data-fill]");
+  const el = e.target.closest("[data-open],[data-close],[data-call],[data-say],[data-approve],[data-url],[data-tab]");
   if (!el) return;
+  if (el.dataset.tab) { tab = el.dataset.tab; renderHood(story()); return; }
   if (el.dataset.open) { location.hash = `#/${el.dataset.open}`; return; }
+  if (el.dataset.url) { const u = new URL(el.dataset.url, location.href); if (u.origin === location.origin && u.hash) location.hash = u.hash; else window.open(el.dataset.url, "_blank"); return; }
   if (el.hasAttribute("data-close")) { $("modal").close(); return; }
-  if (el.dataset.fill) { const r = S.rehearsed[Number(el.dataset.fill)]; $("c-who").value = r.email; $("c-channel").value = r.channel; $("c-body").value = r.body; $("c-body").focus(); return; }
+  const call = story().pageCall;
+  if (el.dataset.say) { if (call) await post(`/mock/phone/${call.uuid}/say`, { text: el.dataset.say }); refresh(); return; }
   el.disabled = true;
-  if (el.dataset.ack) await post(`/mock/freshservice/tickets/${el.dataset.ack}/acknowledge`, { by: el.dataset.by });
-  if (el.dataset.resolve) await post(`/mock/freshservice/alerts/${el.dataset.resolve}/resolve`);
-  if (el.dataset.call) await post(`/mock/phone/${el.dataset.call}/${el.dataset.act}`, el.dataset.digit ? { digit: el.dataset.digit } : {});
+  if (el.dataset.approve) await post(`/mock/github/pulls/${el.dataset.approve}/approve`, { by: "neha-kapoor" });
+  if (el.dataset.call) await post(`/mock/phone/${el.dataset.call}/${el.dataset.act}`);
   refresh();
 });
-$("burst").onclick = () => post("/mock/freshdesk/burst", { set: "rehearsed" }).then(refresh);
-$("burst-hero").onclick = () => post("/mock/freshdesk/burst", { set: "scenario", speed: 4 }).then(refresh);
-$("fire").onclick = () => post("/mock/freshservice/alerts", { preset: Number($("alert-preset").value) }).then(refresh);
-$("autopilot").onclick = () => { const on = $("autopilot").getAttribute("aria-pressed") !== "true"; $("autopilot").setAttribute("aria-pressed", String(on)); post("/mock/phone/autopilot", { on }); };
-$("reset").onclick = async () => {
-  if (!confirm("Clear every mock ticket, incident, alert and call, and start CrisisCrew on a fresh live session?")) return;
-  seenTickets = new Set(); firstLoad = true;
-  await post("/mock/reset"); refresh();
-};
-$("compose").onsubmit = async (e) => {
+document.addEventListener("submit", async (e) => {
+  if (e.target.id !== "sayform") return;
   e.preventDefault();
-  const who = $("c-who").value.trim();
-  const person = S.people.find((p) => p.email === who || p.name === who);
-  const email = person?.email ?? who;
-  if (!email.includes("@")) { alert("Use an email address, or pick a customer from the list."); return; }
-  if (await post("/mock/freshdesk/tickets", { email, name: person?.name, channel: $("c-channel").value, body: $("c-body").value })) { $("c-body").value = ""; refresh(); }
-};
-
-function renderStatic() {
-  $("people").innerHTML = S.people.map((p) => `<option value="${esc(p.email)}">${esc(p.name)}</option>`).join("");
-  $("quick").innerHTML = S.rehearsed.map((r, i) => `<button type="button" data-fill="${i}" title="Fill the form with this complaint"><b>${esc(r.name)}</b><span>${esc(r.body)}</span></button>`).join("");
-  $("console").href = S.crisiscrewUrl;
+  const text = $("sayinput").value.trim();
+  const call = story().pageCall;
+  if (!text || !call) return;
+  $("sayinput").value = "";
+  await post(`/mock/phone/${call.uuid}/say`, { text });
+  refresh();
+});
+function clearStage() {
+  termCount = 0; testsSeen.clear(); spoken.clear(); bannerShown = new Set();
+  for (const id of ["triage", "term", "sources", "notifs"]) if ($(id)) $(id).innerHTML = "";
+  $("screen").dataset.key = "";
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
 }
+$("start").onclick = async () => { $("start").disabled = true; clearStage(); await post("/mock/start", {}); refresh(); };
+$("reset").onclick = async () => { if (!confirm("Clear every mock service and start CrisisCrew on a fresh session?")) return; clearStage(); await post("/mock/reset"); refresh(); };
+$("autopilot").onclick = () => { const on = $("autopilot").getAttribute("aria-pressed") !== "true"; $("autopilot").setAttribute("aria-pressed", String(on)); post("/mock/phone/autopilot", { on }); };
+$("sound").onclick = () => { soundOn = !soundOn; $("sound").setAttribute("aria-pressed", String(soundOn)); if ("speechSynthesis" in window) { if (soundOn) speechSynthesis.getVoices(); else speechSynthesis.cancel(); } };
 
-function renderConn() {
+function renderTop(st) {
   const c = S.crisis;
-  $("conn").innerHTML = `<i class="shape ${c.connected ? "circle" : "triangle"}"></i><span>${c.connected ? `CrisisCrew · ${c.session?.mode === "replay" ? "replay" : "live"}` : "CrisisCrew offline"}</span>`;
+  $("conn").innerHTML = `<span class="dot ${c.connected ? "ok" : "bad"}"></span><span>${c.connected ? "CrisisCrew connected" : "CrisisCrew offline"}</span>`;
   const n = $("notice");
   n.hidden = c.connected;
-  if (!c.connected) n.innerHTML = `<i class="shape triangle"></i><span>CrisisCrew isn't answering at <code>${esc(S.crisiscrewUrl)}</code>. Start it with <code>pnpm start:mock</code>, or run both with <code>pnpm demo:mock</code>.</span>`;
+  if (!c.connected) n.innerHTML = `<span class="dot bad"></span><span>CrisisCrew isn't answering at <code>${esc(S.crisiscrewUrl)}</code>. Run <code>pnpm demo:mock</code> to start it with the mocks.</span>`;
+  $("console").href = S.crisiscrewUrl;
+  for (const [id, state] of Object.entries(st.acts)) {
+    const el = $(id);
+    el.classList.remove("idle", "working", "done", "attention");
+    el.classList.add(state);
+    el.querySelector(".state").innerHTML = `<span class="dot ${state === "done" ? "ok" : state === "working" ? "work" : state === "attention" ? "bad" : ""}"></span>${STATE_LABEL[state]}`;
+  }
+  $("start").disabled = S.burst.running;
+  $("start").innerHTML = S.burst.running ? `● Tickets arriving ${S.burst.filed}/${S.burst.total}` : S.freshdesk.length ? "↻&nbsp; Run it again" : "▶&nbsp; Start the incident";
 }
 
+function renderAll() {
+  const st = story();
+  renderTop(st); renderKpis(st); renderTriage(st); renderOncall(st); renderFix(st); renderReview(st); renderRecover(st); renderPhone(st); renderHood(st);
+  if (modalRoute) renderModal();
+}
 async function refresh() {
   try {
+    const sent = Date.now();
     const next = await (await fetch("/mock/state")).json();
-    const first = !S;
+    skew = next.now - (sent + Date.now()) / 2;
     S = next;
-    if (first) renderStatic();
     if (S.version === version) return;
     version = S.version;
     $("autopilot").setAttribute("aria-pressed", String(S.autopilot));
-    renderConn(); renderFlow(); renderStory(); renderFreshdesk(); renderFreshservice(); renderCalls();
-    if (modalRoute) renderModal();
-    firstLoad = false;
-  } catch {
-    $("conn").innerHTML = '<i class="shape triangle"></i><span>Mock offline</span>';
+    renderAll();
+  } catch (error) {
+    console.error(error);
+    $("conn").innerHTML = '<span class="dot bad"></span><span>Mock offline</span>';
   }
 }
+// Between state changes: the transcript is spoken word by word, and the clocks tick.
+setInterval(() => { if (!S) return; const st = story(); renderPhone(st); renderKpis(st); if (st.pageCall?.state === "answered") renderOncall(st); }, 150);
 refresh().then(route);
-setInterval(refresh, 700);
+setInterval(refresh, 600);
 </script>
 </body>
 </html>

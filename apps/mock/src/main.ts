@@ -18,11 +18,9 @@ const mock = createMock({
 });
 
 // localhost only: the mock's keys are fixed and public.
-const servers = [
-  serve({ fetch: mock.apps.freshdesk.fetch, port: ports.freshdesk, hostname: "127.0.0.1" }),
-  serve({ fetch: mock.apps.freshservice.fetch, port: ports.freshservice, hostname: "127.0.0.1" }),
-  serve({ fetch: mock.apps.vobiz.fetch, port: ports.vobiz, hostname: "127.0.0.1" }),
-];
+const servers = (["freshdesk", "freshservice", "vobiz", "github", "google", "slack"] as const).map((name) =>
+  serve({ fetch: mock.apps[name].fetch, port: ports[name], hostname: "127.0.0.1" }),
+);
 
 console.log(
   [
@@ -32,6 +30,9 @@ console.log(
     `  Freshdesk      http://localhost:${ports.freshdesk}/api/v2`,
     `  Freshservice   http://localhost:${ports.freshservice}/api/v2`,
     `  Vobiz          http://localhost:${ports.vobiz}/api/v1`,
+    `  GitHub         http://localhost:${ports.github}  (acme-shop/checkout-service, a real git repo)`,
+    `  Google Docs    http://localhost:${ports.google}  (Docs and Drive)`,
+    `  Slack          http://localhost:${ports.slack}`,
     `  CrisisCrew     ${crisiscrewUrl} (start it with INTEGRATIONS=mock, e.g. \`pnpm start:mock\`)`,
     "",
   ].join("\n"),

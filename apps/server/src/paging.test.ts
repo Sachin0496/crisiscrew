@@ -57,7 +57,7 @@ describe("paging on-call", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ state: "completed", digits: "1", metadata: { incidentId: incident!.id, attempt: "1" } });
     expect(ports.record.calls[0]?.script).toBe(
-      "This is CrisisCrew with a P1 incident, INC 2026 001. Checkout and payments is failing. 23 customers are affected. The likely cause is checkout-service v4.21.7, at 97 percent confidence.",
+      "Hi Neha. This is CrisisCrew with a P1 incident, INC 2026 001. Checkout and payments is failing. 23 customers are affected. The likely cause is checkout-service v4.21.7, at 97 percent confidence.",
     );
     // The page came before the ticket was filed, so its outcome is in the ticket's description.
     expect(ports.record.incidents[0]?.description).toContain("On-call: acknowledged by Neha Kapoor.\n  - On-call page 1: Neha Kapoor (primary), acknowledged by pressing 1.");

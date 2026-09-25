@@ -24,6 +24,11 @@ export const TOOL_NAMES = [
   "record_contact_preference",
   "issue_recovery_credit",
   "page_on_call",
+  "gather_fix_context",
+  "start_fix_session",
+  "verify_fix",
+  "open_fix_pull_request",
+  "publish_incident_report",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];

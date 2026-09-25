@@ -18,7 +18,8 @@ export type PortName =
   | "translate"
   | "classifier"
   | "guard"
-  | "tracing";
+  | "tracing"
+  | "autofix";
 
 /** mock: a real adapter talking to the local mock service (INTEGRATIONS=mock). */
 export type PortMode = "sandbox" | "mock" | "live" | "off";

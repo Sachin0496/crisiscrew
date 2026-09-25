@@ -1,0 +1,13 @@
+{
+  "name": "checkout-service",
+  "version": "4.21.6",
+  "private": true,
+  "type": "module",
+  "description": "Checkout for acme-shop: places orders and takes payment through the payment gateway.",
+  "scripts": {
+    "test": "node --test --test-reporter=spec test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

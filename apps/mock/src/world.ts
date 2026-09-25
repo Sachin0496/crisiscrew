@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 
 const SCENARIO_DIR = new URL("../../../scenarios/", import.meta.url);
 
-/** The scenario CrisisCrew's live session runs on: its customers are the ones Freshdesk tickets are matched to. */
-export const LIVE_WORLD = "checkout-v4.21.7";
+/** The scenario CrisisCrew's live session runs on (LIVE_WORLD, as the server reads it): its customers are the ones Freshdesk tickets are matched to. */
+export const LIVE_WORLD = process.env.LIVE_WORLD || "checkout-autofix";
 
 export function loadScenario(id: string): Scenario {
   const parsed = ScenarioSchema.safeParse(JSON.parse(readFileSync(new URL(`${id}.json`, SCENARIO_DIR), "utf8")));
@@ -51,6 +51,12 @@ export class World {
   byPhone(phone: string): Person | undefined {
     const d = digits(phone);
     return this.people.find((p) => p.phone && digits(p.phone) === d);
+  }
+
+  /** What the person at this number says on a conversational call, turn by turn, when the scenario scripts it. */
+  conversation(phone: string): string[] | undefined {
+    const d = digits(phone);
+    return this.scenario.world.oncall.find((r) => digits(r.phone) === d)?.conversation;
   }
 
   /** How a number answers on autopilot. Numbers the scenario doesn't describe answer and press 1. */

@@ -24,6 +24,7 @@ import {
 import { handleLateTicket, onAlertLinked, runAlertIncident, runIncident, setImportanceByHuman, settleDecision } from "./agents/commander";
 import { onCustomerCall } from "./agents/calls";
 import { acknowledgeByOperator, onPageCall } from "./agents/paging";
+import { onCodingEvent } from "./agents/fixer";
 import type { AgentKit } from "./agents/kit";
 import type { EventBus } from "./bus";
 import { PatternEngine } from "./correlation/pattern";
@@ -136,12 +137,18 @@ export class CrisisEngine {
       },
       noted: new Set(),
       tracer: this.tracer,
+      spawn: (agent, run) => this.track(run().catch((error) => this.fail(agent, error))),
     };
-    this.unsubscribe = deps.ports.telephony.onUpdate((call) => {
+    const unsubscribeCalls = deps.ports.telephony.onUpdate((call) => {
       this.emit({ type: "call.updated", payload: { call } });
       if (call.purpose === "oncall" && call.metadata?.incidentId) this.track(onPageCall(this.kit, call).catch((error) => this.fail("commander", error)));
       if (call.purpose === "customer" && call.metadata?.actionId) this.track(onCustomerCall(this.kit, call).catch((error) => this.fail("handoff", error)));
     });
+    const unsubscribeCoding = deps.ports.fix?.coding.onEvent((sessionId, event) => this.track(onCodingEvent(this.kit, sessionId, event).catch((error) => this.fail("fixer", error))));
+    this.unsubscribe = () => {
+      unsubscribeCalls();
+      unsubscribeCoding?.();
+    };
   }
 
   async init(): Promise<void> {

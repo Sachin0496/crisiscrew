@@ -237,11 +237,11 @@ export function importanceNote(importance: ImportanceAssessment): string {
 }
 
 /** What the on-call engineer hears: which incident, how bad, and the likely cause. Short, because it's read aloud. */
-export function pageScript(incident: IncidentView): string {
+export function pageScript(incident: IncidentView, responder?: string): string {
   const confirmed = incident.impact?.customers.filter((c) => c.confidence === "confirmed").length ?? 0;
   const id = incident.id.replace(/-/g, " ");
   return [
-    `This is CrisisCrew with a ${incident.importance?.level ?? ""} incident, ${id}.`,
+    `${responder ? `Hi ${responder.split(/\s+/)[0]}. ` : ""}This is CrisisCrew with a ${incident.importance?.level ?? ""} incident, ${id}.`,
     `${SURFACE_LABELS[incident.surface].replace("&", "and")} is failing.`,
     confirmed > 0 ? `${confirmed} ${confirmed === 1 ? "customer is" : "customers are"} affected.` : "",
     incident.rootCause ? `The likely cause is ${incident.rootCause.label}, at ${Math.round(incident.rootCause.confidence * 100)} percent confidence.` : "",

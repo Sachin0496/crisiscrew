@@ -36,6 +36,8 @@ export const ScenarioResponder = z.object({
   email: z.string().optional(),
   /** acknowledges: answers and presses 1; ignores: answers but doesn't press 1. */
   answers: z.enum(["acknowledges", "ignores", "no_answer", "busy"]).default("acknowledges"),
+  /** What they say on a page call, turn by turn, when the mock phone answers for them (INTEGRATIONS=mock). */
+  conversation: z.array(z.string().min(1)).optional(),
 });
 
 /** A service's infrastructure as Kubernetes and CloudWatch would report it. Missing means healthy: every pod ready, no alarms. */
