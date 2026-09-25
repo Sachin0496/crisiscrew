@@ -1,6 +1,7 @@
 import {
   actionsFor,
   customerState,
+  outreachTrack,
   recoveryCoverage,
   recoveryMetrics,
   Surface,
@@ -91,6 +92,7 @@ function customerView(incident: IncidentView, c: AffectedCustomer) {
     name: c.name,
     confidence: c.confidence,
     complained: c.complained,
+    track: outreachTrack(c),
     severity: c.severity ?? null,
     tier: c.tier,
     recovery: customerState(c, actions),
@@ -98,6 +100,7 @@ function customerView(incident: IncidentView, c: AffectedCustomer) {
     actions: actions.map((a) => ({
       id: a.id,
       kind: a.kind,
+      ...(a.track ? { track: a.track } : {}),
       status: a.status,
       reason: a.reason,
       ...(a.amountInr !== undefined ? { amountInr: a.amountInr } : {}),
@@ -167,10 +170,11 @@ export function createTools(): Tool[] {
     {
       name: "get_customer_impact",
       description:
-        "The Customer Impact Graph for an incident (the latest when no id is given): every affected customer, whether they complained or stayed silent, the evidence that links them to the incident, and their recovery actions and state.",
+        "The Customer Impact Graph for an incident (the latest when no id is given): every affected customer, their outreach track (complained, not complained, or unverified), the evidence that links them to the incident, and their recovery actions and state.",
       input: z.object({
         incidentId: z.string().optional(),
-        filter: z.enum(["all", "complained", "silent", "needs_human", "unverified"]).default("all"),
+        /** complained and silent are the Handoff Agent's two outreach tracks; not_complained is the same as silent. */
+        filter: z.enum(["all", "complained", "silent", "not_complained", "needs_human", "unverified"]).default("all"),
       }),
       level: fixed(0),
       async run(args, ctx) {
@@ -180,7 +184,7 @@ export function createTools(): Tool[] {
         const customers = (i.impact?.customers ?? []).map((c) => customerView(i, c));
         const shown = customers.filter((c) => {
           if (filter === "complained") return c.confidence === "confirmed" && c.complained;
-          if (filter === "silent") return c.confidence === "confirmed" && !c.complained;
+          if (filter === "silent" || filter === "not_complained") return c.confidence === "confirmed" && !c.complained;
           if (filter === "needs_human") return c.recovery === "needs_human";
           if (filter === "unverified") return c.confidence === "unverified";
           return true;

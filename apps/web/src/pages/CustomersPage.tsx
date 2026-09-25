@@ -1,11 +1,12 @@
-import { recoveryCoverage, type CrisisState } from "@crisiscrew/contracts";
+import { outreachTrack, recoveryCoverage, type CrisisState } from "@crisiscrew/contracts";
 import { Users } from "lucide-react";
 import { useState } from "react";
 import { CustomerTable } from "../components/customers/CustomerTable";
 import { EvidenceChain, RecoveryPlan } from "../components/customers/Evidence";
+import { OutreachTracks } from "../components/customers/Outreach";
 import { DecisionControl, decisionOutcome } from "../components/incident/Decision";
 import { Badge, Callout, Card, Empty, Segmented } from "../components/ui";
-import { CUSTOMER_STATE, pct, plural } from "../format";
+import { CUSTOMER_STATE, pct, plural, TRACK_LABELS } from "../format";
 import { currentIncident, customerRows, matchesFilter, type CustomerFilter } from "../view";
 
 /**
@@ -49,6 +50,8 @@ export function CustomersPage({ state, selected }: { state: CrisisState; selecte
           </Empty>
         </Card>
       ) : (
+        <>
+        <OutreachTracks incident={incident} filter={filter} onFilter={setFilter} />
         <div className="customers-grid">
           <Card
             title="Affected customers"
@@ -61,7 +64,7 @@ export function CustomersPage({ state, selected }: { state: CrisisState; selecte
                 options={[
                   { value: "all", label: `All ${count("all")}` },
                   { value: "complained", label: `Complained ${count("complained")}` },
-                  { value: "silent", label: `Silent ${count("silent")}` },
+                  { value: "silent", label: `Not complained ${count("silent")}` },
                   { value: "needs_human", label: `Needs a human ${count("needs_human")}` },
                   ...(count("unverified") > 0 ? [{ value: "unverified" as const, label: `Not verified ${count("unverified")}` }] : []),
                 ]}
@@ -82,6 +85,7 @@ export function CustomersPage({ state, selected }: { state: CrisisState; selecte
                 title={active.customer.name}
                 subtitle={[
                   active.customer.tier === "priority" ? "Priority customer" : "Customer",
+                  `${TRACK_LABELS[outreachTrack(active.customer)].label} track`,
                   active.customer.email,
                   active.customer.ticketIds.length ? plural(active.customer.ticketIds.length, "ticket") : "no tickets",
                 ]
@@ -112,6 +116,7 @@ export function CustomersPage({ state, selected }: { state: CrisisState; selecte
             </div>
           )}
         </div>
+        </>
       )}
     </div>
   );

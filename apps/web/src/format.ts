@@ -4,6 +4,7 @@ import {
   type CustomerRecoveryState,
   type EvidenceKind,
   type IncidentStatus,
+  type OutreachTrack,
   type PortMode,
   type PortName,
   type RecoveryKind,
@@ -91,6 +92,12 @@ export const RECOVERY_KIND: Record<RecoveryKind, string> = {
 };
 
 /** Short names for the recovery chips in tables. */
+export const TRACK_LABELS: Record<OutreachTrack, { label: string; lede: string }> = {
+  complained: { label: "Complained", lede: "Wrote in: the update answers their ticket" },
+  not_complained: { label: "Not complained", lede: "Never wrote in: told about a failure they may not have noticed" },
+  unverified: { label: "Not verified", lede: "No failed payment on record: acknowledged, and asked for a reference" },
+};
+
 export const RECOVERY_CHIP: Record<RecoveryKind, string> = {
   ticket_reply: "Reply",
   acknowledge: "Acknowledge",

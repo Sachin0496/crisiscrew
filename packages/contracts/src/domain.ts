@@ -266,6 +266,18 @@ export type CustomerImpact = {
 export type RecoveryKind = "ticket_reply" | "acknowledge" | "proactive_message" | "voice" | "account_note" | "credit" | "no_credit";
 export type RecoveryStatus = "planned" | "done" | "prepared" | "awaiting_approval" | "declined" | "failed";
 
+/**
+ * Which outreach a customer gets from the Handoff Agent. complained: they
+ * wrote in, so the update answers their ticket; not_complained: they never
+ * did, so the update tells them about a failure they may not have noticed;
+ * unverified: a complaint with no failed payment on record, which only gets
+ * an acknowledgement.
+ */
+export type OutreachTrack = "complained" | "not_complained" | "unverified";
+
+/** The recovery actions that are customer outreach, carried out by the Handoff Agent. */
+export const OUTREACH_KINDS: readonly RecoveryKind[] = ["ticket_reply", "acknowledge", "proactive_message", "voice"];
+
 /** One step of one customer's recovery, with the reason the policy chose it. */
 export type RecoveryAction = {
   id: string;
@@ -276,6 +288,8 @@ export type RecoveryAction = {
   /** The authority the action needs; null for a decision that calls no tool. */
   level: Level | null;
   amountInr?: number;
+  /** For outreach and the note that stands in for it: which track it belongs to. */
+  track?: OutreachTrack;
   status: RecoveryStatus;
   /** The outcome in a few words: an update or credit id, a refusal, who decided. */
   detail?: string;

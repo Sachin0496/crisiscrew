@@ -1,6 +1,6 @@
 import { recoveryCoverage, type Approval, type ClusterView, type IncidentStatus } from "@crisiscrew/contracts";
 import { coverageNote } from "../recovery/templates";
-import { carryOutDecision, requestApprovals } from "./handoff";
+import { carryOutDecision, reachOut, requestApprovals } from "./handoff";
 import { investigate } from "./investigator";
 import type { AgentKit } from "./kit";
 import { assessImpact, noteOutcomes, reconcile, startRecovery } from "./recovery";
@@ -52,7 +52,9 @@ async function settle(kit: AgentKit, incidentId: string): Promise<void> {
 async function recover(kit: AgentKit, incidentId: string): Promise<void> {
   await kit.serial(incidentId, async () => {
     await reconcile(kit, incidentId, { assessFirst: true });
+    await reachOut(kit, incidentId);
     await requestApprovals(kit, incidentId);
+    await noteOutcomes(kit, incidentId, "handoff");
     await settle(kit, incidentId);
   });
 }

@@ -2,6 +2,8 @@ import {
   actionsFor,
   customerState,
   incidentTitle as titleFor,
+  OUTREACH_KINDS,
+  outreachTrack,
   type AffectedCustomer,
   type Approval,
   type ClusterView,
@@ -9,6 +11,7 @@ import {
   type CustomerRecoveryState,
   type IncidentStatus,
   type IncidentView,
+  type OutreachTrack,
   type RecoveryAction,
   type Scenario,
 } from "@crisiscrew/contracts";
@@ -139,4 +142,49 @@ export function decisionsFor(state: CrisisState, incidentId: string | undefined)
   const pending = all.filter((a) => a.status === "pending").sort((a, b) => a.requestedAt - b.requestedAt);
   const decided = all.filter((a) => a.status !== "pending").sort((a, b) => (b.decidedAt ?? 0) - (a.decidedAt ?? 0));
   return [...pending, ...decided];
+}
+
+export type TrackSummary = {
+  track: OutreachTrack;
+  customers: number;
+  /** Outreach actions on this track, by where they stand. */
+  messages: { total: number; sent: number; prepared: number; queued: number; failed: number };
+  /** Voice calls planned on this track. */
+  calls: number;
+  /** Customers on this track who opted out, so only their account gets a note. */
+  notesOnly: number;
+};
+
+const TRACKS: OutreachTrack[] = ["complained", "not_complained", "unverified"];
+
+/**
+ * The Handoff Agent's outreach, one summary per track that has customers.
+ * Customers count on the track they're on now; messages count on the track
+ * they were sent for, so a silent customer who later writes in shows their
+ * proactive message here and their ticket reply on the complained track.
+ */
+export function outreachByTrack(incident: IncidentView | undefined): TrackSummary[] {
+  const customers = incident?.impact?.customers ?? [];
+  const actions = incident?.actions ?? [];
+  return TRACKS.map((track) => {
+    const mine = customers.filter((c) => outreachTrack(c) === track);
+    const outreach = actions.filter((a) => OUTREACH_KINDS.includes(a.kind) && (a.track ?? outreachTrack(customers.find((c) => c.ref === a.customerRef) ?? { confidence: "unverified", complained: true })) === track);
+    const count = (...statuses: RecoveryAction["status"][]) => outreach.filter((a) => statuses.includes(a.status)).length;
+    return {
+      track,
+      customers: mine.length,
+      messages: { total: outreach.length, sent: count("done"), prepared: count("prepared"), queued: count("planned"), failed: count("failed") },
+      calls: outreach.filter((a) => a.kind === "voice").length,
+      notesOnly: mine.filter((c) => actions.some((a) => a.customerRef === c.ref && a.kind === "account_note")).length,
+    };
+  }).filter((t) => t.customers > 0);
+}
+
+/** The Handoff Agent's queue: outreach not yet sent, and credits waiting for a human, most urgent first. */
+export function handoffQueue(incident: IncidentView | undefined): RecoveryAction[] {
+  const actions = incident?.actions ?? [];
+  const rank = (a: RecoveryAction) => (a.status === "failed" ? 0 : a.status === "awaiting_approval" ? 1 : 2);
+  return actions
+    .filter((a) => (OUTREACH_KINDS.includes(a.kind) && (a.status === "planned" || a.status === "failed")) || (a.kind === "credit" && a.level === 3 && (a.status === "planned" || a.status === "awaiting_approval")))
+    .sort((a, b) => rank(a) - rank(b));
 }

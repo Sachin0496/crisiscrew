@@ -9,8 +9,22 @@ import {
   type Surface,
 } from "@crisiscrew/contracts";
 
-/** The update every confirmed customer receives, the acknowledgement for complaints with no evidence yet, and the voice script. */
-export type Draft = { subject: string; body: string; acknowledgement: string; voiceScript: string; source: string };
+/**
+ * The incident's messages, one per outreach track so everyone hears the same
+ * story told to where they stand. Placeholders are filled per customer by
+ * fillOutreach: {name}, {ticket}, {payment} and {credit}.
+ */
+export type Draft = {
+  subject: string;
+  /** Complained track: the reply on the customer's own ticket. */
+  complained: string;
+  /** Not-complained track: the proactive message about a failure they may not have noticed. */
+  notComplained: string;
+  /** Unverified complaints: thanks, and a request for a payment reference. */
+  acknowledgement: string;
+  voice: { complained: string; notComplained: string };
+  source: string;
+};
 
 const IST = new Intl.DateTimeFormat("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
 const IST_SECONDS = new Intl.DateTimeFormat("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
@@ -54,14 +68,22 @@ const PROBLEM: Record<Surface, string> = {
  */
 export function draftUpdate(incident: IncidentView, since: number): Draft {
   const root = incident.hypotheses.find((h) => h.id === incident.rootCause?.hypothesisId);
-  const body =
-    `Hi {name}, ${PROBLEM[incident.surface]} since about ${clockTime(since)}. ${causeSentence(root)} ` +
-    "If money left your account for a payment that failed, your bank will reverse it automatically, so you don't need to pay again. " +
-    `We're sorry for the trouble. Reference: ${incident.id}.`;
-  const voiceScript =
-    "Hello {name}, this is customer care. Some payments failed on our site today, including yours. " +
-    `${root && root.kind !== "unknown" ? "We've found the cause and we're fixing it." : "We're looking into it now."} ` +
-    "If money left your account, it will come back automatically. We're sorry, and there's nothing you need to do.";
+  const refund = "If money left your account for a payment that failed, your bank will reverse it automatically, so you don't need to pay again.";
+  const complained =
+    `Hi {name}, thanks for writing in (ticket {ticket}). You're right: ${PROBLEM[incident.surface]} since about ${clockTime(since)}, and {payment} was one of them. ` +
+    `${causeSentence(root)} ${refund} {credit}We're sorry for the trouble. Reference: ${incident.id}.`;
+  const notComplained =
+    `Hi {name}, you may not have noticed, but {payment} didn't go through. ${capitalise(PROBLEM[incident.surface])} since about ${clockTime(since)}. ` +
+    `${causeSentence(root)} ${refund} {credit}We're sorry for the trouble. Reference: ${incident.id}.`;
+  const fixing = root && root.kind !== "unknown" ? "We've found the cause and we're fixing it." : "We're looking into it now.";
+  const voice = {
+    complained:
+      "Hello {name}, this is customer care, calling about the ticket you raised. You were right: your payment failed because of a problem on our side. " +
+      `${fixing} If money left your account, it will come back automatically. {credit}We're sorry, and there's nothing more you need to do.`,
+    notComplained:
+      "Hello {name}, this is customer care. You may not have noticed, but {payment} didn't go through today. " +
+      `${fixing} If money left your account, it will come back automatically. {credit}We're sorry, and there's nothing you need to do.`,
+  };
   const subject = incident.surface === "checkout_payments" ? `Update on your payment (${incident.id})` : `Update from customer care (${incident.id})`;
   const reference =
     incident.surface === "checkout_payments"
@@ -70,11 +92,36 @@ export function draftUpdate(incident: IncidentView, since: number): Draft {
   const acknowledgement =
     `Hi {name}, thanks for telling us. We know ${PROBLEM[incident.surface]} since about ${clockTime(since)}, and our team is on it. ${reference} ` +
     `Reference: ${incident.id}.`;
-  return { subject, body, acknowledgement, voiceScript, source: "template" };
+  return { subject, complained, notComplained, acknowledgement, voice, source: "template" };
 }
 
-export function personalise(text: string, name: string): string {
-  return text.replaceAll("{name}", firstName(name));
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+const METHOD_WORDS: Record<string, string> = { upi: "UPI", card: "card", netbanking: "netbanking", wallet: "wallet" };
+
+/**
+ * Fills one message for one customer. {payment} is their own failed
+ * payment ("your ₹12,999 card payment at 13:25"); {credit} says a credit is
+ * being reviewed when one waits for a human, and never names an amount
+ * before a human approves it.
+ */
+export function fillOutreach(
+  text: string,
+  customer: Pick<AffectedCustomer, "name" | "amountInr" | "methods" | "lastFailedAt">,
+  extra: { ticket?: string; creditUnderReview?: boolean } = {},
+): string {
+  const method = METHOD_WORDS[customer.methods[0] ?? ""] ?? "";
+  const payment =
+    customer.amountInr > 0
+      ? `your ${inr(customer.amountInr)}${method ? ` ${method}` : ""} payment${customer.lastFailedAt !== undefined ? ` at ${clockTime(customer.lastFailedAt)}` : ""}`
+      : "your payment";
+  return text
+    .replaceAll("{name}", firstName(customer.name))
+    .replaceAll("{ticket}", extra.ticket ?? "your ticket")
+    .replaceAll("{payment}", payment)
+    .replaceAll("{credit}", extra.creditUnderReview ? "We're also reviewing a goodwill credit for you and will confirm it shortly. " : "");
 }
 
 const DONE_PHRASES: Partial<Record<RecoveryAction["kind"], string>> = {

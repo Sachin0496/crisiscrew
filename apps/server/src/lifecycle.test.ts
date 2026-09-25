@@ -122,7 +122,7 @@ describe("hero scenario: checkout release v4.21.7", () => {
   it("refuses contact and money that the evidence and consent don't support", async () => {
     const { engine, incident } = await replay("checkout-v4.21.7");
     const id = incident!.id;
-    const send = (customerRef: string, channel: string) => engine.gate.call("recovery", "send_customer_update", { incidentId: id, customerRef, channel, text: "test" });
+    const send = (customerRef: string, channel: string) => engine.gate.call("handoff", "send_customer_update", { incidentId: id, customerRef, channel, text: "test" });
     expect(await send("s05", "proactive_message")).toMatchObject({ ok: false, reason: "customer has not agreed to proactive messages" });
     expect(await send("s01", "voice")).toMatchObject({ ok: false, reason: "customer has not agreed to voice contact" });
     expect(await send("s01", "ticket_reply")).toMatchObject({ ok: false, reason: "this customer has no ticket in the incident" });
@@ -134,6 +134,35 @@ describe("hero scenario: checkout release v4.21.7", () => {
     expect(await credit("s07", 200)).toMatchObject({ ok: false, reason: "no credit is planned for this customer" });
     expect(await credit("s03", 1_000)).toMatchObject({ ok: false, reason: expect.stringMatching(/needs L3; Recovery Agent is limited to L2/) });
     expect(engine.audit.entries().slice(-8).every((e) => e.decision === "denied")).toBe(true);
+  });
+
+  it("gives every customer message to the Handoff Agent, and refuses one from the Recovery Agent", async () => {
+    const { engine, incident } = await replay("checkout-v4.21.7");
+    const sends = engine.audit.entries().filter((e) => e.tool === "send_customer_update" && e.decision === "allowed");
+    expect(sends.length).toBeGreaterThan(0);
+    expect(new Set(sends.map((e) => e.identity))).toEqual(new Set(["handoff"]));
+    expect(await engine.gate.call("recovery", "send_customer_update", { incidentId: incident!.id, customerRef: "s01", channel: "proactive_message", text: "test" })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/not on Recovery Agent's allow-list|not allowed|allow-list/),
+    });
+  });
+
+  it("sends each track its own message: an answer to the complaint, or news of a failure the customer may not have noticed", async () => {
+    const { incident } = await replay("checkout-v4.21.7");
+    const update = (ref: string, channel: string) => incident!.updates.find((u) => u.customerRef === ref && u.channel === channel)?.text ?? "";
+    // Priya wrote in: her reply names her ticket and her payment.
+    expect(update("c-priya", "ticket_reply")).toMatch(/^Hi Priya, thanks for writing in \(ticket T-\d+\)\. You're right: some payments at checkout have been failing since about \d\d:\d\d, and your ₹[\d,]+ \w+ payment at \d\d:\d\d was one of them\./);
+    // Aditya never wrote in: the message tells him what happened to his payment.
+    expect(update("s01", "proactive_message")).toMatch(/^Hi Aditya, you may not have noticed, but your ₹[\d,]+ UPI payment at \d\d:\d\d didn't go through\./);
+    // Ananya's ₹1,000 credit waits for a human: she hears now that a credit is under review, with no amount promised.
+    const ananya = update("s03", "proactive_message");
+    expect(ananya).toContain("We're also reviewing a goodwill credit for you and will confirm it shortly.");
+    expect(ananya).not.toContain("₹1,000");
+    expect(update("s01", "proactive_message")).not.toContain("goodwill credit");
+    expect(update("s03", "voice")).toMatch(/^Hello Ananya, this is customer care\. You may not have noticed, but your ₹12,999 card payment at \d\d:\d\d didn't go through today\./);
+    // Every outreach action carries its track.
+    const tracks = new Set(incident!.actions.filter((a) => ["ticket_reply", "proactive_message", "voice", "account_note"].includes(a.kind)).map((a) => `${a.kind}:${a.track}`));
+    expect(tracks).toEqual(new Set(["ticket_reply:complained", "proactive_message:not_complained", "voice:not_complained", "account_note:not_complained"]));
   });
 
   it("keeps the Pattern Agent read-only and the audit chain intact", async () => {

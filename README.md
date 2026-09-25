@@ -41,10 +41,11 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 | **Verify** | Investigator | Checks the payment gateway, recent releases and service error rates, then ranks causes by prior × likelihood ratios, with every factor shown |
 | **Prove who was harmed** | Recovery Agent | Builds the **Customer Impact Graph**. A customer is affected when they have a failed or pending payment inside the incident window, whether or not they wrote in. A complaint with no such payment is kept as *not verified* |
 | **Find the silent** | Recovery Agent | The customers with failed payments who never contacted support: 15 of the 23 in the hero scenario |
-| **Plan each recovery** | Recovery Agent | A plan per customer from their own evidence: the channel they allow, a voice update for priority customers, and a credit sized by the harm, each with its reason and the authority it needs |
-| **Act within authority** | Recovery Agent | Updates, account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
+| **Plan each recovery** | Recovery Agent | A plan per customer from their own evidence: their outreach track, the channel they allow, a call when it's warranted, and a credit sized by the harm, each with its reason and the authority it needs |
+| **Act within authority** | Recovery Agent | Account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
+| **Reach out, by track** | Handoff Agent | Every customer message, in two tracks. **Complained:** a reply on their ticket that answers the complaint. **Not complained:** a message about a failure they may not have noticed. See [Outreach](#outreach) |
 | **Stop for a human** | Handoff Agent | Any credit above that becomes an approval for **one customer**, with their evidence. The approver approves, changes the amount or rejects, and exactly that amount is paid to exactly that customer |
-| **Write back** | Recovery Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and a Freshservice incident for engineering |
+| **Write back** | Handoff Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and a Freshservice incident for engineering |
 | **Measure** | Incident Commander | Recovery Coverage = recovered confirmed customers / confirmed customers. The incident reaches **Recovered** only at 100% |
 
 Every tool call, by an agent or an external MCP client, goes through one policy gate and lands in a hash-chained audit log.
@@ -169,6 +170,20 @@ Recovery is based on each customer's actual harm, not one blanket action. The nu
 - Pooja, Manoj and Lakshmi opted out of proactive messages. Nobody messages them; their accounts get a note and a credit.
 - Ananya and Farhan are priority customers, so their ₹1,000 credits wait for a human.
 
+## Outreach
+
+The Recovery Agent decides who gets what; the **Handoff Agent sends every customer message**, one track at a time. The Recovery Agent can't message a customer at all: `send_customer_update` is on the Handoff Agent's allow-list only.
+
+| Track | Who | Message | Call |
+|---|---|---|---|
+| **Complained** | confirmed affected, and wrote in | a reply on their ticket: *"thanks for writing in (ticket T-1004). You're right: … your ₹649 card payment at 13:25 was one of them"* | when they're a priority customer or lost a large payment, and agreed to calls |
+| **Not complained** | confirmed affected, never wrote in | a proactive message: *"you may not have noticed, but your ₹999 UPI payment at 13:24 didn't go through"*; if they opted out, nobody messages them and their account gets a note | whenever they agreed to calls |
+| **Not verified** | wrote in, but no failed payment on record | an acknowledgement asking for a payment reference | never |
+
+- **Before approvals:** outreach runs before any credit goes to a human, so nobody waits for an approver to hear from us. A customer whose credit is being reviewed is told so, **without an amount**, until a human decides.
+- **The gate still decides:** consent and confirmed impact are checked on every send, exactly as before.
+- **Where to see it:** the Customers page has an **Outreach** card per track, and filters to match. The Agents page shows the **Handoff Agent's queue**. `get_customer_impact` gives each customer's `track` and takes `filter: "complained"` or `"not_complained"`.
+
 ## Recovery Coverage
 
 ```
@@ -268,7 +283,8 @@ flowchart LR
   IC --> INV[Investigator]
   IC --> REC[Recovery Agent]
   REC -- impact graph and plan --> REC
-  REC -- credit above authority --> HO[Handoff Agent]
+  REC -- outreach and credits above authority --> HO[Handoff Agent]
+  HO -- complained and not-complained tracks --> CU((Customers))
   HO -- one approval per customer --> H((Human))
   INV & REC & HO & IC --> G[Policy gate]
   MCP[MCP clients: /mcp] --> G
@@ -283,9 +299,10 @@ flowchart LR
 **Recovery is one idempotent pass,** run after the root cause, for each later complaint and after each human decision:
 1. rebuild the impact graph;
 2. plan only the actions each customer is still missing;
-3. carry out everything within authority;
-4. hand the rest to the Handoff Agent;
-5. set the incident's status from coverage.
+3. the Recovery Agent carries out its account notes and credits within authority;
+4. the Handoff Agent sends the messages, complained track first, then not complained;
+5. the Handoff Agent asks a human about each credit above authority;
+6. set the incident's status from coverage.
 
 Passes for one incident run one at a time, so nothing is planned or paid twice.
 
@@ -344,8 +361,8 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 | Pattern Agent | L0 | `search_recent_tickets`, `get_incident` |
 | Incident Commander | L1 | `open_incident`, `file_engineering_incident`, `update_engineering_incident`, `get_recovery_coverage`, `get_incident`, `search_recent_tickets` |
 | Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_incident` |
-| Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `send_customer_update`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
-| Handoff Agent | L3 | `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |
+| Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
+| Handoff Agent | L3 | `send_customer_update`, `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |
 | External MCP client (operator) | L0 | the seven read tools, including `get_customer_impact` and `get_recovery_coverage` |
 
 ## MCP server

@@ -4,6 +4,7 @@ import policyJson from "../../../../config/policy.json";
 import type { PaymentAttempt } from "../ports";
 import { assessImpact, severityOf } from "./impact";
 import { planRecovery } from "./plan";
+import { fillOutreach } from "./templates";
 
 const policy = parsePolicy(policyJson, TOOL_NAMES);
 const T0 = Date.UTC(2026, 8, 25, 8, 42, 0);
@@ -127,6 +128,29 @@ describe("planRecovery", () => {
     );
   });
 
+  it("puts each customer's outreach on their track, and calls by track: complained when it matters, not complained whenever they agreed", () => {
+    const voice = { proactive: true, voice: true };
+    const actions = plan([
+      affected("wrote-in-small", { complained: true, consent: voice }),
+      affected("wrote-in-large", { complained: true, consent: voice, severity: "high", amountInr: 12_999 }),
+      affected("wrote-in-priority", { complained: true, consent: voice, tier: "priority", severity: "high" }),
+      affected("silent-agreed", { consent: voice }),
+      affected("silent-opted-out", { consent: { proactive: false, voice: false } }),
+      affected("walk-in", { complained: true, confidence: "unverified", severity: undefined, amountInr: 0 }),
+    ]);
+    expect(kinds(actions, "wrote-in-small")).toEqual(["ticket_reply:L2", "credit:200:L2"]);
+    expect(kinds(actions, "wrote-in-large")).toEqual(["ticket_reply:L2", "voice:L2", "credit:1000:L3"]);
+    expect(actions.find((a) => a.customerRef === "wrote-in-large" && a.kind === "voice")?.reason).toBe("Wrote in about a ₹12,999 payment and agreed to calls");
+    expect(kinds(actions, "wrote-in-priority")).toEqual(["ticket_reply:L2", "voice:L2", "credit:1000:L3"]);
+    expect(kinds(actions, "silent-agreed")).toEqual(["proactive_message:L2", "voice:L2", "credit:200:L2"]);
+    const track = (ref: string) => [...new Set(actions.filter((a) => a.customerRef === ref && a.track).map((a) => a.track))];
+    expect(track("wrote-in-large")).toEqual(["complained"]);
+    expect(track("silent-agreed")).toEqual(["not_complained"]);
+    expect(track("silent-opted-out")).toEqual(["not_complained"]);
+    expect(track("walk-in")).toEqual(["unverified"]);
+    expect(actions.filter((a) => a.kind === "credit" || a.kind === "no_credit").every((a) => a.track === undefined)).toBe(true);
+  });
+
   it("gives a customer who paid on a retry the update and a recorded decision not to credit", () => {
     const actions = plan([affected("nisha", { paidOnRetry: true, severity: "low", lastFailedAt: T0 })]);
     expect(kinds(actions, "nisha")).toEqual(["proactive_message:L2", "no_credit:L-"]);
@@ -160,5 +184,24 @@ describe("planRecovery", () => {
     const again = plan([affected("s1", { complained: true, ticketIds: ["T-9"] })], done);
     expect(kinds(again, "s1")).toEqual(["ticket_reply:L2"]);
     expect(plan([affected("s1")], done)).toEqual([]);
+  });
+});
+
+describe("outreach messages", () => {
+  const priya = affected("c-priya", { name: "Priya K.", complained: true, amountInr: 12_999, methods: ["card"], lastFailedAt: Date.UTC(2026, 8, 25, 7, 55) });
+
+  it("fills each track's message with the customer's own payment, and names their ticket", () => {
+    const text = fillOutreach("Hi {name}, ticket {ticket}: {payment}. {credit}Bye.", priya, { ticket: "#4512" });
+    expect(text).toBe("Hi Priya, ticket #4512: your ₹12,999 card payment at 13:25. Bye.");
+  });
+
+  it("says a credit is under review only when one waits for a human, and never names an amount", () => {
+    const text = fillOutreach("{credit}Sorry.", priya, { creditUnderReview: true });
+    expect(text).toBe("We're also reviewing a goodwill credit for you and will confirm it shortly. Sorry.");
+    expect(text).not.toMatch(/₹/);
+  });
+
+  it("falls back to plain words when a detail is missing", () => {
+    expect(fillOutreach("{ticket} {payment}", affected("x", { amountInr: 0, methods: [], lastFailedAt: undefined }))).toBe("your ticket your payment");
   });
 });
