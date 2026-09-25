@@ -26,7 +26,9 @@ export type SandboxRecord = {
   notes: { ticketId: string; text: string }[];
   replies: { ticketId: string; text: string }[];
   proactive: { customerRef: string; text: string }[];
+  accountNotes: { id: string; customerRef: string; text: string }[];
   credits: { id: string; customerRefs: string[]; amountInr: number; reference: string }[];
+  incidents: { id: string; incidentId: string; title: string; description: string; notes: string[] }[];
 };
 
 /**
@@ -39,7 +41,7 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
   const world = scenario.world;
   const pause = () => (latencyMs > 0 ? clock.sleep(latencyMs) : Promise.resolve());
   const at = (offset: string) => t0 + parseOffset(offset);
-  const record: SandboxRecord = { notes: [], replies: [], proactive: [], credits: [] };
+  const record: SandboxRecord = { notes: [], replies: [], proactive: [], accountNotes: [], credits: [], incidents: [] };
 
   const deployments = world.deployments
     .map((d) => ({ ...d, atMs: at(d.at) }))
@@ -118,6 +120,23 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
       async customer(ref) {
         return customers.get(ref) ?? null;
       },
+      async findCustomer({ email, name }) {
+        const wanted = email?.trim().toLowerCase();
+        const named = name?.trim().toLowerCase();
+        for (const c of customers.values()) {
+          if (wanted && c.email?.toLowerCase() === wanted) return c;
+        }
+        for (const c of customers.values()) {
+          if (named && c.name.toLowerCase() === named) return c;
+        }
+        return null;
+      },
+      async addAccountNote(customerRef, text) {
+        await pause();
+        const id = `NOTE-${String(record.accountNotes.length + 1).padStart(3, "0")}`;
+        record.accountNotes.push({ id, customerRef, text });
+        return { id };
+      },
     },
 
     ticketActions: {
@@ -156,6 +175,22 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
         const id = `CR-${String(creditCount).padStart(3, "0")}`;
         record.credits.push({ id, customerRefs, amountInr, reference });
         return { id };
+      },
+    },
+
+    incidents: {
+      ...SANDBOX,
+      async open({ incidentId, title, description }) {
+        await pause();
+        const id = `ENG-${String(record.incidents.length + 1).padStart(3, "0")}`;
+        record.incidents.push({ id, incidentId, title, description, notes: [] });
+        return { id };
+      },
+      async note(recordId, text) {
+        await pause();
+        const found = record.incidents.find((i) => i.id === recordId);
+        if (!found) throw new Error(`no engineering incident ${recordId}`);
+        found.notes.push(text);
       },
     },
 

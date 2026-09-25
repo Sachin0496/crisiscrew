@@ -2,7 +2,7 @@
 
 CrisisCrew is a Track 1 finalist in The Great Agent Hackathon (Freshworks). This page checks the project against the hackathon's published rules and the organizers' later instructions. It lists what's met and what the team still has to do before submitting.
 
-- **Checked on:** 2026-09-23
+- **Checked on:** 2026-09-23, and updated on 2026-09-24 for the Customer Harm Response pivot ([issue #1](https://github.com/Sachin0496/crisiscrew/issues/1))
 - **Sources:** the [rules](https://the-great-agent-hackathon.devpost.com/rules) and [overview](https://the-great-agent-hackathon.devpost.com/) pages on Devpost (read on 2026-09-22, and the rules re-checked on 2026-09-23), plus the organizers' email to finalists described in section 1.
 - **Caveat:** rules can change. Re-read both pages, and any new organizer email, on the morning of the event.
 
@@ -12,12 +12,12 @@ CrisisCrew is a Track 1 finalist in The Great Agent Hackathon (Freshworks). This
 |---|---|---|
 | Built from scratch and unique to this hackathon | **Met** | Every line of code was written for this hackathon. The repo's first commit is on 2026-09-22, and the Stage 1 page is archived unchanged in `prototype/` |
 | When the build happens | **Met under the organizers' email** | The written rules put the build inside the on-site sprint. The organizers then told finalists they may work beforehand and that Stage 2 is mostly presentation. See section 1 |
-| A working prototype, ready to demo live | **Met** | `pnpm start` runs the whole system offline, with six replayable scenarios and live typed complaints. See the [demo script](demo-script.md). The rules also say "built during the 24-hour window"; the organizers' email covers that (section 1) |
+| A working prototype, ready to demo live | **Met** | `pnpm start` runs the whole system offline, with six replayable scenarios, live typed complaints and per-customer recovery. See the [demo script](demo-script.md). The rules also say "built during the 24-hour window"; the organizers' email covers that (section 1) |
 | An updated project description (what was built, the stack, how it evolved) | **To do: team** | A ready-to-paste draft is in [submission.md](submission.md) |
 | A public code repository with a clear README | **To do: team** | The README is written, but the repo is still **private**. Make it public before submitting (section 2) |
 | A live demo on the Main Stage | **Ready** | [demo-script.md](demo-script.md) |
 | Physically present in Bangalore for the whole event | **Team** | Remote participation isn't allowed at Stage 2 |
-| Track 1: Agent Studio, MCP and multi-agent orchestration | **MCP and multi-agent: met. Agent Studio: not yet** | See section 3 |
+| Track 1: Agent Studio, MCP and multi-agent orchestration | **MCP and multi-agent: met. Freshdesk and Freshservice: wired, not yet run on a live account. Agent Studio: MCP-ready, registration needs access** | See section 3 |
 | Sponsor prizes (ElevenLabs, Sarvam, Dodo, Vobiz, AWS, Anthropic) | **Not claimable yet** | Each API is designed and listed in `.env.example` but not wired. Don't claim a sponsor's technology unless it's wired at the event |
 | No misleading claims | **Met in the repo. Devpost needs fixing** | Section 5 |
 
@@ -50,21 +50,26 @@ Track 1 asks for agents built on Freshworks Agent Studio, MCP and multi-agent or
 |---|---|---|
 | Multi-agent orchestration | **Built.** Five agents with separate identities and permissions. The Investigator and Recovery Agent run in parallel, and the Handoff Agent stops for a human above the authority limit | `packages/core/src/agents/`, design section 6 |
 | MCP | **Built.** An MCP server at `/mcp`. Each bearer token maps to one identity, which sees only its allowed tools, and every call goes through the same policy gate and audit log as the internal agents | `apps/server/src/mcp/endpoint.ts`, README "MCP" |
-| Freshworks: Freshdesk | **Designed, not wired.** The webhook ingest, REST and Freshdesk MCP actions are specified, and their variables are in `.env.example` | design section 10.5 |
-| Freshworks: Agent Studio | **Not yet.** It's a configuration step (register `/mcp` with the operator token) once the organizers provide access | design section 16 |
+| Freshworks: Freshdesk | **Wired, not yet run on a live account.** Webhook or poll ingest (requesters matched to customers by email); private link notes, replies and outcome notes through REST or Freshdesk's official MCP server; a ticket-sidebar app. Each is tested against a fake Freshdesk API or MCP server | `packages/adapters/src/freshworks/`, `integrations/freshdesk-sidebar/`, [customer-harm-response.md](customer-harm-response.md) section 6 |
+| Freshworks: Freshservice | **Wired, not yet run on a live account.** An engineering incident per CrisisCrew incident, with private notes for the investigation and the customer impact | `packages/adapters/src/freshworks/freshservice.ts` |
+| Freshworks: Agent Studio | **MCP-ready.** The read-only operator identity exposes `get_customer_impact` and `get_recovery_coverage` alongside the other read tools. Registering `/mcp` in Freshservice's Agent Studio MCP Gateway is a configuration step once the organizers provide access | README "MCP server" |
 
-**On stage, say it plainly:** the Freshworks integrations are designed and ready to wire, and the demo runs on a sandbox world. The environment box in the UI's sidebar shows this too.
+**On stage, say it plainly:**
+- The Freshdesk and Freshservice adapters are wired and switch on with keys, and the demo world is a sandbox.
+- If they ran against the team's trial account at the event, say so. If they didn't, say they're tested against fakes of the APIs.
+
+The environment box in the UI's sidebar shows exactly this.
 
 ## 4. Judging criteria: where each one is shown
 
 | Criterion | What demonstrates it |
 |---|---|
-| Innovation and originality | Treating support tickets as incident telemetry. Detection by meaning plus product area, with restraint: four gates, each with a plain reason, including refusing a burst of look-alike questions |
-| Technical execution | Typed contracts shared by server and UI, an event-sourced UI, 196 tests, CI, a hash-chained audit log, and an evaluation on a held-out split |
-| Use of AI and agentic design | Sentence embeddings running locally. Five agents with calibrated authority, where the level depends on the arguments (a credit above ₹5,000 needs a human). The same gate governs both internal agents and MCP clients |
-| Relevance to the problem | The hero scenario: a checkout release breaks payments. CrisisCrew detects it from 4 complaints, names the release, finds 15 silent customers and asks a human to approve ₹11,500 in credits |
-| Presentation and demo quality | A clean incident console driven by live events, the restraint scenario, a live typed complaint, and an MCP refusal |
-| Potential impact | Earlier detection than dashboards, consistent customer updates, and an audit trail. The eval numbers are stated with their limits |
+| Innovation and originality | Customer harm response instead of ticket clustering. It proves who was harmed from operational evidence, finds the customers who never complained, plans each customer's recovery by their own harm, and measures Recovery Coverage. A complaint alone never counts as harm |
+| Technical execution | Typed contracts shared by server and UI, an event-sourced UI, an idempotent recovery pass, 256 tests, CI, a hash-chained audit log, an evaluation on a held-out split, and Freshworks adapters tested against fakes of their APIs |
+| Use of AI and agentic design | Sentence embeddings running locally. Five agents with calibrated authority: credits are L2 within ₹500 per customer and ₹5,000 per incident, and L3 above, one approval per customer. The same gate governs internal agents and MCP clients, and the Recovery Agent writes to Freshdesk through its MCP server when switched on |
+| Relevance to the problem | The hero scenario: a checkout release breaks payments. 23 customers were harmed: 8 complained and 15 stayed silent. 21 recover within policy, and 2 priority customers' credits go to a human; coverage reaches 23/23 after the decisions. The outcome is written back to each Freshdesk ticket |
+| Presentation and demo quality | A production-style console driven by live events. It has a Customers page with a clickable evidence chain for every customer, per-customer decisions, coverage climbing to 100%, the restraint scenario, an unverified walk-in complaint, and the Freshdesk sidebar |
+| Potential impact | Nobody left behind: silent customers found and recovered, money spent by the harm rather than by the ticket, human approval where it matters, and a coverage number a support leader can run the business on |
 
 ## 5. Honest claims: Stage 1 and the Devpost page
 
@@ -73,13 +78,13 @@ Track 1 asks for agents built on Freshworks Agent Studio, MCP and multi-agent or
 **"Built With" on Devpost.** As read on 2026-09-22, the tags were: `fastapi`, `python`, `react`, `typescript`, `vite`, `tailwindcss`, `agentic-ai`, `multi-agent-systems`, `model-context-protocol`.
 - `react`, `typescript`, `vite`, `model-context-protocol`, `agentic-ai` and `multi-agent-systems` are now true.
 - **Remove `fastapi`, `python` and `tailwindcss`.** None of them is used anywhere in the project.
-- Don't add `elevenlabs`, `anthropic`, `freshdesk`, `sarvam` or `dodo` unless that integration is wired and shown at the event.
+- Don't add `elevenlabs`, `anthropic`, `sarvam` or `dodo`: they aren't wired. Add `freshdesk` and `freshservice` only if they ran against a real account at the event.
 - **Add:** `node.js`, `hono`, `zod`, `transformers.js`, `vitest`.
 
 **Inside the product:**
 - No number on screen is typed in. Each one is computed from ticket text and the scenario's data.
-- `GET /api/wiring` and the environment box in the UI report every port as live, sandbox, off, or planned but not wired.
-- Selecting an unwired adapter stops the server at startup with a clear message. It never falls back to fake data.
+- `GET /api/wiring` and the environment box in the UI report every port as live, sandbox or off, with the live adapters that are available and the ones only planned.
+- Selecting an unwired adapter, or a wired one without its keys, stops the server at startup with a clear message. A live adapter never falls back to fake data.
 - The eval report states that its data is synthetic and hand-written.
 
 ## 6. Third-party material and licenses
@@ -93,7 +98,9 @@ Track 1 asks for agents built on Freshworks Agent Studio, MCP and multi-agent or
 ## 7. Secrets and personal data
 
 - Secrets live only in `.env`, which git ignores. `.env.example` lists every variable with an empty value.
-- A scan of every tracked file for API keys and tokens (Anthropic, GitHub, AWS and private keys) found none on 2026-09-23.
+- A scan of every tracked file for API keys and tokens (Anthropic, GitHub, AWS, Freshworks-style keys and private keys) found none on 2026-09-24.
+- **Freshworks keys:** only `apps/server/src/main.ts` reads the Freshdesk and Freshservice keys, and it hands them to the adapters. They never reach the UI, the audit log or the event stream.
+- **The sidebar app:** its install parameters hold only the CrisisCrew host, not the API keys.
 - Runtime data (audit logs, the runtime embedding cache) goes to `data/`, which git ignores.
 - The audit log stores ticket and customer references and short summaries, not full ticket text.
 
@@ -103,4 +110,7 @@ Track 1 asks for agents built on Freshworks Agent Studio, MCP and multi-agent or
 - [ ] Update Devpost: paste the description from [submission.md](submission.md), fix "Built With" (section 5), and add the repo link.
 - [ ] Keep the organizers' email ready to show.
 - [ ] Re-read the rules page for changes.
-- [ ] If any API gets wired at the event, update the README's status table, `.env.example` and the Devpost tags to match. Claim only what's wired.
+- [ ] If Freshdesk or Freshservice ran against a real account at the event:
+  - change "wired, not yet run against a real account" to "run against a live trial account" in the README's status note and table;
+  - add the `freshdesk` and `freshservice` tags on Devpost.
+- [ ] If any other API gets wired at the event, update the README's status table, `.env.example` and the Devpost tags to match. Claim only what's wired and shown.

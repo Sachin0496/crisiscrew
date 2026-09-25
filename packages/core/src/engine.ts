@@ -17,10 +17,8 @@ import {
   type TicketInput,
   type TicketSource,
 } from "@crisiscrew/contracts";
-import { runIncident } from "./agents/commander";
-import { carryOutDecision } from "./agents/handoff";
+import { handleLateTicket, runIncident, settleDecision } from "./agents/commander";
 import type { AgentKit } from "./agents/kit";
-import { linkLateTicket } from "./agents/recovery";
 import type { EventBus } from "./bus";
 import { PatternEngine } from "./correlation/pattern";
 import type { Prototypes } from "./correlation/prototypes";
@@ -48,9 +46,9 @@ export type EngineDeps = {
 const pad = (n: number) => String(n).padStart(3, "0");
 
 /**
- * One incident-response session: the Pattern Agent's detection plus the four
- * agents behind the policy gate. All state comes from the events it emits, so
- * what the UI shows is exactly what the engine knows.
+ * One customer-harm-response session: the Pattern Agent's detection plus the
+ * four agents behind the policy gate. All state comes from the events it
+ * emits, so what the UI shows is exactly what the engine knows.
  */
 export class CrisisEngine {
   readonly audit: AuditLog;
@@ -59,10 +57,12 @@ export class CrisisEngine {
   private readonly pattern: PatternEngine;
   private readonly tasks = new Set<Promise<unknown>>();
   private queue: Promise<unknown> = Promise.resolve();
-  private readonly counters = { ticket: 1000, incident: 0, update: 0, approval: 0 };
+  private readonly counters = { ticket: 1000, incident: 0, update: 0, approval: 0, action: 0 };
   private readonly drafts = new Map<string, { draft: Draft; since: number }>();
   private readonly spentApprovals = new Set<string>();
   private readonly opened = new Map<string, Promise<void>>();
+  /** The tail of each incident's recovery chain: recovery steps for one incident run one at a time. */
+  private readonly chains = new Map<string, Promise<unknown>>();
   private readonly kit: AgentKit;
   private stopped = false;
 
@@ -78,7 +78,8 @@ export class CrisisEngine {
       policy: deps.policy,
       emit: (e) => this.emit(e),
       drafts: this.drafts,
-      nextId: (kind) => (kind === "update" ? `UPD-${pad(++this.counters.update)}` : `APR-${pad(++this.counters.approval)}`),
+      nextId: (kind) =>
+        kind === "update" ? `UPD-${pad(++this.counters.update)}` : kind === "approval" ? `APR-${pad(++this.counters.approval)}` : `RA-${pad(++this.counters.action)}`,
       spentApprovals: this.spentApprovals,
     };
     this.gate = new PolicyGate(deps.policy, createTools(), this.audit, deps.clock, () => ctx);
@@ -96,6 +97,12 @@ export class CrisisEngine {
       emit: (e) => this.emit(e),
       setAgent: (agent, status, task) => this.setAgent(agent, status, task),
       setStatus: (id, to, note) => this.setStatus(id, to, note),
+      serial: (incidentId, run) => {
+        const next = (this.chains.get(incidentId) ?? Promise.resolve()).then(run);
+        this.chains.set(incidentId, next.catch(() => undefined));
+        return next;
+      },
+      noted: new Set(),
     };
   }
 
@@ -137,7 +144,7 @@ export class CrisisEngine {
       ...(status === "modified" ? { approvedAmountInr: body.amountInr! } : {}),
     };
     this.emit({ type: "approval.decided", payload: { approval: decided } });
-    this.track(carryOutDecision(this.kit, decided));
+    this.track(settleDecision(this.kit, decided).catch((error) => this.fail("handoff", error)));
     return decided;
   }
 
@@ -168,7 +175,7 @@ export class CrisisEngine {
       this.opened.set(incidentId, new Promise((resolve) => (markOpened = resolve)));
       this.setAgent("pattern", "done", `${cluster.reportTicketIds.length} failure reports describe one problem; alerted the Incident Commander`);
       this.track(
-        runIncident(this.kit, cluster, incidentId, (ref) => this.deps.ports.orders.customer(ref), markOpened).catch((error) => {
+        runIncident(this.kit, cluster, incidentId, markOpened).catch((error) => {
           markOpened();
           this.fail("commander", error);
         }),
@@ -180,7 +187,7 @@ export class CrisisEngine {
       this.track(
         (async () => {
           await this.opened.get(incidentId);
-          await linkLateTicket(this.kit, incidentId, ticket.id);
+          await handleLateTicket(this.kit, incidentId, ticket.id);
         })().catch((error) => this.fail("recovery", error)),
       );
     } else {

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export type PortName =
   | "tickets"
+  | "incidents"
   | "deployments"
   | "payments"
   | "metrics"
@@ -19,8 +20,12 @@ export type WiringPort = {
   mode: PortMode;
   adapter: string;
   detail: string;
+  /** Live adapters that are wired and can be switched on with keys. */
+  available: string[];
   /** Live adapters that are designed but not wired yet. */
   planned: string[];
+  /** The variable that switches this port. */
+  env: string;
 };
 
 export type WiringReport = { ports: WiringPort[]; liveCount: number };

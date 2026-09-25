@@ -1,81 +1,113 @@
 # Devpost update (draft to paste)
 
-This is the updated project description Stage 2 asks for: what was built, the tech stack, and how the project evolved. Paste the sections below into the Devpost project page, then fix "Built With" as listed at the end. Every number here comes from `pnpm replay checkout-v4.21.7` and `pnpm eval`, run on 2026-09-23.
+This is the updated project description Stage 2 asks for: what was built, the tech stack, and how the project evolved. Paste the sections below into the Devpost project page, then fix "Built With" as listed at the end. Every number here comes from `pnpm replay checkout-v4.21.7` and `pnpm eval`, run on 2026-09-24.
 
 ---
 
 ## Inspiration
 
-Customers notice outages before dashboards do. During a payment incident, the first signal is often a handful of support tickets in different words within a minute: "checkout keeps loading", "UPI isn't working", "card rejected", "money deducted but no order". Support agents see them one at a time. By the time someone connects them, hundreds of customers have been affected, and most of them never write in.
+When a release breaks checkout, support sees a handful of complaints in different words, and engineering sees an error rate. Nobody sees the customers:
+- who was actually harmed;
+- who stayed silent;
+- whether each one got the right recovery.
+
+Most of the people hit by an outage never write in. They just leave.
 
 ## What it does
 
-CrisisCrew treats incoming support tickets as incident telemetry.
+CrisisCrew is a **customer harm response** layer for Freshworks. Incident tools tell engineering what broke; support tools tell you who complained. CrisisCrew connects the two:
 
-1. **Detect.** It compares each new ticket with recent ones by meaning, not keywords. It opens an incident only when a burst of similar failure reports passes four gates: size, similarity, failure share, and a Poisson burst test against normal volume. When a burst fails a gate, the UI shows the plain reason, for example "4 of 5 are questions, not failures".
-2. **Investigate.** The Investigator checks the payment gateway, recent releases and service error rates. It then ranks root-cause hypotheses by prior × likelihood ratios, with every factor shown.
-3. **Recover.** The Recovery Agent links the tickets, finds affected customers who haven't complained, and sends everyone the same update through the channel they agreed to.
-4. **Hand off.** A goodwill credit above the ₹5,000 authority limit stops for a human. The approver can approve, change the amount or reject, and exactly the approved amount is paid.
+1. **Detects** a customer-impact event from a burst of complaints. Similarity is by meaning and product area, behind four gates, and each refusal comes with a plain reason. Detection is the trigger, not the product.
+2. **Verifies** it against operational evidence. The Investigator ranks causes (a release, the payment provider, or unknown) by prior × likelihood ratios, with every factor shown.
+3. **Proves who was harmed.** The **Customer Impact Graph** joins tickets, customers, failed payments, the affected service and the cause:
+   - A customer counts as affected only with a failed or pending payment inside the incident window.
+   - A complaint without one stays *not verified*: acknowledged, never credited.
+4. **Finds the customers who stayed silent.** In the hero scenario, 8 customers complain and CrisisCrew finds 15 more whose payments failed but who never contacted support.
+5. **Plans each customer's recovery** from their own harm, with a reason for every action:
+   - the channel they agreed to, or an account note if they opted out of messages;
+   - a voice update for priority customers;
+   - a credit sized by the harm: none if they paid on a retry, ₹200 for a failed payment, ₹1,000 for priority customers or payments of ₹10,000 or more.
+6. **Acts within authority, and stops for a human above it.** The agents may credit ₹500 per customer and ₹5,000 per incident. Anything more is an approval for one customer, with their evidence, and only the approved amount can be paid, only to that customer.
+7. **Writes back into Freshworks.** On each Freshdesk ticket it leaves a private link note, the update as a reply and an outcome note. It files a Freshservice incident for engineering. A Freshdesk sidebar app shows each customer's impact on their ticket.
+8. **Measures Recovery Coverage:** recovered confirmed customers over confirmed customers. The incident reaches *Recovered* only at 100%.
 
 **In the hero scenario,** a checkout release breaks payments:
-- The incident opens on the 4th complaint, 18 seconds after the first.
-- The Investigator names `checkout-service v4.21.7` with 97% confidence: released 14 minutes before the first complaint, after which its error rate jumped more than 8×.
-- 8 tickets are linked, and 23 customers are affected, 15 of whom never wrote in.
-- A ₹11,500 credit goes to a human for approval.
-
-Every one of the 42 tool calls is recorded in a hash-chained audit log.
+- The incident opens on the 4th complaint, 18 seconds after the first. The Investigator names `checkout-service v4.21.7` with 97% confidence.
+- 23 customers were harmed: 8 complained and 15 stayed silent, each with their evidence.
+- 21 are recovered within policy. That's ₹4,000 in credits, updates through each customer's own channel, and account notes for the three who opted out of messages.
+- Two priority customers' ₹1,000 credits wait for a human. After one approval and one change to ₹500, coverage reaches **23/23**.
+- All 86 tool calls land in a hash-chained audit log.
 
 ## How we built it
 
-- **All TypeScript:** a pnpm monorepo with shared zod contracts, a pure engine, sandbox adapters, a Hono server and a React UI.
-- **Detection:**
-  - Sentence embeddings from `all-MiniLM-L6-v2`, running locally through transformers.js with no external API.
-  - Similarity is half meaning and half product area, where the product area is itself inferred from meaning, with no keyword lists.
-  - Tickets phrased as questions are recognised by their form.
-- **Agents:** five agents with separate identities. Every tool call goes through a policy gate, which checks the allow-list, the authority level (which can depend on the arguments) and consent, and writes one audit entry.
-- **MCP:** an MCP server at `/mcp`. Each bearer token is one identity and sees only its own tools. When the Pattern Agent's token tries to write, the call is refused and audited.
-- **UI:** a new incident console in React, driven by a live event stream. It has four pages (incident, tickets, agents, governance) and light and dark themes. Every number on screen is computed.
-- **Evaluation:** 60 seeded runs over six kinds, with the paraphrase pools split so that no tuning sentence appears in the test.
-  - Results on the held-out test split: incident precision 100% (15 of 15), recall 100% (15 of 15), linking precision 100% and recall 99%, median detection at the 4th complaint, and the root cause correct in every caught incident.
-  - A stress test of mixed delivery complaints opens an incident in 10 of 20 runs, and we report that as a limit.
-- **Testing:** 196 tests and CI on every push.
+- **All TypeScript:** a pnpm monorepo with shared zod contracts, a pure engine, adapters, a Hono server and a React UI.
+- **Detection:** sentence embeddings from `all-MiniLM-L6-v2`, running locally through transformers.js with no external API. Similarity is half meaning and half product area, with no keyword lists, and questions are recognised by their form.
+- **Customer Impact Graph and recovery:** pure functions over the orders data and the incident's tickets. They produce evidence edges, per-customer plans with reasons and authority levels, and Recovery Coverage. Recovery runs as one idempotent pass, repeated for each later complaint and each human decision.
+- **Agents:** five agents with separate identities. Every tool call goes through a policy gate, which checks:
+  - the allow-list;
+  - the authority level, which can depend on the arguments and on what's already been spent;
+  - consent, evidence of harm, and exact approved amounts.
 
-## How it evolved from Stage 1
+  Each call writes one audit entry.
+- **Freshworks:**
+  - Freshdesk webhook or poll ingest, matching requesters to customers by email;
+  - private notes and replies through the REST API or Freshdesk's official MCP server;
+  - Freshservice incidents;
+  - a Freshdesk ticket-sidebar app (platform 3.0).
+- **MCP:** CrisisCrew's own MCP server at `/mcp`. Each bearer token is one identity and sees only its own tools. A read-only operator can call `get_customer_impact` and `get_recovery_coverage`, so an Agent Studio agent sees the same incident customer by customer.
+- **UI:** a production-style console driven by a live event stream. It has five pages (incident, customers, tickets, agents, governance), with evidence chains and per-customer decisions, in light and dark themes.
+- **Evaluation:** 60 seeded runs over six kinds, with the paraphrase pools split so that no tuning sentence appears in the test. On the held-out split: incident precision and recall 100% (15 of 15), linking 100% and 99%, median detection at the 4th complaint, and the root cause correct every time. A stress test of mixed delivery complaints opens an incident in 10 of 20 runs, and we report that as a limit.
+- **Testing:** 256 tests and CI on every push. The Freshdesk, Freshservice and Freshdesk-MCP adapters are tested against fakes of their APIs.
 
-**Stage 1 was a scripted prototype.** A single HTML page played a 12-second animation, and its numbers (89% correlation, 91% confidence) were typed into the page. **Stage 2 is the real system:**
-- Correlation, confidence, affected counts and credits are all computed from data.
-- The agents make real tool calls through a real permission gate.
-- The Stage 1 page is archived unchanged in the repo, with a list of exactly what was scripted.
+## How it evolved
 
-## What isn't wired yet
+- **Stage 1 was a scripted prototype.** A single HTML page played a 12-second animation, and its numbers were typed into the page.
+- **Stage 2 made it real.** Correlation, confidence and credits were computed from data, and the agents made real tool calls through a real permission gate.
+- **Then we pivoted.** "Detect outages from similar tickets" is useful but not new. What matters is what happens after harm begins:
+  - proving who was harmed;
+  - finding the silent;
+  - recovering each customer by their own harm;
+  - measuring coverage;
+  - doing it inside Freshworks.
 
-External APIs (Freshdesk, GitHub deployments, Razorpay status, ElevenLabs, Claude and the sponsor APIs) are designed behind ports and listed in `.env.example`, but not wired. The demo runs on a sandbox world: releases, gateway status, error rates and orders come from the scenario. The environment box in the UI's sidebar says exactly which parts are live.
+  The blanket credit (₹500 × everyone) became a per-customer recovery policy, and "an incident exists" became "23 harmed, 15 silent, 21 recovered, 2 waiting for you".
+
+## What's real and what isn't
+
+- **Real:** the engine, the Customer Impact Graph, the recovery policy, the agents, the gate, the audit log, MCP and the UI.
+- **Sandbox:** the world they act on: customers, consent, payment attempts, releases, gateway status and error rates.
+- **Wired, not yet run against a live account:** Freshdesk, Freshservice and the sidebar app. We switch them on with a trial account at the event.
+- **Designed, not wired:** GitHub deployments, Razorpay status, ElevenLabs voice, Claude, and the sponsor APIs.
+
+The environment box in the UI's sidebar says exactly which parts are live.
 
 ## Challenges we ran into
 
-- **Different words, same failure.** Plain sentence embeddings scored short complaints about the same failure at only about 0.44 similarity. Adding the product-area half raised the separation of labeled pairs (AUC) from 0.94 to 1.00.
-- **Restraint.** A burst of checkout *questions* looks like a checkout outage. Recognising questions by their form, and gating on failure share, keeps it from firing.
-- **Honest numbers.** Every score had to trace back to data and a formula, so there are no hardcoded percentages.
+- **Harm, not membership.** A complaint isn't proof of harm, and silence isn't proof of none. Tying impact to failed payments inside the incident window, and keeping unverified complaints apart, was the core design decision.
+- **Governed money at scale.** Per-customer credits mustn't add up to an unsupervised payout. The gate checks each credit against a per-customer limit *and* the running incident budget, and the planner escalates in a fixed order, so agents can't split a payout to get past it.
+- **Different words, same failure.** Plain sentence embeddings scored short complaints about the same failure at only about 0.44. Adding the product-area half raised the separation of labeled pairs (AUC) from 0.94 to 1.00.
 
 ## Accomplishments that we're proud of
 
-- The restraint scenario: CrisisCrew refuses to open an incident and says why.
-- Calibrated authority: the same tool (`issue_recovery_credit`) is L2 below ₹5,000 and L3 above it.
-- An MCP client with a read-only token is refused, and the refusal is in the audit log.
+- The silent customers: every one has an evidence chain a judge can click through.
+- Recovery Coverage as the success metric, and an incident that can't show as recovered while anyone is unhandled.
+- A walk-in complaint with no payment on record gets an acknowledgement and no money.
+- Per-customer approvals where only the exact approved amount can be paid.
 
 ## What we learned
 
-Detecting incidents from support tickets depends as much on *not* firing as on firing. Every gate needs a reason a human can read.
+A good incident response isn't measured when the alert fires. It's measured when the last affected customer has been made whole.
 
 ## What's next
 
-- Wire Freshdesk (webhook ingest, then replies through Freshdesk's MCP server), GitHub deployments and Razorpay status first.
-- Then ElevenLabs voice updates, Claude for investigation narratives, and Sarvam translation for Hindi and Hinglish tickets.
-- Register the MCP server in Freshworks Agent Studio.
-- Learn thresholds per product area from confirmed and rejected incidents.
+- Run the Freshdesk, Freshservice and sidebar integrations against live accounts, and register the MCP server in Agent Studio.
+- Replace the sandbox orders data with a real commerce or payment-gateway source.
+- Reach silent customers through Freshdesk outbound email, and resolve incidents when a fix is confirmed.
+- Learn the recovery policy and the detection thresholds from confirmed incidents.
 
 ## Built With
 
 `typescript` · `node.js` · `react` · `vite` · `hono` · `zod` · `model-context-protocol` · `transformers.js` · `vitest` · `multi-agent-systems` · `agentic-ai`
 
-Remove `fastapi`, `python` and `tailwindcss`: none of them is used anywhere in the project.
+- Remove `fastapi`, `python` and `tailwindcss`: none of them is used anywhere in the project.
+- Add `freshdesk` and `freshservice` **only if** they were switched on and shown working at the event.

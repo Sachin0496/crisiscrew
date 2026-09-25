@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Channel, Surface } from "./domain";
+import { Channel, PaymentMethod, Surface } from "./domain";
 
 const OFFSET_PATTERN = /^([+-]?)(\d+(?:\.\d+)?)(ms|s|m|h)$/;
 const UNIT_MS = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 } as const;
@@ -51,9 +51,6 @@ export const ScenarioProvider = z.object({
   detail: z.string().default(""),
 });
 
-export const PaymentMethod = z.enum(["upi", "card", "netbanking", "wallet"]);
-export type PaymentMethod = z.infer<typeof PaymentMethod>;
-
 export const ScenarioAttempt = z.object({
   customerRef: z.string().min(1),
   at: Offset,
@@ -77,7 +74,10 @@ export const ScenarioExpected = z.object({
   affected: z.number().int().optional(),
   silent: z.number().int().optional(),
   voiceUpdates: z.number().int().optional(),
-  creditInr: z.number().optional(),
+  /** Customers whose credit needs a human decision. */
+  needsHuman: z.number().int().optional(),
+  /** Credits the agents issue on their own, in total. */
+  autoCreditInr: z.number().optional(),
   refusedBy: z.enum(["size", "cohesion", "failure_share", "burst"]).optional(),
 });
 

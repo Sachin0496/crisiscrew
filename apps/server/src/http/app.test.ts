@@ -1,11 +1,12 @@
 import { CachedEmbedder } from "@crisiscrew/adapters";
-import type { Approval, CrisisState, WiringReport } from "@crisiscrew/contracts";
+import type { Approval, CrisisState, ImpactGraph, WiringReport } from "@crisiscrew/contracts";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_EMBEDDING_MODEL, loadConfig, type Config } from "../config";
 import { EMBEDDING_CACHE_DIR } from "../paths";
 import { Runtime } from "../runtime";
 import { loadPolicy, loadScenarios } from "../scenarios";
 import { createApp } from "./app";
+import type { TicketImpact } from "./impact";
 
 async function setup(env: Record<string, string> = {}) {
   const config: Config = loadConfig({ SANDBOX_LATENCY_MS: "0", ...env });
@@ -45,10 +46,11 @@ describe("HTTP API", () => {
     expect(await res.json()).toMatchObject({ ok: true, auth: { admin: false, approver: true } });
   });
 
-  it("reports wiring: every port and its planned live adapters", async () => {
+  it("reports wiring: every port, the live adapters it can switch to, and the planned ones", async () => {
     const { app } = await setup();
     const report = (await (await app.request("/api/wiring")).json()) as WiringReport;
-    expect(report.ports).toHaveLength(10);
+    expect(report.ports).toHaveLength(11);
+    expect(report.ports.find((p) => p.port === "tickets")?.available).toEqual(["freshdesk"]);
     expect(report.ports.find((p) => p.port === "deployments")?.planned).toEqual(["github"]);
   });
 
@@ -95,7 +97,35 @@ describe("HTTP API", () => {
     const { app } = await setup();
     const res = await app.request("/api/tickets", json({ customerName: "A Judge", body: "My checkout keeps loading forever." }));
     expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ source: "manual", customerName: "A Judge", channel: "chat" });
+    expect(await res.json()).toMatchObject({ source: "manual", customerName: "A Judge", customerRef: "walk-in:a-judge", channel: "chat" });
+  });
+
+  it("ties a typed ticket to a known customer, so their payments count as evidence", async () => {
+    const { app } = await setup();
+    const directory = (await (await app.request("/api/customers")).json()) as { ref: string; name: string; email?: string }[];
+    expect(directory).toContainEqual({ ref: "c-priya", name: "Priya K.", email: "priya.k@example.com", tier: "standard" });
+    const res = await app.request("/api/tickets", json({ customerName: "priya k.", body: "My checkout keeps loading forever." }));
+    expect(await res.json()).toMatchObject({ customerRef: "c-priya", customerName: "Priya K." });
+  });
+
+  it("serves an incident's impact graph and a ticket's impact after a replay", async () => {
+    const { app, runtime } = await setup();
+    const done = replayDone(runtime);
+    await app.request("/api/replay", json({ scenario: "checkout-v4.21.7", speed: 500 }));
+    await done;
+    const graph = (await (await app.request("/api/incidents/INC-2026-001/graph")).json()) as ImpactGraph;
+    expect(graph.nodes.filter((n) => n.kind === "customer")).toHaveLength(23);
+    expect(graph.edges).toContainEqual(expect.objectContaining({ from: "customer:c-priya", to: "ticket:T-1004", kind: "reported" }));
+    expect((await app.request("/api/incidents/INC-404/graph")).status).toBe(404);
+
+    const impact = (await (await app.request("/api/tickets/T-1004/impact")).json()) as TicketImpact;
+    expect(impact).toMatchObject({
+      tracked: true,
+      incident: { id: "INC-2026-001", status: "awaiting_approval", coverage: { confirmed: 23, recovered: 21 } },
+      customer: { ref: "c-priya", confidence: "confirmed", complained: true, state: "recovered" },
+    });
+    expect(impact.tracked && impact.consoleUrl).toMatch(/\/#\/customers\/c-priya$/);
+    expect(await (await app.request("/api/tickets/T-9999/impact")).json()).toMatchObject({ tracked: false });
   });
 
   it("serves the audit log with its verification, and the permission matrix", async () => {

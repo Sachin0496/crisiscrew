@@ -18,8 +18,10 @@ export const PolicySchema = z.object({
     operator: IdentityPolicy,
   }),
   limits: z.object({
+    /** The most the agents may pay out in credits for one incident without a human. */
     authorityLimitInr: z.number().positive(),
-    creditPerCustomerInr: z.number().positive(),
+    /** The largest credit the agents may give one customer without a human. */
+    perCustomerLimitInr: z.number().positive(),
   }),
   correlation: z.object({
     windowMin: z.number().positive(),
@@ -64,12 +66,20 @@ export const PolicySchema = z.object({
       spreadLr: z.number().positive(),
     }),
   }),
-  recovery: z.object({ affectedLookbackMin: z.number().positive() }),
+  recovery: z.object({
+    /** Without a cause's start time, the incident window opens this long before the first complaint. */
+    affectedLookbackMin: z.number().positive(),
+    /** Goodwill credit by severity: medium, and high (priority customers or a large failed payment). */
+    creditInr: z.object({ standard: z.number().nonnegative(), high: z.number().nonnegative() }),
+    /** A failed payment at least this large makes the harm high severity. */
+    highValueInr: z.number().positive(),
+  }),
 });
 
 export type Policy = z.infer<typeof PolicySchema>;
 export type CorrelationConfig = Policy["correlation"];
 export type RcaConfig = Policy["rca"];
+export type RecoveryConfig = Policy["recovery"];
 
 /** Validates policy data and checks that every allow-listed tool exists. */
 export function parsePolicy(json: unknown, knownTools: readonly string[]): Policy {

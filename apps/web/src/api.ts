@@ -15,8 +15,11 @@ export type PolicyView = {
   identities: { identity: string; name: string; maxLevel: Level; tools: { name: string; allowed: boolean }[] }[];
   tools: { name: string; description: string; levels: Level[] }[];
   levelNames: Record<string, string>;
-  limits: { authorityLimitInr: number; creditPerCustomerInr: number };
+  limits: { authorityLimitInr: number; perCustomerLimitInr: number };
 };
+
+/** A customer in the current world, for the ticket box's suggestions. */
+export type DirectoryEntry = { ref: string; name: string; email?: string; tier: "standard" | "priority" };
 
 export type AuditVerify = { ok: boolean; count: number; brokenAt?: number };
 
@@ -71,6 +74,7 @@ export const api = {
   policy: () => get<PolicyView>("/api/policy"),
   verifyAudit: () => get<AuditVerify>("/api/audit/verify"),
   state: () => get<CrisisState>("/api/state"),
+  customers: () => get<DirectoryEntry[]>("/api/customers"),
   replay: (scenario: string, speed: number) => post<{ sessionId: string }>("/api/replay", { scenario, speed }, "admin"),
   live: () => post<{ sessionId: string }>("/api/live", {}, "admin"),
   addTicket: (ticket: { customerName: string; channel: string; body: string }) => post<Ticket>("/api/tickets", ticket, "admin"),

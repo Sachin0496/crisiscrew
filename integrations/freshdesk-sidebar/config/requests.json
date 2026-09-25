@@ -1,0 +1,16 @@
+{
+  "getTicketImpact": {
+    "schema": {
+      "method": "GET",
+      "host": "<%= iparam.crisiscrew_host %>",
+      "path": "/api/freshdesk/tickets/<%= context.ticket_id %>",
+      "headers": {
+        "Accept": "application/json"
+      }
+    },
+    "options": {
+      "maxAttempts": 2,
+      "retryDelay": 500
+    }
+  }
+}

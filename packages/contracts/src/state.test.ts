@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Approval, AuditEntry, IncidentView, Ticket } from "./domain";
+import type { AffectedCustomer, Approval, AuditEntry, IncidentView, RecoveryAction, Ticket } from "./domain";
 import type { CrisisEvent, EventInput } from "./events";
 import { initialState, reduce, TOOL_CALL_CAP } from "./state";
 
@@ -39,6 +39,7 @@ function incident(ticketIds: string[]): IncidentView {
     ticketIds,
     linkedTicketIds: [],
     hypotheses: [],
+    actions: [],
     updates: [],
     timeline: [{ at: 10, status: "detected", note: "opened" }],
   };
@@ -124,48 +125,82 @@ describe("reduce", () => {
     expect(s.agents.investigator.lastTool).toBe(`tool_${TOOL_CALL_CAP + 4}`);
   });
 
-  it("follows a credit from proposal through a rejected approval", () => {
+  it("replaces the impact graph each time it is assessed", () => {
+    const customer = (ref: string): AffectedCustomer => ({
+      ref,
+      name: ref,
+      tier: "standard",
+      consent: { proactive: true, voice: false },
+      complained: false,
+      ticketIds: [],
+      confidence: "confirmed",
+      severity: "medium",
+      failedAttempts: 1,
+      amountInr: 999,
+      methods: ["upi"],
+      paidOnRetry: false,
+      evidence: [],
+    });
     let s = reduce(initialState(), start());
     s = reduce(s, ev({ type: "incident.opened", payload: { incident: incident([]) } }));
-    s = reduce(
-      s,
-      ev({ type: "credit.proposed", payload: { incidentId: "INC-1", amountInr: 11_500, perCustomerInr: 500, customers: 23, withinAuthority: false } }),
-    );
+    s = reduce(s, ev({ type: "impact.assessed", payload: { incidentId: "INC-1", impact: { since: 1, assessedAt: 2, customers: [customer("a")] } } }));
+    s = reduce(s, ev({ type: "impact.assessed", payload: { incidentId: "INC-1", impact: { since: 1, assessedAt: 3, customers: [customer("a"), customer("b")] } } }));
+    expect(s.incidents["INC-1"]?.impact?.customers.map((c) => c.ref)).toEqual(["a", "b"]);
+  });
+
+  it("adds planned recovery actions once and updates each by id", () => {
+    const action = (id: string): RecoveryAction => ({
+      id,
+      incidentId: "INC-1",
+      customerRef: "a",
+      kind: "credit",
+      reason: "failed payment",
+      level: 2,
+      amountInr: 200,
+      status: "planned",
+      updatedAt: 5,
+    });
+    let s = reduce(initialState(), start());
+    s = reduce(s, ev({ type: "incident.opened", payload: { incident: incident([]) } }));
+    s = reduce(s, ev({ type: "recovery.planned", payload: { incidentId: "INC-1", actions: [action("RA-1")] } }));
+    s = reduce(s, ev({ type: "recovery.planned", payload: { incidentId: "INC-1", actions: [action("RA-1"), action("RA-2")] } }));
+    s = reduce(s, ev({ type: "recovery.updated", payload: { incidentId: "INC-1", action: { ...action("RA-1"), status: "done", detail: "CR-001" } } }));
+    expect(s.incidents["INC-1"]?.actions.map((a) => `${a.id}:${a.status}`)).toEqual(["RA-1:done", "RA-2:planned"]);
+  });
+
+  it("keeps approvals by id through their decision, and records each credit against its customer", () => {
     const approval: Approval = {
       id: "APR-1",
       incidentId: "INC-1",
       action: "issue_recovery_credit",
-      amountInr: 11_500,
-      limitInr: 5_000,
-      perCustomerInr: 500,
-      customers: 23,
-      rationale: "over limit",
+      actionId: "RA-7",
+      customerRef: "s03",
+      customerName: "Ananya Iyer",
+      amountInr: 1_000,
+      limitInr: 500,
+      rationale: "over the per-customer limit",
       caseSummary: "case",
       status: "pending",
       requestedAt: 20,
     };
-    s = reduce(s, ev({ type: "approval.requested", payload: { approval } }));
-    expect(s.incidents["INC-1"]?.credit?.status).toBe("awaiting_approval");
-    expect(s.incidents["INC-1"]?.approvalId).toBe("APR-1");
-
-    s = reduce(s, ev({ type: "approval.decided", payload: { approval: { ...approval, status: "rejected", decidedBy: "approver" } } }));
-    expect(s.approvals["APR-1"]?.status).toBe("rejected");
-    expect(s.incidents["INC-1"]?.credit?.status).toBe("withheld");
-  });
-
-  it("records an issued credit with the amount actually issued", () => {
     let s = reduce(initialState(), start());
     s = reduce(s, ev({ type: "incident.opened", payload: { incident: incident([]) } }));
+    s = reduce(s, ev({ type: "approval.requested", payload: { approval } }));
+    expect(s.approvals["APR-1"]?.status).toBe("pending");
+    s = reduce(s, ev({ type: "approval.decided", payload: { approval: { ...approval, status: "modified", approvedAmountInr: 500, decidedBy: "approver" } } }));
     s = reduce(
       s,
-      ev({ type: "credit.proposed", payload: { incidentId: "INC-1", amountInr: 11_500, perCustomerInr: 500, customers: 23, withinAuthority: false } }),
+      ev({ type: "credit.issued", payload: { incidentId: "INC-1", customerRef: "s03", amountInr: 500, approvalId: "APR-1", adapter: "sandbox", creditId: "CR-1" } }),
     );
-    s = reduce(
-      s,
-      ev({ type: "credit.issued", payload: { incidentId: "INC-1", amountInr: 5_000, approvalId: "APR-1", adapter: "sandbox", creditId: "CR-1" } }),
-    );
-    expect(s.incidents["INC-1"]?.credit).toMatchObject({ status: "issued", amountInr: 5_000 });
-    expect(s.credits).toHaveLength(1);
+    expect(s.approvals["APR-1"]).toMatchObject({ status: "modified", approvedAmountInr: 500 });
+    expect(s.credits).toEqual([expect.objectContaining({ id: "CR-1", customerRef: "s03", amountInr: 500, approvalId: "APR-1" })]);
+  });
+
+  it("records the engineering incident it filed", () => {
+    let s = reduce(initialState(), start());
+    s = reduce(s, ev({ type: "incident.opened", payload: { incident: incident([]) } }));
+    s = reduce(s, ev({ type: "engineering.recorded", payload: { incidentId: "INC-1", record: { id: "FS-1", adapter: "sandbox" } } }));
+    expect(s.incidents["INC-1"]?.engineering).toEqual({ id: "FS-1", adapter: "sandbox" });
   });
 
   it("tracks the sequence number of the last event applied", () => {

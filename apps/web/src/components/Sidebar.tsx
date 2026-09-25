@@ -1,5 +1,5 @@
-import type { CrisisState, WiringReport } from "@crisiscrew/contracts";
-import { Activity, Bot, Box, ChevronUp, Inbox, Moon, ShieldCheck, Siren, Sun } from "lucide-react";
+import { recoveryCoverage, type CrisisState, type WiringReport } from "@crisiscrew/contracts";
+import { Activity, Bot, Box, ChevronUp, Inbox, Moon, ShieldCheck, Siren, Sun, Users } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MODE, PORT_LABELS } from "../format";
 import { ROUTES, routeHref, type Route } from "../router";
@@ -7,7 +7,7 @@ import type { Theme } from "../theme";
 import { currentIncident } from "../view";
 import { Badge } from "./ui";
 
-const ICONS = { incident: Siren, tickets: Inbox, agents: Bot, governance: ShieldCheck } as const;
+const ICONS = { incident: Siren, customers: Users, tickets: Inbox, agents: Bot, governance: ShieldCheck } as const;
 
 type Props = {
   route: Route;
@@ -20,10 +20,21 @@ type Props = {
 
 export function Sidebar({ route, state, connected, wiring, theme, onToggleTheme }: Props) {
   const incident = currentIncident(state);
-  const open = incident !== undefined && !["mitigated", "resolved", "dismissed"].includes(incident.status);
+  const open = incident !== undefined && !["recovered", "resolved", "dismissed"].includes(incident.status);
   const working = Object.values(state.agents).filter((a) => a.status === "working").length;
+  const coverage = incident?.impact ? recoveryCoverage(incident) : undefined;
   const meta: Record<Route, ReactNode> = {
     incident: open ? <span className="nav-alert" title="An incident is open" /> : null,
+    customers:
+      coverage && coverage.needsHuman > 0 ? (
+        <span className="nav-meta nav-warn" title={`${coverage.needsHuman} waiting for a human decision`}>
+          {coverage.needsHuman} waiting
+        </span>
+      ) : coverage && coverage.confirmed > 0 ? (
+        <span className="nav-meta" title="Recovery coverage">
+          {coverage.recovered}/{coverage.confirmed}
+        </span>
+      ) : null,
     tickets: <span className="nav-meta">{state.ticketOrder.length}</span>,
     agents: working > 0 ? <span className="nav-meta">{working} active</span> : null,
     governance: <span className="nav-meta">{state.toolCalls.length}</span>,
@@ -36,7 +47,7 @@ export function Sidebar({ route, state, connected, wiring, theme, onToggleTheme 
         </span>
         <span className="brand-text">
           <span className="brand-name">CrisisCrew</span>
-          <span className="brand-sub">Incident console</span>
+          <span className="brand-sub">Customer harm response</span>
         </span>
       </div>
       <nav className="nav" aria-label="Pages">
@@ -100,8 +111,8 @@ function Environment({ wiring }: { wiring: WiringReport }) {
           <div className="popover-head">
             <h3>Integrations</h3>
             <p>
-              Every number is computed by the engine. Sandbox ports read the scenario's simulated world. Live adapters for the external APIs are designed and
-              listed in .env.example, but not wired yet.
+              Every number is computed by the engine. Sandbox ports read the scenario's simulated world. Freshdesk and Freshservice are wired and switch on with their
+              keys in .env; the other external APIs are designed but not wired yet.
             </p>
           </div>
           <div className="popover-body">
@@ -124,6 +135,11 @@ function Environment({ wiring }: { wiring: WiringReport }) {
                     </td>
                     <td>
                       {p.detail}
+                      {p.available.length > 0 && (
+                        <div className="muted">
+                          Available: {p.available.join(", ")} (set {p.env})
+                        </div>
+                      )}
                       {p.planned.length > 0 && <div className="muted">Planned: {p.planned.join(", ")}</div>}
                     </td>
                   </tr>

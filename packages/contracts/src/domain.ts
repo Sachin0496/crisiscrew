@@ -13,6 +13,11 @@ export const Surface = z.enum([
 ]);
 export type Surface = z.infer<typeof Surface>;
 
+export const PaymentMethod = z.enum(["upi", "card", "netbanking", "wallet"]);
+export type PaymentMethod = z.infer<typeof PaymentMethod>;
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = { upi: "UPI", card: "Card", netbanking: "Netbanking", wallet: "Wallet" };
+
 export const SURFACE_LABELS: Record<Surface, string> = {
   checkout_payments: "Checkout & payments",
   login_account: "Login & account",
@@ -21,6 +26,18 @@ export const SURFACE_LABELS: Record<Surface, string> = {
   app_performance: "App performance",
   other: "Other",
 };
+
+const INCIDENT_TITLES: Record<Surface, string> = {
+  checkout_payments: "Checkout and payment failures",
+  login_account: "Login and account failures",
+  delivery_orders: "Delivery and order failures",
+  refunds_billing: "Refund and billing failures",
+  app_performance: "App performance failures",
+  other: "Customer-reported failures",
+};
+
+/** An incident's headline, named after the product area that is failing. */
+export const incidentTitle = (surface: Surface) => INCIDENT_TITLES[surface];
 
 export const TicketInput = z.object({
   customerRef: z.string().min(1),
@@ -147,17 +164,23 @@ export type CustomerUpdate = {
   adapter: string;
   audioId?: string | null;
   reason?: string;
+  /** The recovery action this update carries out. */
+  actionId?: string;
 };
 
 export type ApprovalStatus = "pending" | "approved" | "modified" | "rejected";
+/** A human decision on one customer's credit that is above the agents' authority. */
 export type Approval = {
   id: string;
   incidentId: string;
   action: "issue_recovery_credit";
+  /** The recovery action the decision settles. */
+  actionId: string;
+  customerRef: string;
+  customerName: string;
   amountInr: number;
+  /** The largest credit the agents may give one customer on their own. */
   limitInr: number;
-  perCustomerInr: number;
-  customers: number;
   rationale: string;
   caseSummary: string;
   status: ApprovalStatus;
@@ -174,18 +197,97 @@ export type IncidentStatus =
   | "root_cause_identified"
   | "recovering"
   | "awaiting_approval"
-  | "mitigated"
+  | "recovered"
   | "resolved"
   | "dismissed";
 export type Severity = "high" | "medium";
 
-export type CreditState = {
-  amountInr: number;
-  perCustomerInr: number;
-  customers: number;
-  status: "proposed" | "awaiting_approval" | "issued" | "withheld";
-  approvalId?: string;
+/** What links an affected customer to the incident: one readable sentence per edge of the impact graph. */
+export type EvidenceKind =
+  | "payment_failed"
+  | "payment_pending"
+  | "payment_succeeded"
+  | "service"
+  | "cause"
+  | "window"
+  | "reported"
+  | "no_ticket"
+  | "no_payment";
+
+export type EvidenceEdge = {
+  kind: EvidenceKind;
+  label: string;
+  /** The graph node this edge points to, e.g. "ticket:T-1004" or "service:checkout-service". */
+  node: string;
+  at?: number;
+  /** The adapter that supplied the fact: "sandbox", "freshdesk", "engine". */
+  source: string;
 };
+
+/** Confirmed: a failed or pending payment inside the incident window. Unverified: complained, but no such payment on record. */
+export type ImpactConfidence = "confirmed" | "unverified";
+export type ImpactSeverity = "high" | "medium" | "low";
+
+export type AffectedCustomer = {
+  ref: string;
+  name: string;
+  email?: string;
+  tier: "standard" | "priority";
+  consent: { proactive: boolean; voice: boolean };
+  /** Filed a failure report that belongs to the incident. */
+  complained: boolean;
+  ticketIds: string[];
+  confidence: ImpactConfidence;
+  /** Absent when the customer isn't verified. */
+  severity?: ImpactSeverity;
+  failedAttempts: number;
+  /** The largest failed or pending payment in the window; 0 when there's none. */
+  amountInr: number;
+  methods: PaymentMethod[];
+  firstFailedAt?: number;
+  lastFailedAt?: number;
+  /** A later payment went through, so the customer got past the failure. */
+  paidOnRetry: boolean;
+  evidence: EvidenceEdge[];
+};
+
+export type CustomerImpact = {
+  /** Start of the incident window. */
+  since: number;
+  /** When the evidence was last read. */
+  assessedAt: number;
+  customers: AffectedCustomer[];
+};
+
+/**
+ * ticket_reply: the incident update, on the customer's own ticket. acknowledge: a reply to an unverified complaint asking for a
+ * payment reference. no_credit: a recorded decision not to credit, with its reason.
+ */
+export type RecoveryKind = "ticket_reply" | "acknowledge" | "proactive_message" | "voice" | "account_note" | "credit" | "no_credit";
+export type RecoveryStatus = "planned" | "done" | "prepared" | "awaiting_approval" | "declined" | "failed";
+
+/** One step of one customer's recovery, with the reason the policy chose it. */
+export type RecoveryAction = {
+  id: string;
+  incidentId: string;
+  customerRef: string;
+  kind: RecoveryKind;
+  reason: string;
+  /** The authority the action needs; null for a decision that calls no tool. */
+  level: Level | null;
+  amountInr?: number;
+  status: RecoveryStatus;
+  /** The outcome in a few words: an update or credit id, a refusal, who decided. */
+  detail?: string;
+  approvalId?: string;
+  updatedAt: number;
+};
+
+/** Where one customer's recovery stands, derived from their actions. */
+export type CustomerRecoveryState = "recovered" | "needs_human" | "in_progress" | "attention" | "unverified";
+
+/** The engineering incident record (Freshservice, or its sandbox) that the operational side works from. */
+export type EngineeringRecord = { id: string; url?: string; adapter: string };
 
 export type IncidentView = {
   id: string;
@@ -199,10 +301,10 @@ export type IncidentView = {
   hypotheses: Hypothesis[];
   rootCause?: { hypothesisId: string; label: string; confidence: number };
   narrative?: string;
-  affected?: { ticketed: string[]; silent: string[]; total: number; since: number };
+  impact?: CustomerImpact;
+  actions: RecoveryAction[];
   updates: CustomerUpdate[];
-  approvalId?: string;
-  credit?: CreditState;
+  engineering?: EngineeringRecord;
   timeline: { at: number; status: IncidentStatus; note: string }[];
 };
 

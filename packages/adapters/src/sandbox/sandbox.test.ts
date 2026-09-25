@@ -69,6 +69,30 @@ describe("sandbox orders", () => {
     expect(await ports(0).ports.orders.customer("s03")).toMatchObject({ name: "Ananya Iyer", tier: "priority", consent: { voice: true } });
     expect(await ports(0).ports.orders.customer("nobody")).toBeNull();
   });
+
+  it("finds a customer by email, ignoring case and spaces, or by exact name", async () => {
+    const { ports: p } = ports(0);
+    expect((await p.orders.findCustomer({ email: "  Priya.K@Example.com " }))?.ref).toBe("c-priya");
+    expect((await p.orders.findCustomer({ name: "ananya iyer" }))?.ref).toBe("s03");
+    expect(await p.orders.findCustomer({ email: "judge@example.org" })).toBeNull();
+    expect(await p.orders.findCustomer({})).toBeNull();
+  });
+
+  it("keeps numbered notes on customers' accounts", async () => {
+    const { ports: p } = ports(0);
+    expect(await p.orders.addAccountNote("s05", "affected by INC-1")).toEqual({ id: "NOTE-001" });
+    expect(p.record.accountNotes).toEqual([{ id: "NOTE-001", customerRef: "s05", text: "affected by INC-1" }]);
+  });
+});
+
+describe("sandbox engineering incidents", () => {
+  it("files a numbered record and adds notes to it", async () => {
+    const { ports: p } = ports(0);
+    expect(await p.incidents.open({ incidentId: "INC-1", title: "Checkout", description: "d", severity: "high" })).toEqual({ id: "ENG-001" });
+    await p.incidents.note("ENG-001", "root cause");
+    expect(p.record.incidents[0]).toMatchObject({ incidentId: "INC-1", notes: ["root cause"] });
+    await expect(p.incidents.note("ENG-404", "x")).rejects.toThrow(/no engineering incident/);
+  });
 });
 
 describe("sandbox catalog, payments and credits", () => {

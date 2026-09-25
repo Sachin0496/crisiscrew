@@ -16,6 +16,10 @@ export type AgentKit = {
   emit(event: EventInput): void;
   setAgent(agent: AgentId, status: AgentStatus, task?: string): void;
   setStatus(incidentId: string, to: IncidentStatus, note: string): void;
+  /** Runs one incident's recovery steps one at a time, so two passes never plan or pay the same thing. */
+  serial<T>(incidentId: string, run: () => Promise<T>): Promise<T>;
+  /** "incidentId:customerRef" pairs whose ticket already carries the recovery outcome note. */
+  noted: Set<string>;
 };
 
 /** Runs up to `size` promises at a time, in order. */

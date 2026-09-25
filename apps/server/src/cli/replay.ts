@@ -6,7 +6,7 @@
  *   pnpm replay lookalike-checkout-questions
  */
 import { CachedEmbedder, LocalEmbedder } from "@crisiscrew/adapters";
-import { SURFACE_LABELS, type CrisisEvent, type DecisionBody } from "@crisiscrew/contracts";
+import { recoveryCoverage, recoveryMetrics, SURFACE_LABELS, type CrisisEvent, type DecisionBody } from "@crisiscrew/contracts";
 import { humanOdds, inr } from "@crisiscrew/core";
 import { DEFAULT_EMBEDDING_MODEL } from "../config";
 import { EMBEDDING_CACHE_DIR, MODELS_DIR } from "../paths";
@@ -107,22 +107,40 @@ function print(e: CrisisEvent): void {
       }
       if (e.payload.narrative) console.log(dim(`  ${e.payload.narrative}\n`));
       break;
-    case "customers.identified":
-      console.log(`  affected customers: ${bold(String(e.payload.ticketed.length + e.payload.silent.length))} (${e.payload.ticketed.length} contacted us, ${e.payload.silent.length} silent)`);
+    case "impact.assessed": {
+      const customers = e.payload.impact.customers;
+      const confirmed = customers.filter((c) => c.confidence === "confirmed");
+      const complained = confirmed.filter((c) => c.complained).length;
+      const unverified = customers.length - confirmed.length;
+      console.log(
+        `  customer impact: ${bold(String(confirmed.length))} affected (${complained} complained, ${bold(String(confirmed.length - complained))} silent)` +
+          (unverified ? dim(`, ${unverified} complained with no failed payment on record`) : ""),
+      );
       break;
-    case "credit.proposed":
-      console.log(`  credit proposed: ${inr(e.payload.perCustomerInr)} × ${e.payload.customers} = ${bold(inr(e.payload.amountInr))} ${e.payload.withinAuthority ? green("(within authority)") : yellow("(above authority)")}`);
+    }
+    case "recovery.planned": {
+      const needsHuman = e.payload.actions.filter((a) => a.level === 3).length;
+      const customers = new Set(e.payload.actions.map((a) => a.customerRef)).size;
+      const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+      console.log(`  recovery plan: ${n(e.payload.actions.length, "action")} for ${n(customers, "customer")}${needsHuman ? yellow(`, ${n(needsHuman, "credit")} for a human`) : ""}`);
+      break;
+    }
+    case "recovery.updated":
+      if (e.payload.action.status === "failed") console.log(red(`  ${e.payload.action.kind} for ${e.payload.action.customerRef} failed: ${e.payload.action.detail ?? ""}`));
       break;
     case "approval.requested":
-      console.log(yellow(bold(`\n  Approval ${e.payload.approval.id} requested from a human:`)));
+      console.log(yellow(bold(`\n  Approval ${e.payload.approval.id} requested for ${e.payload.approval.customerName}: ${inr(e.payload.approval.amountInr)}`)));
       for (const line of e.payload.approval.caseSummary.split("\n")) console.log(yellow(`    ${line}`));
       console.log();
       break;
     case "approval.decided":
-      console.log(bold(`  ${e.payload.approval.id} ${e.payload.approval.status} by ${e.payload.approval.decidedBy}`));
+      console.log(bold(`  ${e.payload.approval.id} (${e.payload.approval.customerName}) ${e.payload.approval.status} by ${e.payload.approval.decidedBy}`));
       break;
     case "credit.issued":
-      console.log(green(bold(`  credit issued: ${inr(e.payload.amountInr)} (${e.payload.creditId}, ${e.payload.adapter})`)));
+      if (e.payload.approvalId) console.log(green(bold(`  approved credit issued: ${inr(e.payload.amountInr)} to ${e.payload.customerRef} (${e.payload.creditId}, ${e.payload.adapter})`)));
+      break;
+    case "engineering.recorded":
+      console.log(`  engineering incident filed: ${e.payload.record.id} ${dim(`(${e.payload.record.adapter})`)}`);
       break;
     default:
       break;
@@ -134,12 +152,11 @@ const done = new Promise<void>((resolve) => runtime.bus.subscribe((e) => e.type 
 await runtime.startReplay(id, speed);
 await done;
 
-const state = runtime.state();
-const incident = state.incidentOrder.map((i) => state.incidents[i]!)[0];
-if (decideArg && incident?.approvalId) {
+const pending = Object.values(runtime.state().approvals).filter((a) => a.status === "pending");
+if (decideArg && pending.length > 0) {
   const [decision, amount] = decideArg.split(":");
   const body: DecisionBody = decision === "modify" ? { decision: "modify", amountInr: Number(amount) } : { decision: decision === "reject" ? "reject" : "approve" };
-  await runtime.decide(incident.approvalId, body, "cli");
+  for (const approval of pending) await runtime.decide(approval.id, body, "cli");
   await runtime.engineNow().whenIdle();
 }
 
@@ -148,11 +165,15 @@ const summary = final.incidentOrder.map((i) => final.incidents[i]!);
 console.log(bold("\nSummary"));
 if (summary.length === 0) console.log("  No incident opened.");
 for (const i of summary) {
-  const voice = i.updates.filter((u) => u.channel === "voice").length;
+  const c = recoveryCoverage(i);
+  const m = recoveryMetrics(final, i);
+  const pct = c.ratio === null ? "n/a" : `${Math.round(c.ratio * 100)}%`;
   console.log(
-    `  ${i.id}: ${i.status}; root cause ${i.rootCause ? `${i.rootCause.label} (${(i.rootCause.confidence * 100).toFixed(0)}%)` : "not identified"}; ` +
-      `${i.linkedTicketIds.length} tickets linked; ${i.affected?.total ?? 0} affected (${i.affected?.silent.length ?? 0} silent); ` +
-      `${i.updates.filter((u) => u.status === "sent").length} updates sent, ${voice} voice prepared; credit ${i.credit ? `${inr(i.credit.amountInr)} ${i.credit.status.replace("_", " ")}` : "none"}`,
+    `  ${i.id}: ${i.status.replace("_", " ")}; root cause ${i.rootCause ? `${i.rootCause.label} (${(i.rootCause.confidence * 100).toFixed(0)}%)` : "not identified"}; ` +
+      `${i.linkedTicketIds.length} tickets linked\n` +
+      `  ${c.confirmed} affected (${c.complained} complained, ${c.silent} silent${c.unverified ? `, ${c.unverified} not verified` : ""}); ` +
+      `${bold(`recovery coverage ${c.recovered}/${c.confirmed} (${pct})`)}${c.needsHuman ? `, ${c.needsHuman} waiting for a human` : ""}\n` +
+      `  ${m.proactiveContacts} proactive contacts; credits ${inr(m.spend.issuedInr)} within authority, ${inr(m.spend.approvedInr)} approved, ${inr(m.spend.awaitingInr)} awaiting approval`,
   );
 }
 const audit = runtime.engineNow().audit.verify();

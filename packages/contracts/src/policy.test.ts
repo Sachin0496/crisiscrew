@@ -10,7 +10,7 @@ const base = {
     handoff: { name: "Handoff Agent", maxLevel: 3, tools: [] },
     operator: { name: "External MCP client", maxLevel: 0, tools: [] },
   },
-  limits: { authorityLimitInr: 5000, creditPerCustomerInr: 500 },
+  limits: { authorityLimitInr: 5000, perCustomerLimitInr: 500 },
   correlation: {
     windowMin: 15,
     edgeThreshold: 0.5,
@@ -34,7 +34,7 @@ const base = {
     provider: { operationalLr: 0.1, degradedLr: 8, uncheckedLr: 1 },
     methodSpread: { concentratedShare: 0.8, concentratedLr: 2, spreadLr: 0.7 },
   },
-  recovery: { affectedLookbackMin: 30 },
+  recovery: { affectedLookbackMin: 30, creditInr: { standard: 200, high: 1000 }, highValueInr: 10000 },
 };
 
 describe("parsePolicy", () => {

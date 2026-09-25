@@ -4,11 +4,14 @@ import type {
   Approval,
   AuditEntry,
   ClusterView,
+  CustomerImpact,
   CustomerUpdate,
+  EngineeringRecord,
   Hypothesis,
   IncidentStatus,
   IncidentView,
   Level,
+  RecoveryAction,
   SignalView,
   Ticket,
 } from "./domain";
@@ -46,12 +49,17 @@ export type CrisisEvent =
       }
     >
   | E<"ticket.linked", { incidentId: string; ticketId: string }>
-  | E<"customers.identified", { incidentId: string; ticketed: string[]; silent: string[]; since: number }>
+  /** The customer impact graph, as last assessed: every affected customer with their evidence. */
+  | E<"impact.assessed", { incidentId: string; impact: CustomerImpact }>
+  /** New recovery actions; actions already planned are never replaced by this event. */
+  | E<"recovery.planned", { incidentId: string; actions: RecoveryAction[] }>
+  /** One action's new status. */
+  | E<"recovery.updated", { incidentId: string; action: RecoveryAction }>
   | E<"update.sent", { update: CustomerUpdate }>
-  | E<"credit.proposed", { incidentId: string; amountInr: number; perCustomerInr: number; customers: number; withinAuthority: boolean }>
   | E<"approval.requested", { approval: Approval }>
   | E<"approval.decided", { approval: Approval }>
-  | E<"credit.issued", { incidentId: string; amountInr: number; approvalId?: string; adapter: string; creditId: string }>
+  | E<"credit.issued", { incidentId: string; customerRef: string; amountInr: number; approvalId?: string; adapter: string; creditId: string }>
+  | E<"engineering.recorded", { incidentId: string; record: EngineeringRecord }>
   | E<"replay.finished", { scenarioId: string }>;
 
 export type CrisisEventType = CrisisEvent["type"];

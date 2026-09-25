@@ -65,11 +65,11 @@ describe("PolicyGate", () => {
   });
 
   it("denies an allow-listed tool when this call's level exceeds the caller's authority", async () => {
-    // Credits are L2 within the 5,000 limit and L3 above it; Recovery is capped at L2.
-    const credit = tool("issue_recovery_credit", (args) => ((args.amountInr ?? 0) > 5_000 ? 3 : 2));
+    // A credit is L2 within the ₹500 per-customer limit and L3 above it; Recovery is capped at L2.
+    const credit = tool("issue_recovery_credit", (args) => ((args.amountInr ?? 0) > 500 ? 3 : 2));
     const { gate, audit } = setup([credit]);
-    expect((await gate.call("recovery", "issue_recovery_credit", { amountInr: 5_000 })).ok).toBe(true);
-    const over = await gate.call("recovery", "issue_recovery_credit", { amountInr: 11_500 });
+    expect((await gate.call("recovery", "issue_recovery_credit", { amountInr: 200 })).ok).toBe(true);
+    const over = await gate.call("recovery", "issue_recovery_credit", { amountInr: 1_000 });
     expect(over.ok).toBe(false);
     expect(audit.entries()[1]).toMatchObject({ decision: "denied", level: 3 });
     expect(credit.run).toHaveBeenCalledOnce();
@@ -85,16 +85,16 @@ describe("PolicyGate", () => {
     });
     const { gate, ctx } = setup([credit]);
     ctx.approvals.set("APR-1", { status: "pending" });
-    expect(await gate.call("handoff", "issue_recovery_credit", { approvalId: "APR-1", amountInr: 11_500 })).toMatchObject({
+    expect(await gate.call("handoff", "issue_recovery_credit", { approvalId: "APR-1", amountInr: 1_000 })).toMatchObject({
       ok: false,
       reason: "needs an approved approval",
     });
-    ctx.approvals.set("APR-1", { status: "modified", approvedAmountInr: 5_000 });
-    expect(await gate.call("handoff", "issue_recovery_credit", { approvalId: "APR-1", amountInr: 11_500 })).toMatchObject({
+    ctx.approvals.set("APR-1", { status: "modified", approvedAmountInr: 500 });
+    expect(await gate.call("handoff", "issue_recovery_credit", { approvalId: "APR-1", amountInr: 1_000 })).toMatchObject({
       ok: false,
       reason: "amount differs from the approved amount",
     });
-    expect((await gate.call("handoff", "issue_recovery_credit", { approvalId: "APR-1", amountInr: 5_000 })).ok).toBe(true);
+    expect((await gate.call("handoff", "issue_recovery_credit", { approvalId: "APR-1", amountInr: 500 })).ok).toBe(true);
     expect(credit.run).toHaveBeenCalledOnce();
   });
 
@@ -120,7 +120,15 @@ describe("PolicyGate", () => {
     const pattern = matrix.find((m) => m.identity === "pattern");
     expect(pattern?.tools.filter((t) => t.allowed).map((t) => t.name)).toEqual(["search_recent_tickets", "get_incident"]);
     expect(gate.permitted("operator").map((t) => t.name).sort()).toEqual(
-      ["get_incident", "get_payment_health", "get_recent_deployments", "get_service_status", "search_recent_tickets"].sort(),
+      [
+        "get_customer_impact",
+        "get_incident",
+        "get_payment_health",
+        "get_recent_deployments",
+        "get_recovery_coverage",
+        "get_service_status",
+        "search_recent_tickets",
+      ].sort(),
     );
   });
 });

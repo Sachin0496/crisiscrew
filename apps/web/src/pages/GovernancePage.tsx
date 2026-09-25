@@ -109,7 +109,7 @@ export function GovernancePage({ state, policy }: { state: CrisisState; policy: 
         title="Permissions"
         subtitle={
           policy
-            ? `Who may call which tool. Authority limit ${inr(policy.limits.authorityLimitInr)}; credit ${inr(policy.limits.creditPerCustomerInr)} per affected customer.`
+            ? `Who may call which tool. The agents may credit up to ${inr(policy.limits.perCustomerLimitInr)} per customer and ${inr(policy.limits.authorityLimitInr)} per incident; anything above needs a human.`
             : "Loading the policy…"
         }
         flush

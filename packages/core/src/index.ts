@@ -14,5 +14,7 @@ export * from "./engine";
 export * from "./policy/audit";
 export * from "./policy/gate";
 export * from "./rca/score";
+export * from "./recovery/impact";
+export * from "./recovery/plan";
 export * from "./recovery/templates";
 export * from "./tools/definitions";

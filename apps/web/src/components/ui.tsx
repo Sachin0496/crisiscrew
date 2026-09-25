@@ -37,11 +37,16 @@ export function Card({ title, subtitle, actions, footer, flush = false, classNam
   );
 }
 
-export function Stat({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
+export function Stat({ label, value, sub, meter, tone = "accent" }: { label: string; value: ReactNode; sub?: ReactNode; meter?: number; tone?: Tone }) {
   return (
     <div className="card stat">
       <div className="stat-label">{label}</div>
       <div className="stat-value">{value}</div>
+      {meter !== undefined && (
+        <div className="stat-meter" aria-hidden>
+          <span className={`tone-${tone}`} style={{ width: `${Math.max(0, Math.min(1, meter)) * 100}%` }} />
+        </div>
+      )}
       {sub && <div className="stat-sub">{sub}</div>}
     </div>
   );

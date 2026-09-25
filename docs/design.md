@@ -1,5 +1,12 @@
 # CrisisCrew: Stage 2 design
 
+> **Superseded in part by the pivot (2026-09-24).** [customer-harm-response.md](customer-harm-response.md) replaces the recovery design here:
+> - sections 6.1 and 6.3 (the incident now ends at *recovered*, set by Recovery Coverage);
+> - section 8 (per-customer impact, recovery and approvals replace the blanket credit);
+> - the Freshdesk parts of section 10.5, which are now wired.
+>
+> Detection, root cause, the policy gate and the audit log are unchanged.
+
 Written on 2026-09-22 as the spec for the Stage 2 build. The [build plan](build-plan.md) turns it into ordered tasks. The organizers told the team that work can happen before the event and that Stage 2 is mostly presentation; [compliance.md](compliance.md) records that. External APIs are designed here but not wired yet. Each one is listed in [`.env.example`](../.env.example) and reported as `planned` until its keys arrive.
 
 Every threshold and weight below was checked before the event: the model and similarity against labeled pairs ([calibration.md](calibration.md)), and the thresholds by the eval in section 13 ([eval.md](eval.md)).
@@ -12,7 +19,13 @@ The system described here is built and runs in sandbox mode. Where the build dif
   - the detection engine, the five agents, the policy gate and hash-chained audit log, and root-cause scoring
   - the HTTP API with its event stream, the MCP server, and the React UI
   - the replay CLI, the calibration and the eval
-- **Not wired yet:** every live adapter (Freshdesk, GitHub, Razorpay status, ElevenLabs, Claude, Sarvam, Dodo) and the Freshdesk webhook. Each is designed in section 10.5 and listed in `.env.example`. Selecting one stops the server at startup with a clear message, and `GET /api/wiring` reports it as planned.
+- **Wired since the pivot:**
+  - Freshdesk: webhook or poll ingest, and notes and replies through REST or Freshdesk's MCP server;
+  - Freshservice incidents;
+  - the Freshdesk sidebar app.
+
+  See [customer-harm-response.md](customer-harm-response.md) section 6.
+- **Not wired yet:** GitHub, Razorpay status, ElevenLabs, Claude, Sarvam and Dodo. Each is designed in section 10.5 and listed in `.env.example`. Selecting one stops the server at startup with a clear message, and `GET /api/wiring` reports it as planned.
 - **Changed after calibration:**
   - Similarity is half meaning and half product area (section 5.2).
   - A question-form penalty was added to the failure score (section 5.1).
@@ -240,13 +253,15 @@ Restraint is part of the product. The correlation panel always shows the stronge
 
 ### 6.1 States
 
-`detected → investigating → root_cause_identified → recovering → awaiting_approval → mitigated → resolved`
+`detected → investigating → root_cause_identified → recovering → awaiting_approval → recovered → resolved`
+
+*Since the pivot:* the incident reaches `recovered` only when Recovery Coverage is 100%. It's `awaiting_approval` while any customer's credit waits for a human (see [customer-harm-response.md](customer-harm-response.md) section 4).
 
 Two exits skip the normal path:
 - `dismissed`: an operator marks a false positive. It's recorded and counted in the eval.
-- If no action needs approval, `recovering` goes straight to `mitigated`.
+- If no credit needs approval, `recovering` goes straight to `recovered`.
 
-`resolved` is set manually by the operator. As built, there's no operator action for `dismissed` or `resolved` yet; a session ends at `mitigated` or `awaiting_approval`.
+`resolved` is set manually by the operator. As built, there's no operator action for `dismissed` or `resolved` yet; a session ends at `recovered`, `awaiting_approval`, or `recovering` when an action needs attention.
 
 Severity follows a documented rule, set when the incident opens: `high` when the surface is `checkout_payments`, and `medium` otherwise. (The planned "more than 20 affected" rule would need severity to change after opening, which isn't built.)
 
@@ -272,12 +287,17 @@ The Commander drives the state machine:
 1. The Pattern Agent's cluster passes every gate. The Commander calls `open_incident`, and the status becomes `detected`.
 2. The Investigator (root cause) and the Recovery Agent (`identify_affected_customers`, linking) start **in parallel**, and the status becomes `investigating`. These are two agents running concurrently, each shown live in the UI.
 3. The root cause reaches the confidence floor (default 0.6), or the Investigator finishes. The status becomes `root_cause_identified`.
-4. The Recovery Agent drafts and sends updates, generates voice for eligible customers and calls `propose_recovery_credit`. The status becomes `recovering`.
-5. If the proposal is above authority, the Commander routes it to the Handoff Agent, which builds the case and calls `request_human_approval`. The status becomes `awaiting_approval`.
-6. The approver decides.
-   - On approve or modify, the Handoff Agent calls `issue_recovery_credit` with the approval id.
-   - On reject, nothing is issued.
-   - Either way, the status becomes `mitigated`.
+4. The status becomes `recovering`. The Recovery Agent runs its recovery pass:
+   1. rebuild the impact graph;
+   2. `plan_recovery` for every affected customer;
+   3. carry out the actions within its authority.
+5. For each credit above authority, the Handoff Agent builds that customer's case and calls `request_human_approval`. The status becomes `awaiting_approval`.
+6. The approver decides, one customer at a time.
+   - On approve or modify, the Handoff Agent calls `issue_recovery_credit` for that customer, with the approval id.
+   - On reject, nothing is issued, and the decision is recorded.
+   - When coverage reaches 100%, the status becomes `recovered`.
+
+*Since the pivot:* the full design is in [customer-harm-response.md](customer-harm-response.md) section 5.
 
 ### 6.4 Two modes: template and LLM
 
@@ -340,6 +360,13 @@ The Investigator uses Claude to choose which checks to run and to explain them i
 - **If Claude skips a check,** that evidence shows as "not checked".
 
 ## 8. Recovery and handoff
+
+> **Superseded by the pivot.** Sections 8.2 to 8.5 describe the original blanket credit (₹500 × every affected customer, one approval for the total). The system now works customer by customer:
+> - a customer is affected only with a failed or pending payment in the window, so a complaint alone is *not verified*;
+> - each customer gets their own plan and credit;
+> - each credit above authority gets its own approval.
+>
+> See [customer-harm-response.md](customer-harm-response.md) sections 2 to 4. The text below is kept as the record of the Stage 2 design.
 
 ### 8.1 Linking
 

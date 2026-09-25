@@ -2,8 +2,12 @@ import { Send } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 import { api } from "../api";
 
-/** Adds a ticket to the running session, as a customer would through a support channel. */
-export function TicketComposer() {
+/**
+ * Adds a ticket to the running session, as a customer would through a
+ * support channel. Picking a known customer ties the complaint to their
+ * payments; any other name is a walk-in, and stays unverified.
+ */
+export function TicketComposer({ customerNames = [] }: { customerNames?: string[] }) {
   const [body, setBody] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +52,22 @@ export function TicketComposer() {
         <label className="sr-only" htmlFor={`${id}-name`}>
           Customer name
         </label>
-        <input id={`${id}-name`} className="input name" placeholder="Customer name" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
+        <input
+          id={`${id}-name`}
+          className="input name"
+          placeholder="Customer, e.g. Priya K."
+          list={customerNames.length ? `${id}-customers` : undefined}
+          value={name}
+          maxLength={60}
+          onChange={(e) => setName(e.target.value)}
+        />
+        {customerNames.length > 0 && (
+          <datalist id={`${id}-customers`}>
+            {customerNames.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        )}
         <button className="btn" type="submit" disabled={sending}>
           <Send size={14} aria-hidden />
           Send

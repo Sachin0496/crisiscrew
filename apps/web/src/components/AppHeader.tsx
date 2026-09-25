@@ -7,6 +7,8 @@ import { Badge } from "./ui";
 
 type Props = {
   route: Route;
+  /** The customer open on the Customers page, for the breadcrumb. */
+  customerName?: string;
   state: CrisisState;
   scenarios: ScenarioSummary[];
   scenarioId: string;
@@ -20,7 +22,7 @@ type Props = {
 
 export const SPEEDS = [1, 2, 4, 10, 30];
 
-export function AppHeader({ route, state, scenarios, scenarioId, speed, busy, onScenario, onSpeed, onRun, onLive }: Props) {
+export function AppHeader({ route, customerName, state, scenarios, scenarioId, speed, busy, onScenario, onSpeed, onRun, onLive }: Props) {
   const incident = currentIncident(state);
   const session = sessionSummary(state);
   const page = ROUTES.find((r) => r.id === route)?.label ?? "Incident";
@@ -32,6 +34,12 @@ export function AppHeader({ route, state, scenarios, scenarioId, speed, busy, on
             <span>{page}</span>
             <ChevronRight size={14} aria-hidden />
             <strong className="mono">{incident.id}</strong>
+          </>
+        ) : route === "customers" && customerName ? (
+          <>
+            <span>{page}</span>
+            <ChevronRight size={14} aria-hidden />
+            <strong>{customerName}</strong>
           </>
         ) : (
           <strong>{page}</strong>

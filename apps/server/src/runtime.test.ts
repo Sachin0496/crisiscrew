@@ -70,6 +70,22 @@ describe("Runtime", () => {
     expect(rt.state().tickets[ticket.id]?.signal?.surface).toBe("checkout_payments");
   });
 
+  it("anchors a live session's world in the past, so customers' failed payments are already on record", async () => {
+    const rt = runtime();
+    await rt.start();
+    for (const customerName of ["Priya K.", "Arjun K.", "Sneha M.", "Varun N."]) {
+      const known = await rt.findCustomer({ name: customerName });
+      const body = { "Priya K.": "My checkout keeps loading forever.", "Arjun K.": "UPI isn't working. Tried twice.", "Sneha M.": "Payment failed but bank shows debit.", "Varun N.": "Card rejected on checkout — card is fine." }[customerName]!;
+      await rt.ingest({ customerRef: known!.ref, customerName, channel: "chat", body });
+    }
+    await rt.engineNow().whenIdle();
+    const s = rt.state();
+    const incident = s.incidents[s.incidentOrder[0]!]!;
+    const complained = incident.impact!.customers.filter((c) => c.complained);
+    expect(complained.map((c) => `${c.ref}:${c.confidence}`)).toEqual(["c-priya:confirmed", "c-arjun:confirmed", "c-sneha:confirmed", "c-varun:confirmed"]);
+    expect(incident.impact!.customers.filter((c) => !c.complained)).toHaveLength(19);
+  });
+
   it("lists scenarios with what each is expected to show", () => {
     const list = runtime().scenarioList();
     expect(list.find((s) => s.id === "lookalike-checkout-questions")).toMatchObject({ expected: { incident: false, refusedBy: "failure_share" } });
