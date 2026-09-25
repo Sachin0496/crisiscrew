@@ -169,6 +169,7 @@ export const PORT_LABELS: Record<PortName, string> = {
 
 export const MODE: Record<PortMode, { label: string; tone: Tone }> = {
   live: { label: "Live", tone: "success" },
+  mock: { label: "Mock", tone: "accent" },
   sandbox: { label: "Sandbox", tone: "neutral" },
   off: { label: "Off", tone: "neutral" },
 };

@@ -1,0 +1,26 @@
+/**
+ * Mock Freshworks and Vobiz (apps/mock): one local process that answers the
+ * same REST APIs as Freshdesk, Freshservice and Vobiz, on three ports. With
+ * INTEGRATIONS=mock the server's real adapters talk to it instead of the
+ * real services. The keys and secrets are fixed: the mock only listens on
+ * localhost, and a fixed value keeps both processes in step with no setup.
+ */
+export const MOCK = {
+  /** The Freshdesk API and the mock's web UI. Freshservice is port + 1, Vobiz port + 2. */
+  defaultPort: 8788,
+  freshdeskApiKey: "mock-freshdesk-key",
+  freshserviceApiKey: "mock-freshservice-key",
+  /** The X-CrisisCrew-Secret the mock sends with its Freshdesk and Freshservice webhooks. */
+  webhookSecret: "mock-webhook-secret",
+  requesterEmail: "crisiscrew@mock.freshservice.local",
+  oncallScheduleId: 1,
+  vobizAuthId: "MOCKVOBIZ",
+  vobizAuthToken: "mock-vobiz-token",
+  vobizFrom: "+918065550100",
+} as const;
+
+export type MockPorts = { freshdesk: number; freshservice: number; vobiz: number };
+
+export function mockPorts(base: number = MOCK.defaultPort): MockPorts {
+  return { freshdesk: base, freshservice: base + 1, vobiz: base + 2 };
+}

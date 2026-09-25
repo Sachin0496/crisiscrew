@@ -18,6 +18,25 @@ importers:
         specifier: ^5.0.1
         version: 5.0.1(@types/node@24.13.6)(vite@8.3.0(@types/node@24.13.6)(esbuild@0.28.2)(tsx@4.23.15))
 
+  apps/mock:
+    dependencies:
+      '@crisiscrew/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@hono/node-server':
+        specifier: ^2.1.1
+        version: 2.1.1(hono@4.13.8)
+      hono:
+        specifier: ^4.13.8
+        version: 4.13.8
+    devDependencies:
+      '@crisiscrew/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+
   apps/server:
     dependencies:
       '@crisiscrew/adapters':

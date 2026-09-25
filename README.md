@@ -71,6 +71,24 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
 - **Keys:** none needed. To change a setting, copy `.env.example` to `.env`.
 - **Model:** replays read embeddings from the committed cache, so they need no model. The first complaint you type downloads the embedding model (`Xenova/all-MiniLM-L6-v2`, 23 MB) into `.models/`. After that, everything works with no network.
 
+### Mock and real integrations
+
+`INTEGRATIONS` switches Freshdesk, Freshservice (incidents, on-call, alerts) and Vobiz together:
+
+| Mode | Command | What CrisisCrew talks to |
+|---|---|---|
+| sandbox | `pnpm start` | the scenario's simulated world (default) |
+| mock | `pnpm demo:mock` | `apps/mock`: local Freshdesk, Freshservice and Vobiz APIs, through the real adapters |
+| real | `pnpm start:real` | Freshdesk, Freshservice and Vobiz, with the keys in `.env` |
+
+`pnpm demo:mock` starts the mock and CrisisCrew together. The **demo cockpit** at http://localhost:8788 is where you:
+- file complaints in the mock Freshdesk;
+- fire Freshservice alerts;
+- answer the mock phone calls, or leave them on autopilot, which follows the scenario;
+- watch each step of the workflow light up as the agents work.
+
+CrisisCrew's notes, replies, engineering incidents, changes and calls land in the mock exactly as they would in the real services.
+
 | Command | What it does |
 |---|---|
 | `pnpm start` | Builds the UI and starts the server on port 8787: the UI, the API, the event stream, MCP and the Freshdesk webhook |

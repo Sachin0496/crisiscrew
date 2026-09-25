@@ -1,6 +1,6 @@
 import type { Channel, Customer, Ticket, TicketInput } from "@crisiscrew/contracts";
 import type { TicketActionsPort } from "@crisiscrew/core";
-import { freshworksRequest, htmlToText, textToHtml, type FreshworksAuth } from "./http";
+import { freshworksRequest, htmlToText, originOf, textToHtml, type FreshworksAuth } from "./http";
 
 /** The fields CrisisCrew reads from a Freshdesk ticket (API v2). */
 export type FreshdeskTicket = {
@@ -40,6 +40,23 @@ export class FreshdeskClient {
     return freshworksRequest<FreshdeskTicket[]>(this.auth, "GET", `/api/v2/tickets?${query}`);
   }
 
+  /**
+   * Files a ticket as a customer would (email, portal, chat). Freshdesk makes
+   * the contact the first time it sees the email. Used by the seed script,
+   * against a real account or the mock.
+   */
+  createTicket(input: { email: string; name?: string; subject: string; description: string; source?: number }): Promise<FreshdeskTicket> {
+    return freshworksRequest<FreshdeskTicket>(this.auth, "POST", "/api/v2/tickets", {
+      email: input.email,
+      ...(input.name ? { name: input.name } : {}),
+      subject: input.subject,
+      description: textToHtml(input.description),
+      source: input.source ?? 2,
+      status: 2,
+      priority: 1,
+    });
+  }
+
   async addNote(ticketId: number, text: string): Promise<void> {
     await freshworksRequest(this.auth, "POST", `/api/v2/tickets/${ticketId}/notes`, { body: textToHtml(text), private: true });
   }
@@ -49,11 +66,13 @@ export class FreshdeskClient {
   }
 
   ticketUrl(ticketId: number): string {
-    return `https://${this.auth.domain}/a/tickets/${ticketId}`;
+    return `${originOf(this.auth.domain)}/a/tickets/${ticketId}`;
   }
 }
 
 /** Freshdesk ticket sources: 1 email, 2 portal, 3 phone, 7 chat, 9 feedback widget, 10 outbound email. */
+export const FRESHDESK_SOURCES: Record<Channel, number> = { email: 1, portal: 2, phone: 3, chat: 7 };
+
 const SOURCES: Record<number, Channel> = { 1: "email", 2: "portal", 3: "phone", 7: "chat", 9: "portal", 10: "email" };
 
 export const FRESHDESK_PREFIX = "freshdesk:";

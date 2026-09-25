@@ -20,7 +20,8 @@ export type PortName =
   | "guard"
   | "tracing";
 
-export type PortMode = "sandbox" | "live" | "off";
+/** mock: a real adapter talking to the local mock service (INTEGRATIONS=mock). */
+export type PortMode = "sandbox" | "mock" | "live" | "off";
 
 export type WiringPort = {
   port: PortName;

@@ -1,6 +1,6 @@
 import type { ImportanceLevel, OnCallRole } from "@crisiscrew/contracts";
 import type { IncidentsPort, OnCallPort, Responder } from "@crisiscrew/core";
-import { freshworksRequest, textToHtml, type FreshworksAuth } from "./http";
+import { freshworksRequest, originOf, textToHtml, type FreshworksAuth } from "./http";
 
 export type FreshserviceOptions = FreshworksAuth & {
   /** Freshservice needs a requester for every ticket: the address incidents are filed as. */
@@ -53,7 +53,7 @@ export function freshserviceIncidents(options: FreshserviceOptions): IncidentsPo
       });
       const id = created?.ticket?.id ?? created?.id;
       if (!id) throw new Error("Freshservice created the incident but returned no id");
-      return { id: `#${id}`, url: `https://${options.domain}/a/tickets/${id}` };
+      return { id: `#${id}`, url: `${originOf(options.domain)}/a/tickets/${id}` };
     },
     async setImportance(recordId, importance) {
       await freshworksRequest(options, "PUT", `/api/v2/tickets/${numeric(recordId)}`, FRESHSERVICE_PRIORITY[importance]);
@@ -81,7 +81,7 @@ export function freshserviceIncidents(options: FreshserviceOptions): IncidentsPo
       const id = created?.change?.id;
       if (!id) throw new Error("Freshservice created the change but returned no id");
       await freshworksRequest(options, "PUT", `/api/v2/tickets/${numeric(recordId)}`, { change_initiated_by_ticket: { display_id: id } });
-      return { id: `CHN-${id}`, url: `https://${options.domain}/a/changes/${id}` };
+      return { id: `CHN-${id}`, url: `${originOf(options.domain)}/a/changes/${id}` };
     },
     async openProblem(recordId, { title, description, importance, service }) {
       const created = await freshworksRequest<{ problem?: { id: number } }>(options, "POST", "/api/v2/problems", {
@@ -98,7 +98,7 @@ export function freshserviceIncidents(options: FreshserviceOptions): IncidentsPo
       const id = created?.problem?.id;
       if (!id) throw new Error("Freshservice created the problem but returned no id");
       await freshworksRequest(options, "PUT", `/api/v2/tickets/${numeric(recordId)}`, { problem: { display_id: id } });
-      return { id: `PRB-${id}`, url: `https://${options.domain}/a/problems/${id}` };
+      return { id: `PRB-${id}`, url: `${originOf(options.domain)}/a/problems/${id}` };
     },
   };
 }
