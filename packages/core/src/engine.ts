@@ -27,13 +27,18 @@ import { acknowledgeByOperator, onPageCall } from "./agents/paging";
 import type { AgentKit } from "./agents/kit";
 import type { EventBus } from "./bus";
 import { PatternEngine } from "./correlation/pattern";
+import { ticketText } from "./correlation/pattern";
+import { heuristicGuard } from "./guard/builtin";
+import { screenText } from "./guard/injection";
 import { higher } from "./importance/assess";
 import type { Prototypes } from "./correlation/prototypes";
 import { AuditLog } from "./policy/audit";
 import { PolicyGate } from "./policy/gate";
-import type { Clock, Embedder, Ports } from "./ports";
+import type { Clock, Embedder, Ports, PromptGuard, TicketClassifier } from "./ports";
 import type { Draft } from "./recovery/templates";
 import { createTools, type ToolCtx } from "./tools/definitions";
+import { Tracer, type TraceSink } from "./trace/tracer";
+import { runWorkflow } from "./workflows/graphs";
 
 export type EngineSession = { sessionId: string; mode: SessionMode; scenarioId?: string; scenarioTitle?: string; speed?: number };
 
@@ -50,6 +55,9 @@ export type EngineDeps = {
   onError?: (error: unknown) => void;
   /** This server's public URL, for links back from engineering records. */
   publicBaseUrl?: string;
+  guard?: PromptGuard;
+  classifier?: TicketClassifier | null;
+  traceSinks?: TraceSink[];
 };
 
 const pad = (n: number) => String(n).padStart(3, "0");
@@ -62,6 +70,7 @@ const pad = (n: number) => String(n).padStart(3, "0");
 export class CrisisEngine {
   readonly audit: AuditLog;
   readonly gate: PolicyGate<ToolCtx>;
+  readonly tracer: Tracer;
   private view: CrisisState = initialState();
   private readonly pattern: PatternEngine;
   private readonly tasks = new Set<Promise<unknown>>();
@@ -70,6 +79,7 @@ export class CrisisEngine {
   private readonly drafts = new Map<string, { draft: Draft; since: number }>();
   private readonly spentApprovals = new Set<string>();
   private readonly opened = new Map<string, Promise<void>>();
+  private readonly ticketRoutes = new Map<string, { kind: "opened" | "joined" | "none"; incidentId?: string }>();
   /** The tail of each incident's recovery chain: recovery steps for one incident run one at a time. */
   private readonly chains = new Map<string, Promise<unknown>>();
   private readonly kit: AgentKit;
@@ -77,6 +87,11 @@ export class CrisisEngine {
   private readonly unsubscribe: () => void;
 
   constructor(private readonly deps: EngineDeps) {
+    this.tracer = new Tracer({
+      sessionId: deps.session.sessionId,
+      now: () => deps.clock.now(),
+      sinks: [{ traceChanged: (trace) => this.emit({ type: "trace.updated", payload: { trace } }) }, ...(deps.traceSinks ?? [])],
+    });
     this.audit = new AuditLog((entry) => {
       deps.onAudit?.(entry);
       this.emit({ type: "tool.called", payload: { entry } });
@@ -93,7 +108,11 @@ export class CrisisEngine {
       spentApprovals: this.spentApprovals,
       ...(deps.publicBaseUrl ? { publicBaseUrl: deps.publicBaseUrl } : {}),
     };
-    this.gate = new PolicyGate(deps.policy, createTools(), this.audit, deps.clock, () => ctx);
+    this.gate = new PolicyGate(deps.policy, createTools(), this.audit, deps.clock, () => ctx, {
+      tracer: this.tracer,
+      guard: deps.guard ?? heuristicGuard,
+      onFlag: (flag) => this.emit({ type: "guard.flagged", payload: { flag } }),
+    });
     this.pattern = new PatternEngine(deps.embedder, deps.policy.correlation, {
       baselinePerHour: deps.baselinePerHour,
       prototypes: deps.prototypes,
@@ -116,6 +135,7 @@ export class CrisisEngine {
         return next;
       },
       noted: new Set(),
+      tracer: this.tracer,
     };
     this.unsubscribe = deps.ports.telephony.onUpdate((call) => {
       this.emit({ type: "call.updated", payload: { call } });
@@ -142,7 +162,17 @@ export class CrisisEngine {
 
   /** Ingests tickets one at a time, in arrival order. Resolves once the ticket is scored, not when its incident work finishes. */
   ingest(input: TicketInput, source: TicketSource = "sandbox"): Promise<Ticket> {
-    const run = this.queue.then(() => this.ingestNow(input, source));
+    const run = this.queue.then(() => runWorkflow(
+      this.tracer,
+      { workflow: "ticket", title: `Ticket T-${this.counters.ticket + 1}`, actor: "pattern", input: { customer: input.customerName, text: input.body } },
+      "classify_and_correlate",
+      { label: "Classify and correlate", actor: "pattern", description: "Screen the ticket, classify it and correlate it with recent reports." },
+      () => this.ingestNow(input, source),
+      (ticket) => {
+        const route = this.ticketRoutes.get(ticket.id);
+        return { outcome: route?.kind === "opened" ? `Opened ${route.incidentId}` : route?.kind === "joined" ? `Joined ${route.incidentId}` : "No incident", ...(route?.incidentId ? { incidentId: route.incidentId } : {}) };
+      },
+    ));
     this.queue = run.catch(() => undefined);
     this.track(run);
     return run;
@@ -177,7 +207,7 @@ export class CrisisEngine {
       ...(status === "modified" ? { approvedAmountInr: body.amountInr! } : {}),
     };
     this.emit({ type: "approval.decided", payload: { approval: decided } });
-    this.track(settleDecision(this.kit, decided).catch((error) => this.fail("handoff", error)));
+    this.track(runWorkflow(this.tracer, { workflow: "decision", title: `Decision ${decided.id}`, actor: "handoff", incidentId: decided.incidentId, approvalId: decided.id }, "settle_decision", { label: "Settle decision", actor: "handoff", description: "Carry out the approved credit and update coverage." }, () => settleDecision(this.kit, decided)).catch((error) => this.fail("handoff", error)));
     return decided;
   }
 
@@ -298,7 +328,42 @@ export class CrisisEngine {
     this.emit({ type: "ticket.received", payload: { ticket } });
     this.setAgent("pattern", "working", `Reading ${ticket.id}`);
 
-    const result = await this.pattern.ingest(ticket);
+    const text = ticketText(ticket);
+    const guard = this.deps.guard ?? heuristicGuard;
+    const screened = await this.tracer.span(
+      { name: "prompt_guard", kind: "guard", actor: "system", input: { source: "ticket", text } },
+      async () => {
+        try { return await guard.screen(text); }
+        catch { return screenText(text); }
+      },
+      (verdict) => ({ status: verdict.flagged ? "flagged" : "ok", ...(verdict.flagged ? { reason: verdict.reasons.join(", ") } : {}), output: verdict }),
+    );
+    if (screened.flagged) this.emit({ type: "guard.flagged", payload: { flag: { at: this.deps.clock.now(), source: "ticket", ref: ticket.id, verdict: screened, excerpt: text.slice(0, 160) } } });
+    let verdict;
+    let fallback: string | undefined;
+    if (this.deps.classifier) {
+      const classifier = this.deps.classifier;
+      const answer = await this.tracer.span(
+        { name: classifier.adapter, kind: "classifier", actor: "pattern", input: { text } },
+        async () => {
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const deadline = new Promise<never>((_, reject) => {
+              timeout = setTimeout(() => reject(new Error("classifier timed out")), this.deps.policy.classifier.timeoutMs);
+            });
+            return { verdict: await Promise.race([classifier.classify(text), deadline]) };
+          } catch (error) { return { fallback: error instanceof Error ? error.message : String(error) }; }
+          finally { if (timeout) clearTimeout(timeout); }
+        },
+        (answer) => answer.verdict ? { output: answer.verdict } : { status: "warning", reason: answer.fallback },
+      );
+      verdict = answer.verdict;
+      fallback = answer.fallback;
+    }
+    const result = await this.pattern.ingest(ticket, verdict, this.deps.policy.classifier);
+    this.pattern.noteGuard(ticket.id, { flagged: screened.flagged, reasons: screened.reasons });
+    if (fallback && this.deps.classifier) this.pattern.noteFallback(ticket.id, this.deps.classifier.adapter, fallback);
+    result.signal = this.pattern.signalOf(ticket.id)!;
     this.emit({ type: "signal.scored", payload: { signal: result.signal, nearest: result.nearest } });
 
     // An incident an alert opened, in this ticket's area: a failure report joins it, and a burst merges into it rather than opening a second one.
@@ -310,9 +375,10 @@ export class CrisisEngine {
       this.track(
         (async () => {
           await this.opened.get(alertIncident);
-          for (const id of members) if (!this.linkedTo(alertIncident, id)) await handleLateTicket(this.kit, alertIncident, id);
+          for (const id of members) if (!this.linkedTo(alertIncident, id)) await this.runLateTicket(alertIncident, id);
         })().catch((error) => this.fail("recovery", error)),
       );
+      this.ticketRoutes.set(ticket.id, { kind: "joined", incidentId: alertIncident });
       return ticket;
     }
 
@@ -325,11 +391,12 @@ export class CrisisEngine {
       this.opened.set(incidentId, new Promise((resolve) => (markOpened = resolve)));
       this.setAgent("pattern", "done", `${cluster.reportTicketIds.length} failure reports describe one problem; alerted the Incident Commander`);
       this.track(
-        runIncident(this.kit, cluster, incidentId, markOpened).catch((error) => {
+        runWorkflow(this.tracer, { workflow: "incident", title: `Incident ${incidentId}`, actor: "commander", incidentId }, "respond", { label: "Respond", actor: "commander", description: "Investigate, file for engineering and recover customers." }, () => runIncident(this.kit, cluster, incidentId, markOpened), () => ({ outcome: this.incidentOutcome(incidentId) })).catch((error) => {
           markOpened();
           this.fail("commander", error);
         }),
       );
+      this.ticketRoutes.set(ticket.id, { kind: "opened", incidentId });
     } else if (result.joinIncidentId) {
       const incidentId = result.joinIncidentId;
       if (result.candidate) this.emit({ type: "cluster.updated", payload: { cluster: result.candidate } });
@@ -337,14 +404,28 @@ export class CrisisEngine {
       this.track(
         (async () => {
           await this.opened.get(incidentId);
-          await handleLateTicket(this.kit, incidentId, ticket.id);
+          await this.runLateTicket(incidentId, ticket.id);
         })().catch((error) => this.fail("recovery", error)),
       );
+      this.ticketRoutes.set(ticket.id, { kind: "joined", incidentId });
     } else {
       if (result.candidate) this.emit({ type: "cluster.updated", payload: { cluster: result.candidate } });
       this.setAgent("pattern", "idle", `${ticket.id}: no incident`);
+      this.ticketRoutes.set(ticket.id, { kind: "none" });
     }
     return ticket;
+  }
+
+  private runLateTicket(incidentId: string, ticketId: string): Promise<void> {
+    return runWorkflow(this.tracer, { workflow: "late_ticket", title: `Late complaint ${ticketId}`, actor: "recovery", incidentId, ticketId }, "link_and_recover", { label: "Link and recover", actor: "recovery", description: "Link a later complaint and update its recovery." }, () => handleLateTicket(this.kit, incidentId, ticketId));
+  }
+
+  private incidentOutcome(incidentId: string): string {
+    const incident = this.view.incidents[incidentId];
+    if (!incident) return "Incident was not opened";
+    const cause = incident.rootCause?.label;
+    const impact = incident.impact;
+    return `${cause ? `Cause: ${cause}. ` : ""}${impact ? `${impact.customers.filter((c) => c.confidence === "confirmed").length} harmed` : "Impact unknown"}`;
   }
 
   /** An open incident an alert opened in this area, recent enough for complaints to belong to it. */

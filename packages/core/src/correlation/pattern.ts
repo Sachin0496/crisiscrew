@@ -1,8 +1,8 @@
-import type { ClusterView, CorrelationConfig, SignalView, Surface, Ticket } from "@crisiscrew/contracts";
+import type { ClassifierInfo, ClusterView, CorrelationConfig, Policy, SignalView, Surface, Ticket, TicketType } from "@crisiscrew/contracts";
 import { cosine, meanVector, type Vector } from "../math/vector";
-import type { Embedder } from "../ports";
+import type { ClassifierVerdict, Embedder } from "../ports";
 import { clusterComponents, meanPairwiseSimilarity } from "./cluster";
-import { classify, extractEntities, surfaceProfile, type ProductSurface, type PrototypeVectors } from "./enrich";
+import { classify, extractEntities, questionForm, surfaceProfile, type ProductSurface, type PrototypeVectors } from "./enrich";
 import { evaluateGates } from "./gates";
 import { DEFAULT_PROTOTYPES, type Prototypes } from "./prototypes";
 
@@ -18,6 +18,8 @@ export type PatternResult = {
   /** Set when the ticket matches an open incident and should be linked to it. */
   joinIncidentId?: string;
 };
+
+export type ClassifierThresholds = Pick<Policy["classifier"], "failureMin" | "surfaceMin">;
 
 export type PatternOptions = {
   prototypes?: Prototypes;
@@ -75,8 +77,19 @@ export class PatternEngine {
     return this.stored.get(ticketId)?.signal;
   }
 
-  async ingest(ticket: Ticket): Promise<PatternResult> {
-    if (!this.prototypeVectors) throw new Error("PatternEngine.init() must run before ingest()");
+  /** Reads one ticket end to end: embed and classify it, then correlate it. The engine runs these as separate graph nodes. */
+  async ingest(ticket: Ticket, verdict?: ClassifierVerdict, thresholds?: ClassifierThresholds): Promise<PatternResult> {
+    await this.read(ticket);
+    if (verdict && thresholds) this.applyVerdict(ticket.id, verdict, thresholds);
+    return this.correlate(ticket.id);
+  }
+
+  /**
+   * Embeds the ticket and classifies it against the prototype sentences: its
+   * product area, and whether it reports a failure. Stores it for correlation.
+   */
+  async read(ticket: Ticket): Promise<SignalView> {
+    if (!this.prototypeVectors) throw new Error("PatternEngine.init() must run before read()");
     const text = ticketText(ticket);
     const [vector] = await this.embedder.embed([text]);
     if (!vector) throw new Error("embedder returned no vector");
@@ -84,9 +97,67 @@ export class PatternEngine {
     const { surfaceScores, ...classification } = classify(vector, text, this.prototypeVectors, this.cfg);
     const weights = surfaceProfile(surfaceScores, this.cfg.surfaceTemperature, this.cfg.surfaceMin);
     const profile = Float32Array.from(this.surfaceOrder.map((s) => weights[s] ?? 0));
-    const signal: SignalView = { ticketId: ticket.id, ...classification, entities: extractEntities(text) };
+    const ticketType: TicketType = classification.isFailure ? "failure" : questionForm(text) ? "question" : "request";
+    const signal: SignalView = {
+      ticketId: ticket.id,
+      ...classification,
+      entities: extractEntities(text),
+      ticketType,
+      classifier: { source: "embeddings", ticketType },
+    };
     this.stored.set(ticket.id, { ticket, vector, profile, signal });
     this.order.push(ticket.id);
+    return signal;
+  }
+
+  /**
+   * Takes a classifier's labels where it is confident enough, and keeps the
+   * built-in answer where it isn't. Only the labels change: similarity still
+   * comes from the embeddings, so the gates stay calibrated.
+   */
+  applyVerdict(ticketId: string, verdict: ClassifierVerdict, thresholds: ClassifierThresholds): SignalView {
+    const stored = this.stored.get(ticketId);
+    if (!stored) throw new Error(`no ticket ${ticketId}`);
+    const typeSure = verdict.ticketType.confidence >= thresholds.failureMin;
+    const areaSure = verdict.surface.confidence >= thresholds.surfaceMin;
+    const ticketType = typeSure ? verdict.ticketType.label : (stored.signal.ticketType ?? "request");
+    const info: ClassifierInfo = {
+      source: typeSure || areaSure ? verdict.source : "embeddings",
+      ...(verdict.model ? { model: verdict.model } : {}),
+      ticketType,
+      confidence: verdict.ticketType.confidence,
+      surfaceConfidence: verdict.surface.confidence,
+      latencyMs: verdict.latencyMs,
+      ...(!typeSure && !areaSure ? { fallback: `${verdict.source} was unsure (${verdict.ticketType.confidence.toFixed(2)}), so the built-in answer stands` } : {}),
+    };
+    stored.signal = {
+      ...stored.signal,
+      ticketType,
+      isFailure: typeSure ? verdict.ticketType.label === "failure" : stored.signal.isFailure,
+      surface: areaSure ? verdict.surface.label : stored.signal.surface,
+      classifier: info,
+    };
+    return stored.signal;
+  }
+
+  /** Records a fallback: the configured classifier didn't answer, so the built-in labels stand. */
+  noteFallback(ticketId: string, source: string, reason: string): void {
+    const stored = this.stored.get(ticketId);
+    if (!stored) return;
+    stored.signal = { ...stored.signal, classifier: { ...stored.signal.classifier!, fallback: `${source}: ${reason}; the built-in answer was used` } };
+  }
+
+  /** Marks what the prompt guard found in the ticket, so the UI can show it. The ticket stays data either way. */
+  noteGuard(ticketId: string, guard: { flagged: boolean; reasons: string[] }): void {
+    const stored = this.stored.get(ticketId);
+    if (stored) stored.signal = { ...stored.signal, guard };
+  }
+
+  /** Groups the stored ticket with the last window of tickets and evaluates the incident gates. */
+  correlate(ticketId: string): PatternResult {
+    const stored = this.stored.get(ticketId);
+    if (!stored) throw new Error(`no ticket ${ticketId}`);
+    const { ticket, vector, profile, signal } = stored;
 
     const now = ticket.receivedAt;
     const windowStart = now - this.cfg.windowMin * 60_000;

@@ -7,6 +7,7 @@ import type { AgentKit } from "./kit";
 import { fileIssue, openProblem } from "./issue-creator";
 import { pageIfNeeded } from "./paging";
 import { assessImpact, noteOutcomes, reconcile, startRecovery } from "./recovery";
+import { runWorkflow } from "../workflows/graphs";
 
 /**
  * Sets the incident's status from Recovery Coverage. An incident is
@@ -104,14 +105,20 @@ export async function setImportanceByHuman(kit: AgentKit, incidentId: string, im
 
 /** One full recovery pass, then the approvals it needs and the incident's status, one pass at a time per incident. */
 async function recover(kit: AgentKit, incidentId: string): Promise<void> {
-  await kit.serial(incidentId, async () => {
-    await reconcile(kit, incidentId, { assessFirst: true });
-    await reachOut(kit, incidentId);
-    await requestApprovals(kit, incidentId);
-    await noteOutcomes(kit, incidentId, "handoff");
-    await reassess(kit, incidentId, kit.state().incidents[incidentId]?.rootCause ? "root_cause" : "impact");
-    await settle(kit, incidentId);
-  });
+  await kit.serial(incidentId, () => runWorkflow(
+    kit.tracer,
+    { workflow: "recovery_pass", title: `Recovery ${incidentId}`, actor: "recovery", incidentId },
+    "recover",
+    { label: "Recover customers", actor: "recovery", description: "Plan, carry out, communicate, request approvals and settle coverage." },
+    async () => {
+      await kit.tracer.span({ name: "plan_recovery", kind: "node", actor: "recovery" }, () => reconcile(kit, incidentId, { assessFirst: true }));
+      await kit.tracer.span({ name: "reach_out", kind: "node", actor: "handoff" }, () => reachOut(kit, incidentId));
+      await kit.tracer.span({ name: "request_approvals", kind: "node", actor: "handoff" }, () => requestApprovals(kit, incidentId));
+      await kit.tracer.span({ name: "write_back", kind: "node", actor: "handoff" }, () => noteOutcomes(kit, incidentId, "handoff"));
+      await reassess(kit, incidentId, kit.state().incidents[incidentId]?.rootCause ? "root_cause" : "impact");
+      await kit.tracer.span({ name: "settle", kind: "node", actor: "commander" }, () => settle(kit, incidentId));
+    },
+  ));
 }
 
 /**
@@ -140,7 +147,7 @@ async function openAndRun(kit: AgentKit, opening: Opening, onOpened: () => void)
   // Before the investigation, only the product area and the triggering alert are known.
   const alert = alertId ? kit.state().alerts[alertId] : undefined;
   const initial = assessImportance({ surface: opening.surface, hypotheses: [] }, alert ? [alert] : [], kit.policy.importance);
-  const opened = await kit.gate.call("commander", "open_incident", { ...opening, importance: initial.level });
+  const opened = await kit.tracer.span({ name: "open_incident", kind: "node", actor: "commander" }, () => kit.gate.call("commander", "open_incident", { ...opening, importance: initial.level }));
   if (opened.ok) kit.emit({ type: "incident.importance", payload: { incidentId, importance: { ...initial, stage: "opened", source: "rules", assessedAt: kit.now() } } });
   onOpened();
   if (!opened.ok) {
@@ -153,13 +160,16 @@ async function openAndRun(kit: AgentKit, opening: Opening, onOpened: () => void)
   kit.setStatus(incidentId, "investigating", "Investigator and Recovery Agent started in parallel");
   kit.setAgent("commander", "working", `Coordinating ${incidentId}`);
   // The investigation can fail; engineering still gets a ticket with what is known.
-  await Promise.all([investigate(kit, incidentId).catch(() => undefined), startRecovery(kit, incidentId)]);
+  await Promise.all([
+    kit.tracer.span({ name: "investigate", kind: "node", actor: "investigator" }, () => investigate(kit, incidentId).catch(() => undefined)),
+    kit.tracer.span({ name: "assess_impact", kind: "node", actor: "recovery" }, () => startRecovery(kit, incidentId)),
+  ]);
 
   // Importance first, so the ticket is filed at the right priority, then the Issue Creator files it with the findings.
   await reassess(kit, incidentId, kit.state().incidents[incidentId]!.rootCause ? "root_cause" : "impact");
-  await fileIssue(kit, incidentId);
+  await kit.tracer.span({ name: "file_engineering", kind: "node", actor: "issue_creator" }, () => fileIssue(kit, incidentId));
   kit.setStatus(incidentId, "recovering", "Planning a recovery for each affected customer");
-  await recover(kit, incidentId);
+  await kit.tracer.span({ name: "recover", kind: "node", actor: "commander" }, () => recover(kit, incidentId));
 }
 
 /**

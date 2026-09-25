@@ -93,6 +93,12 @@ export const PolicySchema = z.object({
       spreadLr: z.number().positive(),
     }),
   }),
+  guardrails: z.object({ allowedLinkHosts: z.array(z.string()).default([]) }).default({ allowedLinkHosts: [] }),
+  classifier: z.object({
+    failureMin: z.number().min(0).max(1).default(0.6),
+    surfaceMin: z.number().min(0).max(1).default(0.5),
+    timeoutMs: z.number().int().positive().default(1500),
+  }).default({ failureMin: 0.6, surfaceMin: 0.5, timeoutMs: 1500 }),
   importance: z.object({
     /** Product areas whose failure stops customers from paying or signing in: at least P2. */
     tier1Surfaces: z.array(Surface),

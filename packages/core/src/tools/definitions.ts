@@ -22,8 +22,9 @@ import {
   type ToolName,
 } from "@crisiscrew/contracts";
 import { z } from "zod";
+import { checkOutbound } from "../guard/outbound";
 import type { ToolDef } from "../policy/gate";
-import type { InfraHealth, Ports } from "../ports";
+import type { Deployment, InfraHealth, Ports, ProviderHealth } from "../ports";
 import { assessImpact } from "../recovery/impact";
 import { planRecovery } from "../recovery/plan";
 import { callMenu, customerCase, draftUpdate, engineeringSummary, engineeringTicket, inr, pageScript, problemRecord, rollbackChange, type Draft } from "../recovery/templates";
@@ -229,6 +230,7 @@ export function createTools(): Tool[] {
       adapter: (ctx) => ctx.ports.payments.adapter,
       run: async (_args, ctx) => ctx.ports.payments.health(),
       summarize: (r) => (r as { provider: string; status: string }[]).map((p) => `${p.provider}: ${p.status}`).join(", "),
+      untrusted: (r) => (r as ProviderHealth[]).flatMap((p) => [p.detail, ...p.components.map((c) => `${c.name}: ${c.status}`)]),
     },
     {
       name: "get_recent_deployments",
@@ -244,6 +246,7 @@ export function createTools(): Tool[] {
         const list = r as { version: string; sha: string }[];
         return list.length ? `${list.length} releases: ${list.map((d) => `${d.version} (${d.sha.slice(0, 7)})`).join(", ")}` : "no releases";
       },
+      untrusted: (r) => (r as Deployment[]).map((d) => d.message),
     },
     {
       name: "get_service_status",
@@ -600,16 +603,28 @@ export function createTools(): Tool[] {
         const { incidentId, customerRef, channel } = args as { incidentId: string; customerRef: string; channel: string };
         const incident = ctx.state().incidents[incidentId];
         if (!incident) return `no incident ${incidentId}`;
-        if (channel === "ticket_reply") {
-          return ticketsOf(ctx, incident).some((t) => t.customerRef === customerRef) ? null : "this customer has no ticket in the incident";
-        }
-        if (affectedCustomer(incident, customerRef)?.confidence !== "confirmed") return "no evidence this customer was affected, so they aren't contacted";
+        if (channel === "ticket_reply" && !ticketsOf(ctx, incident).some((t) => t.customerRef === customerRef)) return "this customer has no ticket in the incident";
+        if (channel !== "ticket_reply" && affectedCustomer(incident, customerRef)?.confidence !== "confirmed") return "no evidence this customer was affected, so they aren't contacted";
         const customer = await ctx.ports.orders.customer(customerRef);
-        if (!customer) return `unknown customer ${customerRef}`;
-        if (channel === "proactive_message" && !customer.consent.proactive) return "customer has not agreed to proactive messages";
-        if (channel === "voice" && !customer.consent.voice) return "customer has not agreed to voice contact";
-        if (channel === "voice") return callGuardrails(ctx, incident, customerRef, (args as { text: string }).text);
-        return null;
+        if (!customer && channel !== "ticket_reply") return `unknown customer ${customerRef}`;
+        if (channel === "proactive_message" && !customer?.consent.proactive) return "customer has not agreed to proactive messages";
+        if (channel === "voice" && !customer?.consent.voice) return "customer has not agreed to voice contact";
+        if (channel === "voice") {
+          const refusal = callGuardrails(ctx, incident, customerRef, (args as { text: string }).text);
+          if (refusal) return refusal;
+        }
+        const text = (args as { text: string }).text;
+        const approvals = Object.values(ctx.state().approvals).filter((a) => a.incidentId === incidentId && a.customerRef === customerRef);
+        const refusal = checkOutbound(text, {
+          allowedAmountsInr: [
+            ...incident.actions.filter((a) => a.customerRef === customerRef && a.kind === "credit").flatMap((a) => a.amountInr === undefined ? [] : [a.amountInr]),
+            ...approvals.flatMap((a) => a.approvedAmountInr === undefined ? [] : [a.approvedAmountInr]),
+          ],
+          allowedPaymentAmountsInr: [affectedCustomer(incident, customerRef)?.amountInr ?? 0],
+          allowedHosts: ctx.policy.guardrails.allowedLinkHosts,
+          ownContacts: [customer?.email, customer?.phone].filter((c): c is string => Boolean(c)),
+        });
+        return refusal ? `output guard: ${refusal}` : null;
       },
       async run(args, ctx) {
         const { incidentId, customerRef, channel, text, actionId } = args as {

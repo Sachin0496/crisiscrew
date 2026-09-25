@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ClassifierInfo, TicketType } from "./guard";
 
 export const Channel = z.enum(["chat", "email", "phone", "portal"]);
 export type Channel = z.infer<typeof Channel>;
@@ -62,6 +63,12 @@ export type SignalView = {
   failureScore: number;
   isFailure: boolean;
   entities: Entities;
+  /** Failure report, question or request. Absent on signals recorded before classification existed. */
+  ticketType?: TicketType;
+  /** Which classifier decided the ticket type and product area, and how sure it was. */
+  classifier?: ClassifierInfo;
+  /** Set when the prompt guard found instruction-like text in the ticket. It stays data either way. */
+  guard?: { flagged: boolean; reasons: string[] };
 };
 
 export type GateName = "size" | "cohesion" | "failure_share" | "burst";

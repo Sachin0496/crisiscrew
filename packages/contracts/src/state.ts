@@ -11,8 +11,12 @@ import type {
   Ticket,
 } from "./domain";
 import type { CrisisEvent, SessionMode } from "./events";
+import type { GuardFlag } from "./guard";
+import type { TraceSummary } from "./trace";
 
 export const TOOL_CALL_CAP = 300;
+export const TRACE_CAP = 200;
+export const GUARD_FLAG_CAP = 100;
 
 export type TicketView = { ticket: Ticket; signal?: SignalView; incidentId?: string };
 
@@ -43,6 +47,10 @@ export type CrisisState = {
   /** Outbound phone calls, by id. */
   calls: Record<string, CallView>;
   replayFinished: boolean;
+  /** Workflow traces of this session, oldest first; the latest summary of each. */
+  traces: TraceSummary[];
+  /** Untrusted inputs the prompt guard flagged in this session. */
+  guardFlags: GuardFlag[];
 };
 
 const DEFAULT_AGENTS: Record<AgentId, AgentView> = {
@@ -71,6 +79,8 @@ export function initialState(): CrisisState {
     alerts: {},
     alertOrder: [],
     replayFinished: false,
+    traces: [],
+    guardFlags: [],
   };
 }
 
@@ -259,5 +269,15 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
 
     case "replay.finished":
       return { ...state, replayFinished: true };
+
+    case "trace.updated": {
+      const { trace } = event.payload;
+      const i = state.traces.findIndex((t) => t.id === trace.id);
+      const traces = i === -1 ? [...state.traces, trace].slice(-TRACE_CAP) : state.traces.map((t, j) => (j === i ? trace : t));
+      return { ...state, traces };
+    }
+
+    case "guard.flagged":
+      return { ...state, guardFlags: [...state.guardFlags, event.payload.flag].slice(-GUARD_FLAG_CAP) };
   }
 }

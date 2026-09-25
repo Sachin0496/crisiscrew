@@ -1,6 +1,7 @@
 import { serveStatic } from "@hono/node-server/serve-static";
 import { VOBIZ_CALLBACKS, type VobizCallback } from "@crisiscrew/adapters";
 import { DecisionBody, impactGraph, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
+import { describeWorkflows } from "@crisiscrew/core";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -11,6 +12,7 @@ import { mountMcp } from "../mcp/endpoint";
 import { REPO_ROOT, WEB_DIST_DIR } from "../paths";
 import type { Runtime } from "../runtime";
 import { ticketImpact } from "./impact";
+import { rateLimit } from "./rate-limit";
 import { eventStream } from "./sse";
 
 export type AppDeps = { runtime: Runtime; config: Config; onError?: (error: unknown) => void };
@@ -23,7 +25,7 @@ const ManualTicket = z.object({
   channel: z.enum(["chat", "email", "phone", "portal"]).default("chat"),
   subject: z.string().trim().max(200).optional(),
   body: z.string().trim().min(1).max(2000),
-});
+}).strict();
 
 /** Freshdesk's automation rule posts {"ticket_id": 123}; its simple mode nests the fields under "freshdesk_webhook". */
 const FreshdeskWebhook = z.union([
@@ -92,6 +94,11 @@ async function body<T>(c: Context, schema: z.ZodType<T>): Promise<{ ok: true; da
 /** The HTTP API (design section 10.1), the event stream, the Freshdesk webhook and sidebar data, and the built web app. */
 export function createApp({ runtime, config, onError }: AppDeps): Hono {
   const app = new Hono();
+  const limit = config.rateLimitPerMinute;
+  const adminLimit = rateLimit("admin", limit);
+  const approvalLimit = rateLimit("approval", limit);
+  const webhookLimit = rateLimit("webhook", limit * 5);
+  const workflows = describeWorkflows();
   const admin = requireToken(config.adminToken, "admin");
   const approver = requireToken(config.approverToken, "approver");
   const startedAt = Date.now();
@@ -112,7 +119,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   app.get("/api/stream", (c) => eventStream(c, runtime.bus));
   app.get("/api/scenarios", (c) => c.json(runtime.scenarioList()));
 
-  app.post("/api/replay", admin, async (c) => {
+  app.post("/api/replay", adminLimit, admin, async (c) => {
     const parsed = await body(c, ReplayBody);
     if (!parsed.ok) return parsed.response;
     if (!runtime.scenarioList().some((s) => s.id === parsed.data.scenario)) return c.json({ error: `unknown scenario "${parsed.data.scenario}"` }, 404);
@@ -120,12 +127,12 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json({ sessionId });
   });
 
-  app.post("/api/live", admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
-  app.post("/api/admin/reset", admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
+  app.post("/api/live", adminLimit, admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
+  app.post("/api/admin/reset", adminLimit, admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
 
   app.get("/api/customers", (c) => c.json(runtime.customerDirectory()));
 
-  app.post("/api/tickets", admin, async (c) => {
+  app.post("/api/tickets", adminLimit, admin, async (c) => {
     const parsed = await body(c, ManualTicket);
     if (!parsed.ok) return parsed.response;
     const { customerName, customerEmail, channel, subject, body: text } = parsed.data;
@@ -154,7 +161,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json(ticketImpact(runtime.state(), view, baseUrl(c)));
   });
 
-  app.post("/api/webhooks/freshdesk", async (c) => {
+  app.post("/api/webhooks/freshdesk", webhookLimit, async (c) => {
     if (!runtime.freshdeskEnabled || !config.freshdesk?.webhookSecret) return c.json({ error: "Freshdesk webhook ingest is off: set TICKETS=freshdesk and FRESHDESK_INGEST=webhook" }, 404);
     if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshdesk.webhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
     const parsed = await body(c, FreshdeskWebhook);
@@ -165,14 +172,14 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json({ accepted: true, ticketId }, 202);
   });
 
-  app.post("/api/alerts", admin, async (c) => {
+  app.post("/api/alerts", adminLimit, admin, async (c) => {
     const parsed = await body(c, ManualAlert);
     if (!parsed.ok) return parsed.response;
     const alert = await runtime.ingestAlert({ ...parsed.data, source: "manual", firedAt: Date.now() });
     return c.json(alert, 202);
   });
 
-  app.post("/api/webhooks/freshservice/alerts", async (c) => {
+  app.post("/api/webhooks/freshservice/alerts", webhookLimit, async (c) => {
     if (!runtime.freshserviceAlertsEnabled || !config.freshserviceWebhookSecret) {
       return c.json({ error: "Freshservice alert webhooks are off: set ALERTS=freshservice and FRESHSERVICE_WEBHOOK_SECRET" }, 404);
     }
@@ -185,7 +192,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   });
 
   // An operator takes the page, so no one else is called.
-  app.post("/api/incidents/:id/page/acknowledge", admin, async (c) => {
+  app.post("/api/incidents/:id/page/acknowledge", adminLimit, admin, async (c) => {
     const parsed = await body(c, AcknowledgeBody);
     if (!parsed.ok) return parsed.response;
     const id = c.req.param("id");
@@ -199,7 +206,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   });
 
   // Acknowledging in Freshservice: a workflow on the incident ticket posts its id here with the shared secret.
-  app.post("/api/webhooks/freshservice/acknowledge", async (c) => {
+  app.post("/api/webhooks/freshservice/acknowledge", webhookLimit, async (c) => {
     if (!config.freshserviceWebhookSecret) return c.json({ error: "Freshservice acknowledgements are off: set FRESHSERVICE_WEBHOOK_SECRET" }, 404);
     if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshserviceWebhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
     const parsed = await body(c, FreshserviceAck);
@@ -215,7 +222,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   });
 
   // A human sets an incident's importance, up or down; the Commander's rules leave it alone from then on.
-  app.post("/api/incidents/:id/importance", admin, async (c) => {
+  app.post("/api/incidents/:id/importance", adminLimit, admin, async (c) => {
     const parsed = await body(c, ImportanceBody);
     if (!parsed.ok) return parsed.response;
     const id = c.req.param("id");
@@ -225,7 +232,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   });
 
   // Vobiz fetches what a call says and reports its progress here. Each callback is signed with the account's auth token.
-  app.post("/api/webhooks/vobiz/:callId/:kind", async (c) => {
+  app.post("/api/webhooks/vobiz/:callId/:kind", webhookLimit, async (c) => {
     const vobiz = runtime.vobiz;
     if (!vobiz) return c.json({ error: "Vobiz calls are off: set TELEPHONY=vobiz" }, 404);
     const kind = c.req.param("kind") as VobizCallback;
@@ -241,7 +248,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   });
 
   // Checks the phone line end to end: places one short call, and its progress arrives as call.updated events.
-  app.post("/api/telephony/test-call", admin, async (c) => {
+  app.post("/api/telephony/test-call", adminLimit, admin, async (c) => {
     const parsed = await body(c, TestCall);
     if (!parsed.ok) return parsed.response;
     try {
@@ -263,7 +270,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return call ? c.json(call) : c.json({ error: `no call ${c.req.param("id")}` }, 404);
   });
 
-  app.post("/api/approvals/:id", approver, async (c) => {
+  app.post("/api/approvals/:id", approvalLimit, approver, async (c) => {
     const parsed = await body(c, DecisionBody);
     if (!parsed.ok) return parsed.response;
     const id = c.req.param("id");
@@ -292,6 +299,20 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
 
   app.get("/api/voice/:id", (c) => c.json({ error: "voice is off: no audio is generated in sandbox mode" }, 404));
 
+  app.get("/api/workflows", (c) => c.json(workflows));
+  app.get("/api/traces", (c) => {
+    const session = c.req.query("session") === "all" ? undefined : runtime.state().session.id;
+    const incident = c.req.query("incident");
+    const status = c.req.query("status");
+    const traces = runtime.traces.list(session).filter((t) => (!incident || t.incidentId === incident) && (!status || t.status === status));
+    return c.json({ traces, langsmith: config.langsmith ? { project: config.langsmith.project } : null });
+  });
+  app.get("/api/traces/:id", (c) => {
+    const detail = runtime.traces.get(c.req.param("id"));
+    return detail ? c.json(detail) : c.json({ error: `no trace ${c.req.param("id")}` }, 404);
+  });
+
+  app.use("/mcp", rateLimit("MCP", limit * 5));
   mountMcp(app, { runtime, config });
 
   app.notFound((c) => (c.req.path.startsWith("/api/") ? c.json({ error: "not found" }, 404) : c.text("Not found", 404)));

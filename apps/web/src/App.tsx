@@ -5,12 +5,12 @@ import { api, type DirectoryEntry, type PolicyView, type ScenarioSummary } from 
 import { AppHeader, SPEEDS } from "./components/AppHeader";
 import { Sidebar } from "./components/Sidebar";
 import { STATUS_LABELS } from "./format";
-import { AgentsPage } from "./pages/AgentsPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { GovernancePage } from "./pages/GovernancePage";
 import { IncidentPage } from "./pages/IncidentPage";
 import { TicketsPage } from "./pages/TicketsPage";
-import { parseCustomer, parseRoute, ROUTES, routeHref, type Route } from "./router";
+import { TracesPage } from "./pages/TracesPage";
+import { parseCustomer, parseRoute, parseTrace, ROUTES, routeHref, type Route } from "./router";
 import { applyTheme, storedTheme, type Theme } from "./theme";
 import { useCrisis } from "./useCrisis";
 import { currentIncident } from "./view";
@@ -19,6 +19,7 @@ export function App() {
   const { state, connected } = useCrisis();
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
   const [customerRef, setCustomerRef] = useState<string | undefined>(() => parseCustomer(window.location.hash));
+  const [traceId, setTraceId] = useState<string | undefined>(() => parseTrace(window.location.hash));
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [theme, setTheme] = useState<Theme>(storedTheme);
   const [wiring, setWiring] = useState<WiringReport | null>(null);
@@ -32,12 +33,13 @@ export function App() {
   useEffect(() => {
     const onHash = () => {
       const next = parseRoute(window.location.hash);
-      // Picking another customer on the Customers page keeps the list where it is.
+      // Picking another customer or trace keeps the page where it is.
       setRoute((previous) => {
-        if (previous !== next || next !== "customers") window.scrollTo({ top: 0 });
+        if (previous !== next || (next !== "customers" && next !== "traces")) window.scrollTo({ top: 0 });
         return next;
       });
       setCustomerRef(parseCustomer(window.location.hash));
+      setTraceId(parseTrace(window.location.hash));
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -123,8 +125,8 @@ export function App() {
           {route === "incident" && <IncidentPage state={state} scenario={scenario} customerNames={customerNames} />}
           {route === "customers" && <CustomersPage state={state} selected={customerRef} />}
           {route === "tickets" && <TicketsPage state={state} customerNames={customerNames} />}
-          {route === "agents" && <AgentsPage state={state} />}
-          {route === "governance" && <GovernancePage state={state} policy={policy} />}
+          {route === "traces" && <TracesPage state={state} wiring={wiring} traceId={traceId} />}
+          {route === "governance" && <GovernancePage state={state} policy={policy} wiring={wiring} />}
         </main>
       </div>
       {error && (

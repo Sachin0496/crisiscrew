@@ -19,6 +19,9 @@ describe("loadConfig", () => {
       infra: "sandbox",
       llm: "template",
       embeddings: "local",
+      classifier: "embeddings",
+      guard: "heuristic",
+      tracing: "local",
       credits: "sandbox",
       translate: "off",
     });
@@ -54,12 +57,13 @@ describe("loadConfig", () => {
       VOBIZ_FROM_NUMBER: "+918065551234",
       PUBLIC_BASE_URL: "https://crisis.example.com",
       ADMIN_TOKEN: "admin",
+      APPROVER_TOKEN: "approver",
     };
     expect(loadConfig(keys).vobiz).toEqual({ authId: "MA123", authToken: "tok", from: "+918065551234", ringTimeoutSec: 30, timeLimitSec: 300 });
     expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "live", adapter: "vobiz" });
     expect(() => loadConfig({ ...keys, VOBIZ_AUTH_TOKEN: "", VOBIZ_FROM_NUMBER: "" })).toThrow("TELEPHONY=vobiz needs VOBIZ_AUTH_TOKEN, VOBIZ_FROM_NUMBER; see .env.example");
     expect(() => loadConfig({ ...keys, PUBLIC_BASE_URL: "http://localhost:8787" })).toThrow(/PUBLIC_BASE_URL.*https/);
-    expect(() => loadConfig({ ...keys, ADMIN_TOKEN: "" })).toThrow(/needs ADMIN_TOKEN/);
+    expect(() => loadConfig({ ...keys, ADMIN_TOKEN: "" })).toThrow(/ADMIN_TOKEN/);
     expect(() => loadConfig({ ...keys, VOBIZ_FROM_NUMBER: "reception" })).toThrow(/E\.164/);
   });
 
@@ -127,6 +131,15 @@ describe("loadConfig", () => {
     expect(config.generatedTokens).not.toContain("operator");
   });
 
+  it("requires separate admin and approver tokens when exposed publicly", () => {
+    expect(() => loadConfig({ PUBLIC_BASE_URL: "https://crisis.example.com" })).toThrow(/ADMIN_TOKEN and APPROVER_TOKEN/);
+    expect(() => loadConfig({ CRISISCREW_ENV: "production", ADMIN_TOKEN: "admin" })).toThrow(/APPROVER_TOKEN/);
+    expect(loadConfig({ PUBLIC_BASE_URL: "https://crisis.example.com", ADMIN_TOKEN: "admin", APPROVER_TOKEN: "approver" })).toMatchObject({
+      adminToken: "admin",
+      approverToken: "approver",
+    });
+  });
+
   it("reads numbers and optional tokens", () => {
     const config = loadConfig({ PORT: "9000", SANDBOX_LATENCY_MS: "0", ADMIN_TOKEN: "a", APPROVER_TOKEN: "" });
     expect(config).toMatchObject({ port: 9000, sandboxLatencyMs: 0, adminToken: "a", approverToken: null });
@@ -136,9 +149,9 @@ describe("loadConfig", () => {
 describe("wiringReport", () => {
   it("reports every port as sandbox, with the live adapters available and the ones only planned", () => {
     const report = wiringReport(loadConfig({}));
-    // Only the local embedding model is live: it is real computation on this machine, not simulated data.
-    expect(report.liveCount).toBe(1);
-    expect(report.ports).toHaveLength(15);
+    // The embedding model, built-in classifier, guard and local tracing run on this machine.
+    expect(report.liveCount).toBe(4);
+    expect(report.ports).toHaveLength(18);
     expect(report.ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "sandbox", available: ["freshservice"], env: "ONCALL" });
     expect(report.ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "sandbox", available: ["vobiz"], planned: [], env: "TELEPHONY" });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });
@@ -160,7 +173,7 @@ describe("wiringReport", () => {
         FRESHSERVICE_REQUESTER_EMAIL: "ops@acme.test",
       }),
     );
-    expect(report.liveCount).toBe(3);
+    expect(report.liveCount).toBe(6);
     expect(report.ports.find((p) => p.port === "tickets")?.detail).toBe(
       "Freshdesk (acme.freshdesk.com): polled every 15 s; notes and replies through the REST API. Replays and typed tickets stay in the sandbox",
     );

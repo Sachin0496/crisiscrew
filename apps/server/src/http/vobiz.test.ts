@@ -18,6 +18,7 @@ const ENV = {
   VOBIZ_FROM_NUMBER: "+918065551234",
   PUBLIC_BASE_URL: BASE,
   ADMIN_TOKEN: "admin",
+  APPROVER_TOKEN: "approver",
 };
 
 async function setup(live = true) {

@@ -8,7 +8,12 @@ import type { AgentKit } from "./kit";
  * error rates for the services behind the incident's product area, then
  * ranks root causes from that evidence.
  */
-export async function investigate(kit: AgentKit, incidentId: string): Promise<void> {
+export type InvestigationSummary = {
+  rootCause: { label: string; confidence: number } | null;
+  ranking: { label: string; confidence: number }[];
+};
+
+export async function investigate(kit: AgentKit, incidentId: string): Promise<InvestigationSummary> {
   const incident = kit.state().incidents[incidentId]!;
   kit.setAgent("investigator", "working", "Checking the payment gateway, recent releases, error rates and infrastructure");
 
@@ -76,4 +81,8 @@ export async function investigate(kit: AgentKit, incidentId: string): Promise<vo
     kit.setStatus(incidentId, "root_cause_identified", `${rootCause.label} (${Math.round(rootCause.confidence * 100)}% confidence)`);
   }
   kit.setAgent("investigator", "done", rootCause ? `Root cause: ${rootCause.label}` : "No single cause stands out yet");
+  return {
+    rootCause: rootCause ? { label: rootCause.label, confidence: rootCause.confidence } : null,
+    ranking: hypotheses.slice(0, 3).map((h) => ({ label: h.label, confidence: Number(h.confidence.toFixed(3)) })),
+  };
 }

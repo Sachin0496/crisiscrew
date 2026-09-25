@@ -81,6 +81,8 @@
     "infra": { "crashLoopLr": 8, "unreadyLr": 4, "restartsMin": 5, "restartsLr": 2, "healthyLr": 0.3, "alarmLr": 4, "noAlarmLr": 0.6, "saturationPercent": 90, "saturationLr": 3 },
     "methodSpread": { "concentratedShare": 0.8, "concentratedLr": 2, "spreadLr": 0.7 }
   },
+  "guardrails": { "allowedLinkHosts": [] },
+  "classifier": { "failureMin": 0.6, "surfaceMin": 0.5, "timeoutMs": 1500 },
   "importance": {
     "tier1Surfaces": ["checkout_payments", "login_account"],
     "affectedCustomers": { "p1": 20, "p2": 5 },

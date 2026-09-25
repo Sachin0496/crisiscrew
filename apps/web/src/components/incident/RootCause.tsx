@@ -18,7 +18,7 @@ export function RootCause({ incident }: { incident?: IncidentView }) {
   return (
     <Card
       title="Root cause"
-      subtitle="Investigator · prior × likelihood ratios, normalised across causes"
+      subtitle="Investigator · each cause's prior × the likelihood ratio of its evidence"
       footer={
         hypotheses.length > 0
           ? "Priors and likelihood ratios come from config/policy.json. They're stated assumptions, not values learned from past incidents."
@@ -36,7 +36,7 @@ export function RootCause({ incident }: { incident?: IncidentView }) {
       ) : (
         <>
           {incident.narrative && <p className="narrative">{incident.narrative}</p>}
-          {hypotheses.slice(0, 4).map((h, i) => {
+          {hypotheses.slice(0, 3).map((h, i) => {
             const top = i === 0 && incident.rootCause !== undefined;
             return (
               <div className={top ? "hyp top" : "hyp"} key={h.id}>
@@ -50,7 +50,9 @@ export function RootCause({ incident }: { incident?: IncidentView }) {
                   </div>
                   <div className="hyp-pct">{pct(h.confidence, 1)}</div>
                 </div>
-                <div className="evidence">
+                <details className="disclosure evidence-toggle" open={false}>
+                  <summary>How {pct(h.confidence)} was reached</summary>
+                  <div className="evidence">
                   <div className="ev">
                     <span className="ev-lr">prior {h.prior.toFixed(2)}</span>
                     <span>{h.kind === "unknown" ? "Always kept, so no cause reaches 100% by elimination" : "Starting weight from policy"}</span>
@@ -65,7 +67,8 @@ export function RootCause({ incident }: { incident?: IncidentView }) {
                       </Badge>
                     </div>
                   ))}
-                </div>
+                  </div>
+                </details>
               </div>
             );
           })}

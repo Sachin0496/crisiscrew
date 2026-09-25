@@ -1,4 +1,4 @@
-import type { Approval, CrisisState, DecisionBody, Level, Scenario, Ticket, WiringReport } from "@crisiscrew/contracts";
+import type { Approval, CrisisState, DecisionBody, Level, Scenario, Ticket, TraceDetail, WiringReport, WorkflowGraph } from "@crisiscrew/contracts";
 
 type Expected = Scenario["expected"];
 
@@ -73,6 +73,8 @@ export const api = {
   scenarios: () => get<ScenarioSummary[]>("/api/scenarios"),
   policy: () => get<PolicyView>("/api/policy"),
   verifyAudit: () => get<AuditVerify>("/api/audit/verify"),
+  workflows: () => get<WorkflowGraph[]>("/api/workflows"),
+  trace: (id: string) => get<TraceDetail>(`/api/traces/${encodeURIComponent(id)}`),
   state: () => get<CrisisState>("/api/state"),
   customers: () => get<DirectoryEntry[]>("/api/customers"),
   replay: (scenario: string, speed: number) => post<{ sessionId: string }>("/api/replay", { scenario, speed }, "admin"),

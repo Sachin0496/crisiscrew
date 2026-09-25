@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import {
+  allowListedFetch,
   CachedEmbedder,
   FreshdeskClient,
   freshdeskMcpWriter,
@@ -9,11 +10,15 @@ import {
   mcpInfraHealth,
   McpToolClient,
   HashEmbedder,
+  LakeraGuard,
+  LangSmithExporter,
+  layeredGuard,
+  LayaClassifier,
   LocalEmbedder,
   restWriter,
   vobizTelephony,
 } from "@crisiscrew/adapters";
-import type { Embedder } from "@crisiscrew/core";
+import { heuristicGuard, type Embedder, type PromptGuard, type TicketClassifier, type TraceSink } from "@crisiscrew/core";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigError, loadConfig, wiringReport, type Config } from "./config";
@@ -82,17 +87,64 @@ function liveAdapters(): LiveAdapters {
   return live;
 }
 
+// CrisisCrew sends its own traces to LangSmith (graph → node → tool). LangChain's automatic tracer would
+// post the same LangGraph runs a second time, so its switches are cleared once the config has read them.
+for (const key of ["LANGSMITH_TRACING", "LANGSMITH_TRACING_V2", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRACING"]) delete process.env[key];
+
+/** Every outbound model and tracing call goes through the egress allow-list. */
+const egress = allowListedFetch(config.egress);
+const policy = loadPolicy();
+
+function promptGuard(): PromptGuard {
+  if (!config.lakera) return heuristicGuard;
+  return layeredGuard([new LakeraGuard({ ...config.lakera, projectId: config.lakera.projectId ?? undefined, fetch: egress }), heuristicGuard]);
+}
+
+function classifier(): TicketClassifier | null {
+  if (!config.laya) return null;
+  const { baseUrl, apiKey, model } = config.laya;
+  const options = { baseUrl, ...(apiKey ? { apiKey } : {}), ...(model ? { model } : {}), fetch: egress };
+  // Laya's first answers after it starts are slow. Warm it up now, with a generous timeout, so the
+  // first tickets don't fall back; and say whether it answered, so a missing server shows at startup.
+  const started = Date.now();
+  new LayaClassifier({ ...options, timeoutMs: 60_000 }).classify("My payment failed at checkout.").then(
+    (v) => console.log(`[crisiscrew] Laya answered in ${Date.now() - started} ms (${v.model ?? "routed"} checkpoint)`),
+    (error) => console.error(`[crisiscrew] Laya: ${error instanceof Error ? error.message : String(error)}. Tickets use the built-in classifier until it answers; \`pnpm laya\` starts one`),
+  );
+  return new LayaClassifier({ ...options, timeoutMs: policy.classifier.timeoutMs });
+}
+
+function traceSinks(): TraceSink[] {
+  if (!config.langsmith) return [];
+  let reported = false;
+  return [
+    new LangSmithExporter({
+      ...config.langsmith,
+      fetch: egress,
+      // One line, not one per run: a wrong key or a blocked network shouldn't flood the console.
+      onError: (error) => {
+        if (reported) return;
+        reported = true;
+        console.error(`[crisiscrew] LangSmith: ${error instanceof Error ? error.message : String(error)} (further LangSmith errors are not shown)`);
+      },
+    }),
+  ];
+}
+
 const auditDir = join(DATA_DIR, "audit");
 mkdirSync(auditDir, { recursive: true });
 const runStamp = new Date().toISOString().replace(/[:.]/g, "-");
 
 const runtime = new Runtime({
-  policy: loadPolicy(),
+  policy,
   scenarios: loadScenarios(),
   embedder: embedder(),
   latencyMs: config.sandboxLatencyMs,
   liveWorld: "checkout-v4.21.7",
   live: liveAdapters(),
+  guard: promptGuard(),
+  classifier: classifier(),
+  traceSinks: traceSinks(),
   onAudit: (entry, sessionId) => appendFileSync(join(auditDir, `${runStamp}-${sessionId}.jsonl`), `${JSON.stringify(entry)}\n`),
   onError: (error) => console.error("[crisiscrew]", error),
   ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
@@ -109,11 +161,14 @@ const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
     `  UI and API   ${base}`,
     `  MCP          ${base}/mcp  (Streamable HTTP, bearer token per identity)`,
     `  Wiring       ${wiring.ports.map((p) => `${p.port}=${p.adapter}`).join("  ")}`,
+    // External services only: the local model and the built-in classifier, guard and tracing are summarised below.
     wiring.ports
-      .filter((p) => p.mode === "live" && p.port !== "embeddings")
+      .filter((p) => p.mode === "live" && !["embeddings", "classifier:embeddings", "guard:heuristic", "tracing:local"].includes(p.port === "embeddings" ? p.port : `${p.port}:${p.adapter}`))
       .map((p) => `  Live         ${p.detail}`)
       .join("\n") || "               Freshworks adapters are off (sandbox); switch them on in .env.",
     `  Tokens       admin ${config.adminToken ? "set" : "not set (open, local demo)"}, approver ${config.approverToken ? "set" : "not set (open, local demo)"}`,
+    `  Workflows    LangGraph; traces at ${base}/#/traces${config.langsmith ? ` and in LangSmith project "${config.langsmith.project}"` : ""}`,
+    `  Guardrails   prompt guard: ${config.lakera ? "Lakera + built-in rules" : "built-in rules"}; classifier: ${config.laya ? `Laya at ${config.laya.baseUrl}` : "built-in"}${config.egress.length ? `; egress allow-list: ${config.egress.join(", ")}` : ""}`,
   ];
   if (config.freshdesk?.ingest === "webhook") lines.push(`  Freshdesk    webhook: POST ${base}/api/webhooks/freshdesk with header X-CrisisCrew-Secret`);
   if (config.vobiz) lines.push(`  Vobiz        callbacks: ${base}/api/webhooks/vobiz/:callId/:kind (signed); test call: POST ${base}/api/telephony/test-call`);

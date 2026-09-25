@@ -1,4 +1,4 @@
-import type { CallPurpose, CallView, Customer, ImportanceLevel, OnCallRole, PaymentMethod, Ticket } from "@crisiscrew/contracts";
+import type { CallPurpose, CallView, Customer, GuardVerdict, ImportanceLevel, OnCallRole, PaymentMethod, Surface, Ticket, TicketType } from "@crisiscrew/contracts";
 
 /**
  * Ports: the only way core reaches the outside world. Sandbox adapters
@@ -14,6 +14,22 @@ export interface Clock {
 export interface Embedder {
   readonly id: string;
   embed(texts: string[]): Promise<Float32Array[]>;
+}
+
+export interface PromptGuard extends AdapterMode {
+  screen(text: string): Promise<GuardVerdict>;
+}
+
+export type ClassifierVerdict = {
+  source: string;
+  model?: string;
+  ticketType: { label: TicketType; confidence: number; probabilities: Partial<Record<TicketType, number>> };
+  surface: { label: Surface; confidence: number; probabilities: Partial<Record<Surface, number>> };
+  latencyMs: number;
+};
+
+export interface TicketClassifier extends AdapterMode {
+  classify(text: string): Promise<ClassifierVerdict>;
 }
 
 export type Deployment = {

@@ -1,3 +1,6 @@
+import type { Ticket } from "@crisiscrew/contracts";
+import type { EvalRun } from "./generate";
+
 /** What happened in one eval run, compared with its label. */
 export type Outcome = {
   kind: string;
@@ -76,5 +79,31 @@ export function score(outcomes: Outcome[]): Score {
     medianLatencyTickets: median(hits.flatMap((h) => (h.latencyTickets === undefined ? [] : [h.latencyTickets]))),
     medianLatencySec: median(hits.flatMap((h) => (h.latencySec === undefined ? [] : [h.latencySec]))),
     rootAccuracy: roots.length ? roots.filter((r) => r.rootCorrect).length / roots.length : null,
+  };
+}
+
+/** An incident the engine opened in an eval run: its tickets, when, and whether it named the true cause. */
+export type Opened = { members: Set<string>; openedAt: number; rootCorrect?: boolean };
+
+/** Compares what the engine opened with the run's label: the best-matching incident is scored, and the rest count as false alarms. */
+export function toOutcome(run: EvalRun, tickets: Ticket[], labeledIds: Set<string>, opened: Opened[]): Outcome {
+  const overlap = (o: Opened) => [...o.members].filter((id) => labeledIds.has(id)).length;
+  const best = [...opened].sort((a, b) => overlap(b) - overlap(a))[0];
+  const labeledTimes = tickets.filter((t) => labeledIds.has(t.id)).map((t) => t.receivedAt);
+  return {
+    kind: run.kind,
+    expectedIncident: run.scenario.expected.incident,
+    fired: Boolean(best),
+    linkedLabeled: best ? overlap(best) : 0,
+    linkedTotal: best ? best.members.size : 0,
+    labeledTotal: labeledIds.size,
+    ...(best && labeledTimes.length
+      ? {
+          latencyTickets: labeledTimes.filter((at) => at <= best.openedAt).length,
+          latencySec: (best.openedAt - Math.min(...labeledTimes)) / 1000,
+        }
+      : {}),
+    ...(best?.rootCorrect !== undefined ? { rootCorrect: best.rootCorrect } : {}),
+    extraIncidents: Math.max(0, opened.length - 1),
   };
 }

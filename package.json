@@ -15,7 +15,11 @@
     "replay": "pnpm --filter @crisiscrew/server replay",
     "eval": "pnpm --filter @crisiscrew/server eval",
     "embeddings:warm": "pnpm --filter @crisiscrew/server embeddings:warm",
-    "calibrate": "pnpm --filter @crisiscrew/server calibrate"
+    "calibrate": "pnpm --filter @crisiscrew/server calibrate",
+    "laya": "bash scripts/laya.sh",
+    "eval:safety": "pnpm --filter @crisiscrew/server eval:safety",
+    "eval:impact": "pnpm --filter @crisiscrew/server eval:impact",
+    "eval:classifier": "pnpm --filter @crisiscrew/server eval:classifier"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

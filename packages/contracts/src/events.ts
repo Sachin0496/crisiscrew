@@ -19,6 +19,8 @@ import type {
   SignalView,
   Ticket,
 } from "./domain";
+import type { GuardFlag } from "./guard";
+import type { TraceSummary } from "./trace";
 
 type E<T extends string, P> = { seq: number; at: number; type: T; payload: P };
 
@@ -75,7 +77,9 @@ export type CrisisEvent =
   | E<"engineering.recorded", { incidentId: string; record: EngineeringRecord }>
   /** A phone call's new state, from the telephony adapter (Vobiz, or its sandbox). */
   | E<"call.updated", { call: CallView }>
-  | E<"replay.finished", { scenarioId: string }>;
+  | E<"replay.finished", { scenarioId: string }>
+  | E<"trace.updated", { trace: TraceSummary }>
+  | E<"guard.flagged", { flag: GuardFlag }>;
 
 export type CrisisEventType = CrisisEvent["type"];
 
