@@ -1,7 +1,7 @@
 import { recoveryCoverage, type Alert, type Approval, type ClusterView, type ImportanceAssessment, type IncidentStatus, type Surface } from "@crisiscrew/contracts";
 import { assessImportance, higher, nextImportance, type ImportanceAlert } from "../importance/assess";
 import { coverageNote, importanceNote } from "../recovery/templates";
-import { carryOutDecision, requestApprovals } from "./handoff";
+import { carryOutDecision, reachOut, requestApprovals } from "./handoff";
 import { investigate } from "./investigator";
 import type { AgentKit } from "./kit";
 import { fileIssue, openProblem } from "./issue-creator";
@@ -106,7 +106,9 @@ export async function setImportanceByHuman(kit: AgentKit, incidentId: string, im
 async function recover(kit: AgentKit, incidentId: string): Promise<void> {
   await kit.serial(incidentId, async () => {
     await reconcile(kit, incidentId, { assessFirst: true });
+    await reachOut(kit, incidentId);
     await requestApprovals(kit, incidentId);
+    await noteOutcomes(kit, incidentId, "handoff");
     await reassess(kit, incidentId, kit.state().incidents[incidentId]?.rootCause ? "root_cause" : "impact");
     await settle(kit, incidentId);
   });

@@ -1,14 +1,14 @@
 import {
   actionsFor,
   customerState,
-  recoveryCoverage,
+  OUTREACH_KINDS,
   type AffectedCustomer,
   type CustomerImpact,
   type Identity,
   type RecoveryAction,
 } from "@crisiscrew/contracts";
 import type { ToolCallResult } from "../policy/gate";
-import { outcomeNote, personalise, type Draft } from "../recovery/templates";
+import { outcomeNote } from "../recovery/templates";
 import { inBatches, type AgentKit } from "./kit";
 
 /** Records an action's new status. */
@@ -41,30 +41,19 @@ function evidenceSummary(customer: AffectedCustomer): string {
     .join("; ");
 }
 
-/** Carries out one planned action within the agents' authority and records the outcome on the action. */
-async function carryOut(kit: AgentKit, action: RecoveryAction, customer: AffectedCustomer | undefined, draft: Draft): Promise<void> {
+/**
+ * Carries out one planned action of the Recovery Agent's own, within its
+ * authority: a note on the account of a customer nobody may message, or a
+ * credit. Customer outreach is the Handoff Agent's (reachOut).
+ */
+async function carryOut(kit: AgentKit, action: RecoveryAction, customer: AffectedCustomer | undefined): Promise<void> {
   if (!customer) {
     updateAction(kit, action, { status: "failed", detail: "No longer in the impact graph" });
     return;
   }
   const { incidentId, customerRef } = action;
-  const send = (channel: "ticket_reply" | "proactive_message" | "voice", text: string) =>
-    kit.gate.call("recovery", "send_customer_update", { incidentId, customerRef, channel, text: personalise(text, customer.name), actionId: action.id });
-
   let r: ToolCallResult;
   switch (action.kind) {
-    case "ticket_reply":
-      r = await send("ticket_reply", draft.body);
-      break;
-    case "acknowledge":
-      r = await send("ticket_reply", draft.acknowledgement);
-      break;
-    case "proactive_message":
-      r = await send("proactive_message", draft.body);
-      break;
-    case "voice":
-      r = await send("voice", draft.voiceScript);
-      break;
     case "account_note":
       r = await kit.gate.call("recovery", "add_account_note", {
         incidentId,
@@ -82,11 +71,8 @@ async function carryOut(kit: AgentKit, action: RecoveryAction, customer: Affecte
     updateAction(kit, action, { status: "failed", detail: r.reason });
     return;
   }
-  const result = r.result as { updateId?: string; status?: string; adapter?: string; noteId?: string; creditId?: string };
-  if (action.kind === "credit") updateAction(kit, action, { status: "done", detail: `${result.creditId} · ${r.entry.adapter}` });
-  else if (action.kind === "account_note") updateAction(kit, action, { status: "done", detail: `${result.noteId} · ${r.entry.adapter}` });
-  else if (result.status === "prepared") updateAction(kit, action, { status: "prepared", detail: `${result.updateId}: prepared, voice is off` });
-  else updateAction(kit, action, { status: "done", detail: `${result.updateId} · ${result.adapter ?? r.entry.adapter}` });
+  const result = r.result as { noteId?: string; creditId?: string };
+  updateAction(kit, action, { status: "done", detail: `${action.kind === "credit" ? result.creditId : result.noteId} · ${r.entry.adapter}` });
 }
 
 /**
@@ -111,9 +97,11 @@ export async function noteOutcomes(kit: AgentKit, incidentId: string, identity: 
 }
 
 /**
- * One recovery pass: rebuild the impact graph if asked, plan the actions
- * each customer is still missing, and carry out every planned action within
- * the agents' authority. Credits above it stay planned for the Handoff Agent.
+ * The Recovery Agent's part of a recovery pass: rebuild the impact graph if
+ * asked, draft the incident's messages, plan the actions each customer is
+ * still missing, and carry out its own within its authority (account notes
+ * and credits). Outreach and credits above authority stay planned for the
+ * Handoff Agent.
  */
 export async function reconcile(kit: AgentKit, incidentId: string, options: { assessFirst: boolean }): Promise<void> {
   kit.setAgent("recovery", "working", "Planning each affected customer's recovery");
@@ -128,16 +116,13 @@ export async function reconcile(kit: AgentKit, incidentId: string, options: { as
 
   const incident = kit.state().incidents[incidentId]!;
   const customers = new Map((incident.impact?.customers ?? []).map((c) => [c.ref, c]));
-  const todo = incident.actions.filter((a) => a.status === "planned" && a.level !== null && a.level <= 2);
-  if (todo.length > 0) kit.setAgent("recovery", "working", `Carrying out ${todo.length} recovery actions within my authority`);
-  await inBatches(todo, 5, (action) => carryOut(kit, action, customers.get(action.customerRef), draft));
-  await noteOutcomes(kit, incidentId, "recovery");
+  const todo = incident.actions.filter((a) => a.status === "planned" && (a.kind === "credit" || a.kind === "account_note") && a.level !== null && a.level <= 2);
+  if (todo.length > 0) kit.setAgent("recovery", "working", `Carrying out ${todo.length} credits and notes within my authority`);
+  await inBatches(todo, 5, (action) => carryOut(kit, action, customers.get(action.customerRef)));
 
-  const coverage = recoveryCoverage(kit.state().incidents[incidentId]!);
-  const waiting = kit.state().incidents[incidentId]!.actions.filter((a) => a.level === 3 && a.status === "planned").length;
-  kit.setAgent(
-    "recovery",
-    "done",
-    `${coverage.recovered} of ${coverage.confirmed} affected customers recovered${waiting ? `; ${waiting} ${waiting === 1 ? "credit is" : "credits are"} above my authority, so they go to the Handoff Agent` : ""}`,
-  );
+  const after = kit.state().incidents[incidentId]!;
+  const outreach = after.actions.filter((a) => OUTREACH_KINDS.includes(a.kind) && a.status === "planned").length;
+  const waiting = after.actions.filter((a) => a.level === 3 && a.status === "planned").length;
+  const handed = [outreach ? `${outreach} ${outreach === 1 ? "message" : "messages"}` : "", waiting ? `${waiting} ${waiting === 1 ? "credit" : "credits"} above my authority` : ""].filter(Boolean);
+  kit.setAgent("recovery", "done", `Planned every affected customer's recovery${handed.length ? `; handed ${handed.join(" and ")} to the Handoff Agent` : ""}`);
 }

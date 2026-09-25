@@ -30,7 +30,6 @@
         "add_ticket_note",
         "draft_customer_update",
         "plan_recovery",
-        "send_customer_update",
         "add_account_note",
         "issue_recovery_credit",
         "get_incident",
@@ -40,7 +39,7 @@
     "handoff": {
       "name": "Handoff Agent",
       "maxLevel": 3,
-      "tools": ["request_human_approval", "issue_recovery_credit", "add_ticket_note", "get_incident", "get_customer_impact"]
+      "tools": ["send_customer_update", "request_human_approval", "issue_recovery_credit", "add_ticket_note", "get_incident", "get_customer_impact"]
     },
     "operator": {
       "name": "External MCP client",

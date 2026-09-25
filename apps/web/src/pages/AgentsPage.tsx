@@ -1,4 +1,5 @@
 import { AGENT_IDS, LEVEL_NAMES, type AuditEntry, type CrisisState } from "@crisiscrew/contracts";
+import { HandoffQueue } from "../components/HandoffQueue";
 import { Bot } from "lucide-react";
 import { Badge, Card, Empty } from "../components/ui";
 import { ADAPTER_LABELS, AGENT_STATUS, plural, sentence, since, TOOL_OWNER, type Tone } from "../format";
@@ -55,6 +56,7 @@ export function AgentsPage({ state }: { state: CrisisState }) {
           </table>
         </div>
       </Card>
+      <HandoffQueue state={state} />
       <Card title="Tool calls" subtitle={`${plural(calls.length, "call")} · ${refused} refused · newest first`} flush>
         {calls.length === 0 ? (
           <Empty icon={<Bot size={18} />} title="No tool calls yet">

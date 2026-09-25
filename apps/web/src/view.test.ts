@@ -1,6 +1,6 @@
 import { initialState, type AffectedCustomer, type Approval, type ClusterView, type IncidentStatus, type IncidentView, type RecoveryAction } from "@crisiscrew/contracts";
 import { describe, expect, it } from "vitest";
-import { currentIncident, customerRows, decisionsFor, expectedOutcome, groupVerdict, incidentTitle, matchesFilter, planSummary, progressSteps, sessionSummary } from "./view";
+import { currentIncident, customerRows, decisionsFor, expectedOutcome, groupVerdict, incidentTitle, matchesFilter, planSummary, progressSteps, sessionSummary, handoffQueue, outreachByTrack } from "./view";
 
 type Timeline = IncidentView["timeline"];
 const at = (status: IncidentStatus, sec: number) => ({ at: sec * 1000, status, note: "" });
@@ -180,6 +180,17 @@ describe("customer rows", () => {
     expect(rows.map((r) => `${r.customer.ref}:${r.state}`)).toEqual(["priya:recovered", "ananya:needs_human", "judge:unverified"]);
     expect(rows[0]?.headline).toBe("UPI payment of ₹999 failed at 14:05:00 (priya)");
     expect(rows[2]?.headline).toBe("No failed payment on record");
+  });
+
+  it("summarises outreach per track, and queues what the Handoff Agent still has to do", () => {
+    expect(outreachByTrack(inc)).toEqual([
+      { track: "complained", customers: 1, messages: { total: 1, sent: 1, prepared: 0, queued: 0, failed: 0 }, calls: 0, notesOnly: 0 },
+      { track: "not_complained", customers: 1, messages: { total: 2, sent: 1, prepared: 1, queued: 0, failed: 0 }, calls: 1, notesOnly: 0 },
+      { track: "unverified", customers: 1, messages: { total: 1, sent: 1, prepared: 0, queued: 0, failed: 0 }, calls: 0, notesOnly: 0 },
+    ]);
+    expect(handoffQueue(inc).map((a) => a.id)).toEqual([]);
+    const pending = { ...inc, actions: [...inc.actions, { ...act("priya", "voice", "failed"), level: 2 }, { ...act("ananya", "credit", "awaiting_approval", 1000), id: "x", level: 3 }] } as IncidentView;
+    expect(handoffQueue(pending).map((a) => `${a.customerRef}:${a.kind}:${a.status}`)).toEqual(["priya:voice:failed", "ananya:credit:awaiting_approval"]);
   });
 
   it("filters by complained, silent, needs a human and not verified", () => {
