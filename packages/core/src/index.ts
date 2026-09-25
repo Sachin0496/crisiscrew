@@ -11,6 +11,7 @@ export * from "./ports";
 export * from "./agents/kit";
 export * from "./bus";
 export * from "./engine";
+export * from "./importance/assess";
 export * from "./policy/audit";
 export * from "./policy/gate";
 export * from "./rca/score";

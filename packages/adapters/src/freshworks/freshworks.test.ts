@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { FreshdeskClient, freshdeskIdOf, freshdeskTicketActions, freshdeskToTicketInput, restWriter, type FreshdeskTicket } from "./freshdesk";
 import { freshdeskMcpWriter, shapeTool } from "./freshdesk-mcp";
-import { freshserviceIncidents } from "./freshservice";
+import { freshserviceIncidents, freshserviceOnCall } from "./freshservice";
+import { freshserviceAlertToInput, FreshserviceAlertsClient, type FreshserviceAlert } from "./freshservice-alerts";
 import { FreshworksError, htmlToText, normalizeDomain, textToHtml } from "./http";
 
 type Call = { method: string; url: string; auth: string | null; body: unknown };
@@ -180,20 +181,134 @@ describe("Freshdesk MCP writer", () => {
 });
 
 describe("Freshservice incidents", () => {
-  it("files a high-priority open incident as the configured requester, then adds private notes", async () => {
+  it("files an open incident at its importance's priority as the configured requester, raises it, and adds private notes", async () => {
     const api = fakeApi({
       "POST /api/v2/tickets": { status: 201, body: { ticket: { id: 314 } } },
+      "PUT /api/v2/tickets/314": { status: 200, body: { ticket: { id: 314 } } },
       "POST /api/v2/tickets/314/notes": { status: 201, body: { conversation: { id: 1 } } },
     });
     const port = freshserviceIncidents({ domain: "acme.freshservice.com", apiKey: "fs-key", requesterEmail: "ops@acme.test", workspaceId: 2, fetch: api.fetch });
-    const record = await port.open({ incidentId: "INC-2026-001", title: "Checkout and payment failures (INC-2026-001)", description: "8 reports\nopened", severity: "high" });
+    const record = await port.open({ incidentId: "INC-2026-001", title: "Checkout and payment failures (INC-2026-001)", description: "8 reports\nopened", importance: "P2" });
+    await port.setImportance(record.id, "P1");
     await port.note(record.id, "Root cause: checkout-service v4.21.7");
     expect(record).toEqual({ id: "#314", url: "https://acme.freshservice.com/a/tickets/314" });
     expect(api.calls.map((c) => c.body)).toEqual([
-      { subject: "Checkout and payment failures (INC-2026-001)", description: "8 reports<br>opened", email: "ops@acme.test", priority: 3, status: 2, workspace_id: 2 },
+      { subject: "Checkout and payment failures (INC-2026-001)", description: "8 reports<br>opened", email: "ops@acme.test", priority: 3, urgency: 2, impact: 2, status: 2, workspace_id: 2 },
+      { priority: 4, urgency: 3, impact: 3 },
       { body: "Root cause: checkout-service v4.21.7", private: true },
     ]);
     expect(api.calls[0]?.auth).toBe(`Basic ${Buffer.from("fs-key:X").toString("base64")}`);
     expect(port.mode).toBe("live");
+  });
+});
+
+describe("Freshservice on-call", () => {
+  const user = (id: number, name: string, phone: string | null, mobile: string | null = null) => ({ id, name, email: `${name.split(" ")[0]!.toLowerCase()}@acme.test`, phone, mobile, agent: true });
+  it("asks the service's schedule who's on call now, primary first, each person once, preferring their mobile", async () => {
+    const api = fakeApi({
+      "GET /api/v2/oncall/shift-events/current": {
+        body: {
+          shift_events: [
+            { user: user(16, "Staging Agent", null), roster_type: "SECONDARY" },
+            { user: user(47, "John Doe", "+13232323232", "+919000011111"), roster_type: "TERTIARY" },
+            { user: user(47, "John Doe", "+13232323232", "+919000011111"), roster_type: "PRIMARY" },
+            { user: user(52, "Asha Rao", "+919000022222"), roster_type: "BACKUP" },
+          ],
+        },
+      },
+    });
+    const port = freshserviceOnCall({ domain: "acme.freshservice.com", apiKey: "fs-key", defaultScheduleId: 8569, schedules: { "checkout-service": 8570 }, fetch: api.fetch });
+    expect(await port.whoIsOnCall("checkout-service")).toEqual([
+      { name: "John Doe", role: "primary", phone: "+919000011111", email: "john@acme.test" },
+      { name: "Staging Agent", role: "secondary", email: "staging@acme.test" },
+    ]);
+    await port.whoIsOnCall("auth-service");
+    expect(api.calls.map((c) => c.url)).toEqual([
+      "https://acme.freshservice.com/api/v2/oncall/shift-events/current?schedule_id=8570",
+      "https://acme.freshservice.com/api/v2/oncall/shift-events/current?schedule_id=8569",
+    ]);
+    expect(port).toMatchObject({ mode: "live", adapter: "freshservice" });
+  });
+});
+
+describe("Freshservice alerts", () => {
+  const base: FreshserviceAlert = {
+    id: 9101,
+    subject: "Threshold Crossed: 5xx rate   3.4% for 5 minutes",
+    metric_name: "http_5xx_rate",
+    metric_value: "3.4",
+    node: "ip-10-0-1-7",
+    resource: "arn:aws:cloudwatch:ap-south-1:1:alarm:checkout-5xx",
+    severity: 201,
+    state: 1,
+    tags: ["AWS/ApplicationELB"],
+    occurrence_time: "2026-09-25T08:30:00Z",
+    updated_at: "2026-09-25T08:30:05Z",
+    additional_info: { Threshold: "2.0" },
+  };
+  const rules = [{ match: "checkout-5xx", service: "checkout-service" }];
+
+  it("maps a critical alert to its service by rule, and a service tag wins over the rules", () => {
+    expect(freshserviceAlertToInput(base, rules)).toEqual({
+      source: "freshservice",
+      externalId: "9101",
+      service: "checkout-service",
+      metric: "http_5xx_rate",
+      value: "3.4",
+      threshold: "2.0",
+      severity: "critical",
+      label: "Threshold Crossed: 5xx rate 3.4% for 5 minutes",
+      firedAt: Date.parse("2026-09-25T08:30:00Z"),
+    });
+    expect(freshserviceAlertToInput({ ...base, tags: ["service:auth-service"] }, rules)?.service).toBe("auth-service");
+  });
+
+  it("treats error and warning as warnings, carries a resolution, and drops what it can't place or doesn't need", () => {
+    expect(freshserviceAlertToInput({ ...base, severity: 151 }, rules)?.severity).toBe("warning");
+    expect(freshserviceAlertToInput({ ...base, severity: 101 }, rules)?.severity).toBe("warning");
+    expect(freshserviceAlertToInput({ ...base, state: 2 }, rules)?.resolvedAt).toBe(Date.parse("2026-09-25T08:30:05Z"));
+    expect(freshserviceAlertToInput({ ...base, severity: 51 }, rules)).toBeNull();
+    expect(freshserviceAlertToInput(base, [])).toBeNull();
+  });
+
+  it("reads one alert by id, and every alert updated since a time, oldest first", async () => {
+    const api = fakeApi({
+      "GET /api/v2/ams/alerts/9101": { body: { alert: base } },
+      "GET /api/v2/ams/alerts": { body: { alerts: [base] } },
+    });
+    const client = new FreshserviceAlertsClient({ domain: "acme.freshservice.com", apiKey: "fs-key", fetch: api.fetch });
+    expect((await client.alert(9101)).id).toBe(9101);
+    expect(await client.updatedSince(new Date("2026-09-25T08:00:00.123Z"))).toHaveLength(1);
+    const url = new URL(api.calls[1]!.url);
+    expect(url.searchParams.get("query")).toBe("updated_at:>'2026-09-25T08:00:00Z'");
+    expect(url.searchParams.get("order_by")).toBe("updated_at");
+    expect(url.searchParams.get("order_type")).toBe("asc");
+  });
+});
+
+describe("Freshservice changes and problems", () => {
+  it("routes the incident to its service's group with tags, then files a linked rollback change and problem", async () => {
+    const api = fakeApi({
+      "POST /api/v2/tickets": { status: 201, body: { ticket: { id: 314 } } },
+      "POST /api/v2/changes": { status: 201, body: { change: { id: 27 } } },
+      "POST /api/v2/problems": { status: 201, body: { problem: { id: 9 } } },
+      "PUT /api/v2/tickets/314": { status: 200, body: { ticket: { id: 314 } } },
+    });
+    const port = freshserviceIncidents({ domain: "acme.freshservice.com", apiKey: "fs-key", requesterEmail: "ops@acme.test", groups: { "checkout-service": 12, "*": 34 }, fetch: api.fetch });
+    await port.open({ incidentId: "INC-1", title: "t", description: "d", importance: "P1", service: "checkout-service", tags: ["crisiscrew", "checkout_payments"] });
+    expect(api.calls[0]?.body).toMatchObject({ group_id: 12, tags: ["crisiscrew", "checkout_payments"], priority: 4 });
+    await port.open({ incidentId: "INC-2", title: "t", description: "d", importance: "P3", service: "search-service" });
+    expect(api.calls[1]?.body).toMatchObject({ group_id: 34, priority: 2 });
+
+    expect(await port.requestChange("#314", { title: "Roll back x", description: "why", importance: "P1", service: "checkout-service" })).toEqual({
+      id: "CHN-27",
+      url: "https://acme.freshservice.com/a/changes/27",
+    });
+    expect(api.calls[2]).toMatchObject({ method: "POST", body: { subject: "Roll back x", status: 1, change_type: 4, risk: 2, priority: 4, group_id: 12, email: "ops@acme.test" } });
+    expect(api.calls[3]).toMatchObject({ method: "PUT", body: { change_initiated_by_ticket: { display_id: 27 } } });
+
+    expect(await port.openProblem("#314", { title: "Review", description: "what happened", importance: "P2" })).toEqual({ id: "PRB-9", url: "https://acme.freshservice.com/a/problems/9" });
+    expect(api.calls[4]).toMatchObject({ method: "POST", body: { subject: "Review", status: 1, priority: 3, group_id: 34 } });
+    expect(api.calls[5]).toMatchObject({ method: "PUT", body: { problem: { display_id: 9 } } });
   });
 });

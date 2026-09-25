@@ -9,12 +9,17 @@
     "commander": {
       "name": "Incident Commander",
       "maxLevel": 1,
-      "tools": ["open_incident", "get_incident", "search_recent_tickets", "file_engineering_incident", "update_engineering_incident", "get_recovery_coverage"]
+      "tools": ["open_incident", "get_incident", "search_recent_tickets", "update_engineering_incident", "get_recovery_coverage", "page_on_call"]
     },
     "investigator": {
       "name": "Investigator",
       "maxLevel": 0,
-      "tools": ["get_payment_health", "get_recent_deployments", "get_service_status", "get_incident"]
+      "tools": ["get_payment_health", "get_recent_deployments", "get_service_status", "get_infra_health", "get_incident"]
+    },
+    "issue_creator": {
+      "name": "Issue Creator",
+      "maxLevel": 1,
+      "tools": ["file_engineering_incident", "update_engineering_incident", "request_rollback_change", "open_problem_record", "get_incident", "get_infra_health"]
     },
     "recovery": {
       "name": "Recovery Agent",
@@ -25,7 +30,6 @@
         "add_ticket_note",
         "draft_customer_update",
         "plan_recovery",
-        "send_customer_update",
         "add_account_note",
         "issue_recovery_credit",
         "get_incident",
@@ -35,7 +39,7 @@
     "handoff": {
       "name": "Handoff Agent",
       "maxLevel": 3,
-      "tools": ["request_human_approval", "issue_recovery_credit", "add_ticket_note", "get_incident", "get_customer_impact"]
+      "tools": ["send_customer_update", "record_contact_preference", "request_human_approval", "issue_recovery_credit", "add_ticket_note", "add_account_note", "get_incident", "get_customer_impact"]
     },
     "operator": {
       "name": "External MCP client",
@@ -47,7 +51,8 @@
         "get_recovery_coverage",
         "get_payment_health",
         "get_recent_deployments",
-        "get_service_status"
+        "get_service_status",
+        "get_infra_health"
       ]
     }
   },
@@ -69,16 +74,42 @@
   "rca": {
     "lookbackHours": 6,
     "confidenceFloor": 0.6,
-    "priors": { "deploy": 0.5, "provider": 0.25, "unknown": 0.25 },
+    "priors": { "deploy": 0.5, "provider": 0.25, "infra": 0.15, "unknown": 0.25 },
     "deployGap": { "withinMin": 30, "withinLr": 6, "nearMin": 120, "nearLr": 3, "farLr": 0.5, "afterLr": 0.2 },
     "errorRatio": { "strongMin": 2, "cap": 10, "weakMin": 1.2, "weakLr": 1, "noneLr": 0.3 },
     "provider": { "operationalLr": 0.1, "degradedLr": 8, "uncheckedLr": 1 },
+    "infra": { "crashLoopLr": 8, "unreadyLr": 4, "restartsMin": 5, "restartsLr": 2, "healthyLr": 0.3, "alarmLr": 4, "noAlarmLr": 0.6, "saturationPercent": 90, "saturationLr": 3 },
     "methodSpread": { "concentratedShare": 0.8, "concentratedLr": 2, "spreadLr": 0.7 }
   },
-  "guardrails": {
-    "allowedLinkHosts": []
-  },
+  "guardrails": { "allowedLinkHosts": [] },
   "classifier": { "failureMin": 0.6, "surfaceMin": 0.5, "timeoutMs": 1500 },
+  "importance": {
+    "tier1Surfaces": ["checkout_payments", "login_account"],
+    "affectedCustomers": { "p1": 20, "p2": 5 },
+    "failedValueInr": { "p1": 200000, "p2": 25000 },
+    "priorityCustomers": { "p1": 3, "p2": 1 },
+    "deployConfidence": 0.8,
+    "pageAt": "P1"
+  },
+  "issues": {
+    "rollbackConfidence": 0.8,
+    "problemOnRecovered": true
+  },
+  "alerts": {
+    "openOnCritical": true,
+    "joinWindowMin": 60,
+    "criticalLr": 4,
+    "warningLr": 1.5
+  },
+  "voice": {
+    "maxAttempts": 3,
+    "retryAfterMin": 10,
+    "callingHours": { "start": 9, "end": 21, "timeZone": "Asia/Kolkata" }
+  },
+  "oncall": {
+    "ackTimeoutMin": 5,
+    "maxEscalations": 2
+  },
   "recovery": {
     "affectedLookbackMin": 30,
     "creditInr": { "standard": 200, "high": 1000 },

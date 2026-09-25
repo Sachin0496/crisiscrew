@@ -1,4 +1,4 @@
-import type { Customer, GuardVerdict, PaymentMethod, Surface, Ticket, TicketType } from "@crisiscrew/contracts";
+import type { CallPurpose, CallView, Customer, GuardVerdict, ImportanceLevel, OnCallRole, PaymentMethod, Surface, Ticket, TicketType } from "@crisiscrew/contracts";
 
 /**
  * Ports: the only way core reaches the outside world. Sandbox adapters
@@ -14,6 +14,22 @@ export interface Clock {
 export interface Embedder {
   readonly id: string;
   embed(texts: string[]): Promise<Float32Array[]>;
+}
+
+export interface PromptGuard extends AdapterMode {
+  screen(text: string): Promise<GuardVerdict>;
+}
+
+export type ClassifierVerdict = {
+  source: string;
+  model?: string;
+  ticketType: { label: TicketType; confidence: number; probabilities: Partial<Record<TicketType, number>> };
+  surface: { label: Surface; confidence: number; probabilities: Partial<Record<Surface, number>> };
+  latencyMs: number;
+};
+
+export interface TicketClassifier extends AdapterMode {
+  classify(text: string): Promise<ClassifierVerdict>;
 }
 
 export type Deployment = {
@@ -64,6 +80,8 @@ export interface OrdersPort extends AdapterMode {
   findCustomer(query: { email?: string; name?: string }): Promise<Customer | null>;
   /** Leaves a note on the customer's account, for support to see if they get in touch. */
   addAccountNote(customerRef: string, text: string): Promise<{ id: string }>;
+  /** Records that the customer no longer wants this kind of contact. */
+  withdrawConsent(customerRef: string, channel: "voice" | "proactive"): Promise<void>;
 }
 
 export interface TicketActionsPort extends AdapterMode {
@@ -82,42 +100,71 @@ export interface VoicePort extends AdapterMode {
   synthesize(text: string): Promise<{ audioId: string | null }>;
 }
 
+export type CallRequest = {
+  /** The number to call, in E.164 format (+919876543210). */
+  to: string;
+  /** What the call says once answered. */
+  script: string;
+  purpose: CallPurpose;
+  /** Asks the callee to press a key after the script, e.g. "Press 1 to acknowledge"; replies are what the call says back for each key. */
+  gather?: { prompt: string; numDigits?: number; replies?: Record<string, string> };
+  /** Ids that tie the call back to its incident, customer or action. */
+  metadata?: Record<string, string>;
+};
+
+/** Outbound phone calls (Vobiz, or its sandbox): paging on-call, and calling affected customers. */
+export interface TelephonyPort extends AdapterMode {
+  /** Places a call and returns at once; its progress arrives through onUpdate. */
+  call(request: CallRequest): Promise<{ callId: string }>;
+  /** The call as last known, or null for an unknown id. */
+  status(callId: string): Promise<CallView | null>;
+  /** Called on every state change of every call; returns a function that unsubscribes. */
+  onUpdate(listener: (call: CallView) => void): () => void;
+}
+
+/** What one infrastructure source (a Kubernetes or cloud MCP server, or the sandbox) said, or why it couldn't. */
+export type InfraCheck = { source: string; kind: "pods" | "alarms" | "cpu"; checked: boolean; detail: string };
+
+/**
+ * A service's infrastructure right now: its pods, its cloud alarms, and its
+ * CPU. A part that no source could check is left out, and its check says so.
+ */
+export type InfraHealth = {
+  service: string;
+  pods?: { ready: number; total: number; restarts: number; crashLooping: number };
+  alarms?: { name: string; since?: number; metric?: string }[];
+  cpuPercent?: number;
+  checks: InfraCheck[];
+};
+
+export interface InfraHealthPort extends AdapterMode {
+  health(service: string, sinceMs: number): Promise<InfraHealth>;
+}
+
+/** Someone on call right now, with how to reach them. */
+export type Responder = { name: string; role: OnCallRole; phone?: string; email?: string };
+
+/** Who is on call for a service (Freshservice on-call schedules, or the scenario's roster). */
+export interface OnCallPort extends AdapterMode {
+  /** Everyone on call now for the service, primary first. */
+  whoIsOnCall(service: string): Promise<Responder[]>;
+}
+
 export interface CreditsPort extends AdapterMode {
   issue(customerRefs: string[], amountInrTotal: number, reference: string): Promise<{ id: string }>;
 }
 
 /** The engineering incident record (Freshservice, or its sandbox) the operational side works from. */
 export interface IncidentsPort extends AdapterMode {
-  open(input: { incidentId: string; title: string; description: string; severity: "high" | "medium" }): Promise<{ id: string; url?: string }>;
+  /** Files the record. The service routes it to its group; tags mark it as CrisisCrew's. */
+  open(input: { incidentId: string; title: string; description: string; importance: ImportanceLevel; service?: string; tags?: string[] }): Promise<{ id: string; url?: string }>;
   note(recordId: string, text: string): Promise<void>;
-}
-
-/**
- * Screens untrusted text (tickets, text inside tool outputs) for
- * instruction-like content before any language model could read it. The
- * built-in guard is rule-based; a model such as Lakera Guard can replace it.
- */
-export interface PromptGuard extends AdapterMode {
-  screen(text: string): Promise<GuardVerdict>;
-}
-
-/** A classifier's answer for one ticket: labels with probabilities, never an action. */
-export type ClassifierVerdict = {
-  source: string;
-  model?: string;
-  ticketType: { label: TicketType; confidence: number; probabilities: Partial<Record<TicketType, number>> };
-  surface: { label: Surface; confidence: number; probabilities: Partial<Record<Surface, number>> };
-  latencyMs: number;
-};
-
-/**
- * Bounded decisions about one ticket: failure, question or request, and its
- * product area. The built-in answer comes from the embedding prototypes; a
- * decision model such as Laya can be switched on. A classifier's output only
- * feeds the detection gates; it can't call a tool.
- */
-export interface TicketClassifier extends AdapterMode {
-  classify(text: string): Promise<ClassifierVerdict>;
+  /** Raises (or lowers) the record's priority when the incident's importance changes after it was filed. */
+  setImportance(recordId: string, importance: ImportanceLevel): Promise<void>;
+  /** Requests a rollback as a change record, linked to this record. It's a request for a human to plan and approve, never an action. */
+  requestChange(recordId: string, input: { title: string; description: string; importance: ImportanceLevel; service?: string }): Promise<{ id: string; url?: string }>;
+  /** Opens a problem record for the post-incident review, linked to this record. */
+  openProblem(recordId: string, input: { title: string; description: string; importance: ImportanceLevel; service?: string }): Promise<{ id: string; url?: string }>;
 }
 
 export type ServiceInfo = { name: string; surfaces: string[] };
@@ -134,6 +181,9 @@ export type Ports = {
   ticketActions: TicketActionsPort;
   notifier: NotifierPort;
   voice: VoicePort;
+  telephony: TelephonyPort;
+  oncall: OnCallPort;
+  infra: InfraHealthPort;
   credits: CreditsPort;
   incidents: IncidentsPort;
   catalog: ServiceCatalog;

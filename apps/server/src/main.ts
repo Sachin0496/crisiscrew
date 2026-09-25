@@ -5,6 +5,10 @@ import {
   FreshdeskClient,
   freshdeskMcpWriter,
   freshserviceIncidents,
+  freshserviceOnCall,
+  FreshserviceAlertsClient,
+  mcpInfraHealth,
+  McpToolClient,
   HashEmbedder,
   LakeraGuard,
   LangSmithExporter,
@@ -12,6 +16,7 @@ import {
   LayaClassifier,
   LocalEmbedder,
   restWriter,
+  vobizTelephony,
 } from "@crisiscrew/adapters";
 import { heuristicGuard, type Embedder, type PromptGuard, type TicketClassifier, type TraceSink } from "@crisiscrew/core";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
@@ -63,8 +68,21 @@ function liveAdapters(): LiveAdapters {
     }
   }
   if (config.freshservice) {
-    const { domain, apiKey, requesterEmail, workspaceId } = config.freshservice;
-    live.incidents = freshserviceIncidents({ domain, apiKey, requesterEmail, ...(workspaceId !== null ? { workspaceId } : {}) });
+    const { domain, apiKey, requesterEmail, workspaceId, groups } = config.freshservice;
+    live.incidents = freshserviceIncidents({ domain, apiKey, requesterEmail, groups, ...(workspaceId !== null ? { workspaceId } : {}) });
+  }
+  if (config.infra) live.infra = mcpInfraHealth(config.infra.servers.map((server) => new McpToolClient(server)));
+  if (config.alerts) {
+    const { domain, apiKey, rules } = config.alerts;
+    live.alerts = { client: new FreshserviceAlertsClient({ domain, apiKey }), rules };
+  }
+  if (config.oncall) {
+    const { domain, apiKey, defaultScheduleId, schedules } = config.oncall;
+    live.oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules });
+  }
+  if (config.vobiz && config.publicBaseUrl) {
+    const { authId, authToken, from, ringTimeoutSec, timeLimitSec } = config.vobiz;
+    live.telephony = vobizTelephony({ authId, authToken, from, publicBaseUrl: config.publicBaseUrl, ringTimeoutSec, timeLimitSec });
   }
   return live;
 }
@@ -129,6 +147,7 @@ const runtime = new Runtime({
   traceSinks: traceSinks(),
   onAudit: (entry, sessionId) => appendFileSync(join(auditDir, `${runStamp}-${sessionId}.jsonl`), `${JSON.stringify(entry)}\n`),
   onError: (error) => console.error("[crisiscrew]", error),
+  ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
 });
 await runtime.start();
 
@@ -152,6 +171,7 @@ const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
     `  Guardrails   prompt guard: ${config.lakera ? "Lakera + built-in rules" : "built-in rules"}; classifier: ${config.laya ? `Laya at ${config.laya.baseUrl}` : "built-in"}${config.egress.length ? `; egress allow-list: ${config.egress.join(", ")}` : ""}`,
   ];
   if (config.freshdesk?.ingest === "webhook") lines.push(`  Freshdesk    webhook: POST ${base}/api/webhooks/freshdesk with header X-CrisisCrew-Secret`);
+  if (config.vobiz) lines.push(`  Vobiz        callbacks: ${base}/api/webhooks/vobiz/:callId/:kind (signed); test call: POST ${base}/api/telephony/test-call`);
   if (config.generatedTokens.length > 0) {
     lines.push("  MCP tokens generated for this run (set MCP_TOKEN_* in .env to keep them):");
     for (const identity of config.generatedTokens) lines.push(`    ${identity.padEnd(13)} ${config.mcpTokens[identity]}`);
@@ -171,6 +191,20 @@ if (config.freshdesk?.ingest === "poll") {
       .catch((error) => console.error("[crisiscrew] Freshdesk poll:", error instanceof Error ? error.message : error))
       .finally(() => (polling = false));
   }, config.freshdesk.pollSeconds * 1000);
+}
+
+// The poll for Freshservice alerts, the same way: one at a time, errors reported, never fatal.
+if (config.alerts?.ingest === "poll") {
+  let polling = false;
+  setInterval(() => {
+    if (polling) return;
+    polling = true;
+    runtime
+      .pollFreshserviceAlerts()
+      .then((n) => n > 0 && console.log(`[crisiscrew] ingested ${n} Freshservice alert${n === 1 ? "" : "s"}`))
+      .catch((error) => console.error("[crisiscrew] Freshservice alert poll:", error instanceof Error ? error.message : error))
+      .finally(() => (polling = false));
+  }, config.alerts.pollSeconds * 1000);
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

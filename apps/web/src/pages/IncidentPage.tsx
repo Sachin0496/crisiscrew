@@ -1,10 +1,12 @@
 import type { CrisisState } from "@crisiscrew/contracts";
 import type { ScenarioSummary } from "../api";
+import { Alerts } from "../components/incident/Alerts";
 import { Recovery } from "../components/incident/Coverage";
 import { Decisions } from "../components/incident/Decision";
 import { Detection } from "../components/incident/Detection";
 import { RecentTickets } from "../components/incident/Feeds";
 import { Impact } from "../components/incident/Impact";
+import { Paging } from "../components/incident/Paging";
 import { RootCause } from "../components/incident/RootCause";
 import { IncidentSummary, Stats, Stepper } from "../components/incident/Summary";
 import { currentIncident } from "../view";
@@ -32,6 +34,8 @@ export function IncidentPage({ state, scenario, customerNames }: { state: Crisis
           {incident && <Detection state={state} compact />}
         </div>
         <div className="col">
+          {incident && <Paging incident={incident} />}
+          <Alerts state={state} />
           <Decisions state={state} incident={incident} />
           <Recovery state={state} incident={incident} />
           <RecentTickets state={state} customerNames={customerNames} />

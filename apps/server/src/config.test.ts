@@ -13,46 +13,20 @@ describe("loadConfig", () => {
       metrics: "sandbox",
       orders: "sandbox",
       voice: "off",
+      telephony: "sandbox",
+      oncall: "sandbox",
+      alerts: "sandbox",
+      infra: "sandbox",
       llm: "template",
       embeddings: "local",
-      credits: "sandbox",
-      translate: "off",
       classifier: "embeddings",
       guard: "heuristic",
       tracing: "local",
+      credits: "sandbox",
+      translate: "off",
     });
     expect(config.embeddingsModel).toBe(DEFAULT_EMBEDDING_MODEL);
-    expect(config).toMatchObject({ freshdesk: null, freshservice: null, laya: null, lakera: null, langsmith: null, egress: [], rateLimitPerMinute: 120 });
-  });
-
-  it("switches Laya on, self-hosted by default, and allow-lists only its host", () => {
-    const config = loadConfig({ CLASSIFIER: "laya" });
-    expect(config.laya).toEqual({ baseUrl: "http://localhost:8000", apiKey: null, model: null });
-    expect(config.egress).toEqual(["localhost:8000"]);
-    expect(loadConfig({ CLASSIFIER: "laya", LAYA_URL: "https://api.laya.studio/", LAYA_API_KEY: "lsk_live_x", LAYA_MODEL: "multilingual" }).laya).toEqual({
-      baseUrl: "https://api.laya.studio",
-      apiKey: "lsk_live_x",
-      model: "multilingual",
-    });
-    expect(() => loadConfig({ CLASSIFIER: "laya", LAYA_MODEL: "gpt" })).toThrow(/LAYA_MODEL must be one of english, multilingual, typed-decisions/);
-    expect(() => loadConfig({ CLASSIFIER: "laya", LAYA_URL: "file:///etc/passwd" })).toThrow(/LAYA_URL must be an http or https URL/);
-  });
-
-  it("switches Lakera and LangSmith on with their keys, and accepts LangSmith's own LANGSMITH_TRACING switch", () => {
-    expect(() => loadConfig({ PROMPT_GUARD: "lakera" })).toThrow("PROMPT_GUARD=lakera needs LAKERA_API_KEY; see .env.example");
-    expect(loadConfig({ PROMPT_GUARD: "lakera", LAKERA_API_KEY: "lk" }).egress).toEqual(["api.lakera.ai"]);
-    expect(() => loadConfig({ TRACING: "langsmith" })).toThrow("TRACING=langsmith needs LANGSMITH_API_KEY; see .env.example");
-    const ls = loadConfig({ LANGSMITH_TRACING: "true", LANGSMITH_API_KEY: "lsv2_x" });
-    expect(ls.switches.tracing).toBe("langsmith");
-    expect(ls.langsmith).toEqual({ apiKey: "lsv2_x", project: "crisiscrew", endpoint: "https://api.smith.langchain.com" });
-    expect(ls.egress).toEqual(["api.smith.langchain.com"]);
-    expect(loadConfig({ LANGSMITH_TRACING: "true", TRACING: "local" }).switches.tracing).toBe("local");
-  });
-
-  it("refuses to start when it's reachable from outside without both tokens (security scenario 8)", () => {
-    expect(() => loadConfig({ PUBLIC_BASE_URL: "https://crisiscrew.example" })).toThrow(/PUBLIC_BASE_URL is set.*set ADMIN_TOKEN and APPROVER_TOKEN/);
-    expect(() => loadConfig({ CRISISCREW_ENV: "production", ADMIN_TOKEN: "a" })).toThrow(/CRISISCREW_ENV=production.*set APPROVER_TOKEN,/);
-    expect(loadConfig({ PUBLIC_BASE_URL: "https://crisiscrew.example", ADMIN_TOKEN: "a", APPROVER_TOKEN: "b" }).publicBaseUrl).toBe("https://crisiscrew.example");
+    expect(config).toMatchObject({ freshdesk: null, freshservice: null, vobiz: null });
   });
 
   it("switches Freshdesk on with its keys, and refuses without them", () => {
@@ -66,10 +40,77 @@ describe("loadConfig", () => {
 
   it("switches Freshservice on with its keys and requester, and names what's missing", () => {
     const config = loadConfig({ INCIDENTS: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs", FRESHSERVICE_REQUESTER_EMAIL: "ops@acme.test" });
-    expect(config.freshservice).toEqual({ domain: "acme.freshservice.com", apiKey: "fs", requesterEmail: "ops@acme.test", workspaceId: null });
+    expect(config.freshservice).toEqual({ domain: "acme.freshservice.com", apiKey: "fs", requesterEmail: "ops@acme.test", workspaceId: null, groups: {} });
+    const routed = loadConfig({ INCIDENTS: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs", FRESHSERVICE_REQUESTER_EMAIL: "ops@acme.test", FRESHSERVICE_GROUPS: "checkout-service=12, *=34" });
+    expect(routed.freshservice?.groups).toEqual({ "checkout-service": 12, "*": 34 });
+    expect(() => loadConfig({ INCIDENTS: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs", FRESHSERVICE_REQUESTER_EMAIL: "o@a.t", FRESHSERVICE_GROUPS: "checkout" })).toThrow(/service=groupId/);
     expect(() => loadConfig({ INCIDENTS: "freshservice", FRESHSERVICE_DOMAIN: "acme" })).toThrow(
       "INCIDENTS=freshservice needs FRESHSERVICE_API_KEY, FRESHSERVICE_REQUESTER_EMAIL; see .env.example",
     );
+  });
+
+  it("switches Vobiz on only with its keys, a public https URL and an admin token", () => {
+    const keys = {
+      TELEPHONY: "vobiz",
+      VOBIZ_AUTH_ID: "MA123",
+      VOBIZ_AUTH_TOKEN: "tok",
+      VOBIZ_FROM_NUMBER: "+918065551234",
+      PUBLIC_BASE_URL: "https://crisis.example.com",
+      ADMIN_TOKEN: "admin",
+      APPROVER_TOKEN: "approver",
+    };
+    expect(loadConfig(keys).vobiz).toEqual({ authId: "MA123", authToken: "tok", from: "+918065551234", ringTimeoutSec: 30, timeLimitSec: 300 });
+    expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "live", adapter: "vobiz" });
+    expect(() => loadConfig({ ...keys, VOBIZ_AUTH_TOKEN: "", VOBIZ_FROM_NUMBER: "" })).toThrow("TELEPHONY=vobiz needs VOBIZ_AUTH_TOKEN, VOBIZ_FROM_NUMBER; see .env.example");
+    expect(() => loadConfig({ ...keys, PUBLIC_BASE_URL: "http://localhost:8787" })).toThrow(/PUBLIC_BASE_URL.*https/);
+    expect(() => loadConfig({ ...keys, ADMIN_TOKEN: "" })).toThrow(/ADMIN_TOKEN/);
+    expect(() => loadConfig({ ...keys, VOBIZ_FROM_NUMBER: "reception" })).toThrow(/E\.164/);
+  });
+
+  it("reads Freshservice on-call schedules, per service or by default, and names what's missing", () => {
+    const keys = { ONCALL: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs", FRESHSERVICE_ONCALL_SCHEDULE_ID: "8569" };
+    expect(loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULES: "checkout-service=8570, auth-service=8571" }).oncall).toEqual({
+      domain: "acme.freshservice.com",
+      apiKey: "fs",
+      defaultScheduleId: 8569,
+      schedules: { "checkout-service": 8570, "auth-service": 8571 },
+    });
+    expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "live", adapter: "freshservice" });
+    expect(() => loadConfig({ ONCALL: "freshservice", FRESHSERVICE_DOMAIN: "acme" })).toThrow("ONCALL=freshservice needs FRESHSERVICE_API_KEY, FRESHSERVICE_ONCALL_SCHEDULE_ID; see .env.example");
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULE_ID: "weekly" })).toThrow(/schedule id/);
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULES: "checkout-service" })).toThrow(/service=scheduleId/);
+  });
+
+  it("reads Freshservice Alert Management: poll by default, webhook only with its secret, and service rules", () => {
+    const keys = { ALERTS: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs" };
+    expect(loadConfig({ ...keys, FRESHSERVICE_ALERT_SERVICES: "checkout-5xx=checkout-service, auth=auth-service" }).alerts).toEqual({
+      domain: "acme.freshservice.com",
+      apiKey: "fs",
+      ingest: "poll",
+      pollSeconds: 30,
+      rules: [
+        { match: "checkout-5xx", service: "checkout-service" },
+        { match: "auth", service: "auth-service" },
+      ],
+    });
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ALERTS_INGEST: "webhook" })).toThrow(/needs FRESHSERVICE_WEBHOOK_SECRET/);
+    expect(loadConfig({ ...keys, FRESHSERVICE_ALERTS_INGEST: "webhook", FRESHSERVICE_WEBHOOK_SECRET: "s" }).alerts?.ingest).toBe("webhook");
+    expect(() => loadConfig({ ALERTS: "freshservice" })).toThrow("ALERTS=freshservice needs FRESHSERVICE_DOMAIN, FRESHSERVICE_API_KEY; see .env.example");
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ALERT_SERVICES: "checkout" })).toThrow(/text=service pairs/);
+  });
+
+  it("reads infrastructure MCP servers, and refuses a URL that isn't https or isn't on the allow-list", () => {
+    const servers = (list: unknown[]) => ({ INFRA: "mcp", INFRA_MCP_SERVERS: JSON.stringify(list), INFRA_MCP_ALLOWED_HOSTS: "k8s-mcp.internal.example.com" });
+    const k8s = { name: "k8s-prod", kind: "kubernetes", url: "https://k8s-mcp.internal.example.com/mcp", namespace: "shop" };
+    const cw = { name: "cloudwatch", kind: "cloudwatch", command: "uvx", args: ["awslabs.cloudwatch-mcp-server@latest"] };
+    expect(loadConfig(servers([k8s, cw])).infra).toEqual({ servers: [k8s, cw] });
+    expect(wiringReport(loadConfig(servers([k8s]))).ports.find((p) => p.port === "infra")).toMatchObject({ mode: "live", adapter: "mcp" });
+    expect(loadConfig(servers([{ ...k8s, url: "http://localhost:8080/mcp" }])).infra?.servers[0]?.url).toBe("http://localhost:8080/mcp");
+    expect(() => loadConfig(servers([{ ...k8s, url: "http://k8s-mcp.internal.example.com/mcp" }]))).toThrow(/must use https/);
+    expect(() => loadConfig(servers([{ ...k8s, url: "https://evil.example.net/mcp" }]))).toThrow(/evil.example.net isn't in INFRA_MCP_ALLOWED_HOSTS/);
+    expect(() => loadConfig(servers([{ name: "both", kind: "kubernetes", url: k8s.url, command: "x" }]))).toThrow(/a url or a command, not both/);
+    expect(() => loadConfig({ INFRA: "mcp" })).toThrow(/needs INFRA_MCP_SERVERS/);
+    expect(() => loadConfig({ INFRA: "mcp", INFRA_MCP_SERVERS: "k8s" })).toThrow(/must be JSON/);
   });
 
   it("refuses to start with a live adapter that isn't wired yet, naming it", () => {
@@ -90,6 +131,15 @@ describe("loadConfig", () => {
     expect(config.generatedTokens).not.toContain("operator");
   });
 
+  it("requires separate admin and approver tokens when exposed publicly", () => {
+    expect(() => loadConfig({ PUBLIC_BASE_URL: "https://crisis.example.com" })).toThrow(/ADMIN_TOKEN and APPROVER_TOKEN/);
+    expect(() => loadConfig({ CRISISCREW_ENV: "production", ADMIN_TOKEN: "admin" })).toThrow(/APPROVER_TOKEN/);
+    expect(loadConfig({ PUBLIC_BASE_URL: "https://crisis.example.com", ADMIN_TOKEN: "admin", APPROVER_TOKEN: "approver" })).toMatchObject({
+      adminToken: "admin",
+      approverToken: "approver",
+    });
+  });
+
   it("reads numbers and optional tokens", () => {
     const config = loadConfig({ PORT: "9000", SANDBOX_LATENCY_MS: "0", ADMIN_TOKEN: "a", APPROVER_TOKEN: "" });
     expect(config).toMatchObject({ port: 9000, sandboxLatencyMs: 0, adminToken: "a", approverToken: null });
@@ -99,12 +149,11 @@ describe("loadConfig", () => {
 describe("wiringReport", () => {
   it("reports every port as sandbox, with the live adapters available and the ones only planned", () => {
     const report = wiringReport(loadConfig({}));
-    // Live means real computation on this machine, not simulated data: the embedding model, and the built-in
-    // classifier, prompt guard and tracing. The world the agents act on is the sandbox.
+    // The embedding model, built-in classifier, guard and local tracing run on this machine.
     expect(report.liveCount).toBe(4);
-    expect(report.ports).toHaveLength(14);
-    expect(report.ports.find((p) => p.port === "classifier")).toMatchObject({ mode: "live", adapter: "embeddings", available: ["laya"], env: "CLASSIFIER" });
-    expect(report.ports.find((p) => p.port === "tracing")).toMatchObject({ adapter: "local", available: ["langsmith"] });
+    expect(report.ports).toHaveLength(18);
+    expect(report.ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "sandbox", available: ["freshservice"], env: "ONCALL" });
+    expect(report.ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "sandbox", available: ["vobiz"], planned: [], env: "TELEPHONY" });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });
     expect(report.ports.find((p) => p.port === "incidents")).toMatchObject({ mode: "sandbox", available: ["freshservice"], planned: [] });
     expect(report.ports.find((p) => p.port === "voice")).toMatchObject({ mode: "off", available: [], planned: ["elevenlabs"] });

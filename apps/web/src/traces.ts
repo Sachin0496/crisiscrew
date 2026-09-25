@@ -24,6 +24,7 @@ export const ACTOR_LABELS: Record<SpanActor, string> = {
   investigator: "Investigator",
   recovery: "Recovery Agent",
   handoff: "Handoff Agent",
+  issue_creator: "Issue Creator",
   operator: "MCP client",
   system: "Engine",
 };

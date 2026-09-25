@@ -4,39 +4,25 @@ CrisisCrew's agents run as **LangGraph** graphs, and every run of a graph is a *
 
 ## The workflows
 
-Five graphs, compiled once per session from `packages/core/src/workflows/graphs.ts`. `GET /api/workflows` returns their structure, read from the compiled graphs, and the Traces page draws it.
+Five workflow entry points run through LangGraph, one compiled graph per invocation. Each graph has a single orchestration node. The agent operations inside that node emit separate spans, including policy-gate calls and guard checks. `GET /api/workflows` returns the five entry-point shapes for the Traces page.
 
 ```mermaid
 flowchart LR
-  subgraph T[Ticket intake: every ticket]
-    t1[Screen for injection] --> t2[Classify] --> t3[Correlate]
-    t3 -.-> t4[Alert the Commander]
-    t3 -.-> t5[Join open incident]
-    t3 -.-> t6[No incident]
-  end
-  subgraph I[Incident response: once per incident]
-    i1[Open incident] -.-> i2[Investigate] & i3[Find who was harmed] & i4[File for engineering]
-    i2 & i3 & i4 --> i5[Brief engineering] --> i6[Recovery pass]
-  end
-  subgraph R[Recovery pass: a subgraph]
-    r1[Reassess impact] --> r2[Plan recovery] -.-> r3[Act within authority] --> r4[Write back] --> r5[Ask a human] --> r6[Settle]
-    r2 -.-> r5
-  end
-  t4 --> I
-  t5 --> L[Late complaint: link, then a recovery pass or a reassessment]
-  i6 --> R
-  H[Human decision: carry out, write back, settle]
+  T[Ticket intake] --> I[Incident response]
+  I --> R[Recovery pass]
+  T --> L[Late complaint]
+  R --> H[Human decision]
 ```
 
 | Workflow | Runs | Nodes (agent) |
 |---|---|---|
-| Ticket intake | for every ticket | screen (engine), classify, correlate, then open, join or no incident (Pattern Agent) |
-| Incident response | once per incident | open (Commander); investigate (Investigator), find who was harmed (Recovery) and file for engineering (Commander) **in parallel**; brief engineering; recovery pass |
-| Recovery pass | after the root cause, each late complaint and each human decision | reassess, plan, act within authority, write back (Recovery); ask a human (Handoff); settle (Commander) |
-| Late complaint | for a complaint that joins an open incident | link; then a recovery pass once recovery is under way, or just a reassessment |
-| Human decision | when an approver decides one customer's credit | carry out, write back (Handoff); settle (Commander) |
+| Ticket intake | for every ticket | classify and correlate; nested guard and classifier spans |
+| Incident response | once per incident | respond; nested open, investigate, impact, engineering and recovery spans |
+| Recovery pass | after the root cause and for later complaints | recover; nested planning, outreach, approvals, write-back and settle spans |
+| Late complaint | for a complaint that joins an open incident | link and recover |
+| Human decision | when an approver decides one customer's credit | settle decision |
 
-**The graphs decide the order; the agents' steps do the work.** The steps are the same functions as before: `src/agents` split into node-sized pieces, with identical behaviour. The 256 tests from before the refactor pass unchanged, and `pnpm eval` gives the same numbers. Every action still goes through the policy gate.
+The existing agent functions decide the order inside each orchestration node. Incident investigation and impact assessment still run in parallel. Every action still goes through the policy gate.
 
 **One pass at a time per incident:** the recovery pass runs inside the incident's serial chain, so two passes never plan or pay the same thing.
 
@@ -45,7 +31,7 @@ flowchart LR
 | Span kind | What it is | Recorded |
 |---|---|---|
 | workflow | one graph run, or a nested one (the recovery pass inside an incident) | its input, and the outcome in one line |
-| node | one LangGraph node | the state it read, and what it returned |
+| node | the LangGraph orchestration node or a nested agent step | the state it read, and what it returned |
 | tool | one policy-gate call | the arguments; the result or the refusal; the audit entry, authority level and adapter |
 | guard | one prompt-guard check | the text screened, the verdict, the reasons |
 | classifier | one Laya call | the text, the labels and probabilities, the checkpoint, the latency |
@@ -79,8 +65,7 @@ Names and customer refs stay, so a trace is still readable. Payloads are clipped
 
 **The agents:** a strip showing what each agent is doing now.
 
-**The workflow map:** one LangGraph graph, drawn from the compiled graph. Conditional edges are dashed, and parallel branches are stacked. With a run open, the map shows its path:
-- nodes it didn't take are faded;
+**The workflow map:** the selected entry-point graph. With a run open, the map shows its orchestration node:
 - a node with a problem under it is ringed red (refused, error) or amber (flagged, fell back);
 - clicking a node opens its step.
 
@@ -100,8 +85,8 @@ The sidebar counts the runs that need attention. The Governance page counts the 
    - the exact arguments the caller sent;
    - the refusal;
    - `audit #87`, the entry in the hash-chained audit log.
-3. For a flagged ticket, the map shows the ticket's path. **Screen for injection** is ringed amber, and **No incident** is the branch it took. The guard's step shows the text, the score and the reasons.
-4. For an incident, **Problems only** narrows 80-odd steps to the chain that matters, for example **Incident response → Investigate → get_recent_deployments → Prompt guard (flagged)** when a release note carries instructions.
+3. For a flagged ticket, the ticket's orchestration node is ringed amber. The nested guard step shows the text, the score and the reasons.
+4. For an incident, **Problems only** narrows the steps to the chain that matters, for example **Incident response → Investigate → get_recent_deployments → Prompt guard (flagged)** when a release note carries instructions.
 
 ## LangSmith
 
@@ -140,7 +125,7 @@ So LangSmith's error filter finds exactly the runs that went wrong.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /api/workflows` | the five graphs: nodes (with their agent and purpose) and edges (conditional or not), read from the compiled graphs |
+| `GET /api/workflows` | the five entry-point graphs: each orchestration node and its edges |
 | `GET /api/traces` | this session's traces (`?session=all` for every session), filterable by `incident` and `status` |
 | `GET /api/traces/:id` | one trace with every span, in the order they started |
 

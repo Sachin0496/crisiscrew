@@ -1,8 +1,10 @@
 import type {
   AgentId,
   AgentView,
+  Alert,
   Approval,
   AuditEntry,
+  CallView,
   ClusterView,
   IncidentView,
   SignalView,
@@ -40,6 +42,10 @@ export type CrisisState = {
   toolCalls: AuditEntry[];
   approvals: Record<string, Approval>;
   credits: CreditRecord[];
+  alerts: Record<string, Alert>;
+  alertOrder: string[];
+  /** Outbound phone calls, by id. */
+  calls: Record<string, CallView>;
   replayFinished: boolean;
   /** Workflow traces of this session, oldest first; the latest summary of each. */
   traces: TraceSummary[];
@@ -51,6 +57,7 @@ const DEFAULT_AGENTS: Record<AgentId, AgentView> = {
   pattern: { id: "pattern", name: "Pattern Agent", level: 0, status: "idle" },
   commander: { id: "commander", name: "Incident Commander", level: 1, status: "idle" },
   investigator: { id: "investigator", name: "Investigator", level: 0, status: "idle" },
+  issue_creator: { id: "issue_creator", name: "Issue Creator", level: 1, status: "idle" },
   recovery: { id: "recovery", name: "Recovery Agent", level: 2, status: "idle" },
   handoff: { id: "handoff", name: "Handoff Agent", level: 3, status: "idle" },
 };
@@ -68,6 +75,9 @@ export function initialState(): CrisisState {
     toolCalls: [],
     approvals: {},
     credits: [],
+    calls: {},
+    alerts: {},
+    alertOrder: [],
     replayFinished: false,
     traces: [],
     guardFlags: [],
@@ -135,6 +145,35 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
         incidentOrder: [...state.incidentOrder, incident.id],
         tickets: markTickets(state, incident.ticketIds, incident.id),
       };
+    }
+
+    case "alert.received": {
+      const { alert } = event.payload;
+      return { ...state, alerts: { ...state.alerts, [alert.id]: alert }, alertOrder: state.alertOrder.includes(alert.id) ? state.alertOrder : [...state.alertOrder, alert.id] };
+    }
+
+    case "alert.resolved": {
+      const alert = state.alerts[event.payload.alertId];
+      return alert ? { ...state, alerts: { ...state.alerts, [alert.id]: { ...alert, resolvedAt: event.payload.at } } } : state;
+    }
+
+    case "alert.linked": {
+      const { alertId, incidentId } = event.payload;
+      const alert = state.alerts[alertId];
+      const next = alert ? { ...state, alerts: { ...state.alerts, [alertId]: { ...alert, incidentId } } } : state;
+      return updateIncident(next, incidentId, (incident) =>
+        incident.alertIds?.includes(alertId) ? incident : { ...incident, alertIds: [...(incident.alertIds ?? []), alertId] },
+      );
+    }
+
+    case "incident.importance": {
+      const { incidentId, importance } = event.payload;
+      return updateIncident(state, incidentId, (incident) => ({ ...incident, importance, severity: importance.level === "P1" ? "high" : "medium" }));
+    }
+
+    case "paging.updated": {
+      const { incidentId, paging } = event.payload;
+      return updateIncident(state, incidentId, (incident) => ({ ...incident, paging }));
     }
 
     case "incident.status_changed": {
@@ -221,6 +260,11 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
     case "engineering.recorded": {
       const { incidentId, record } = event.payload;
       return updateIncident(state, incidentId, (incident) => ({ ...incident, engineering: record }));
+    }
+
+    case "call.updated": {
+      const { call } = event.payload;
+      return { ...state, calls: { ...state.calls, [call.id]: call } };
     }
 
     case "replay.finished":

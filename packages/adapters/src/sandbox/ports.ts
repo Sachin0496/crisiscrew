@@ -1,4 +1,4 @@
-import { parseOffset, type Customer, type Scenario, type Ticket } from "@crisiscrew/contracts";
+import { parseOffset, type Customer, type ImportanceLevel, type Scenario, type Ticket } from "@crisiscrew/contracts";
 import {
   hashSeed,
   mulberry32,
@@ -10,6 +10,8 @@ import {
   type ProviderHealth,
   type ServiceInfo,
 } from "@crisiscrew/core";
+import { e164 } from "../telephony/calls";
+import { sandboxTelephony, type SandboxCall, type ScriptedCall } from "../telephony/sandbox";
 
 const MINUTE = 60_000;
 const SANDBOX = { mode: "sandbox" as const, adapter: "sandbox" };
@@ -28,7 +30,20 @@ export type SandboxRecord = {
   proactive: { customerRef: string; text: string }[];
   accountNotes: { id: string; customerRef: string; text: string }[];
   credits: { id: string; customerRefs: string[]; amountInr: number; reference: string }[];
-  incidents: { id: string; incidentId: string; title: string; description: string; notes: string[] }[];
+  incidents: {
+    id: string;
+    incidentId: string;
+    title: string;
+    description: string;
+    importance: ImportanceLevel;
+    service?: string;
+    tags: string[];
+    notes: string[];
+    change?: { id: string; title: string; description: string };
+    problem?: { id: string; title: string; description: string };
+  }[];
+  calls: SandboxCall[];
+  consentWithdrawn: { customerRef: string; channel: "voice" | "proactive" }[];
 };
 
 /**
@@ -41,7 +56,7 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
   const world = scenario.world;
   const pause = () => (latencyMs > 0 ? clock.sleep(latencyMs) : Promise.resolve());
   const at = (offset: string) => t0 + parseOffset(offset);
-  const record: SandboxRecord = { notes: [], replies: [], proactive: [], accountNotes: [], credits: [], incidents: [] };
+  const record: SandboxRecord = { notes: [], replies: [], proactive: [], accountNotes: [], credits: [], incidents: [], calls: [], consentWithdrawn: [] };
 
   const deployments = world.deployments
     .map((d) => ({ ...d, atMs: at(d.at) }))
@@ -137,6 +152,13 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
         record.accountNotes.push({ id, customerRef, text });
         return { id };
       },
+      async withdrawConsent(customerRef, channel) {
+        await pause();
+        const c = customers.get(customerRef);
+        if (!c) throw new Error(`unknown customer ${customerRef}`);
+        customers.set(customerRef, { ...c, consent: { ...c.consent, [channel]: false } });
+        record.consentWithdrawn.push({ customerRef, channel });
+      },
     },
 
     ticketActions: {
@@ -167,6 +189,43 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
       },
     },
 
+    telephony: sandboxTelephony({ seed: scenario.id, clock, record: record.calls, scripted: new Map([...rosterOutcomes(world.oncall), ...customerOutcomes(world.customers)]) }),
+
+    // A service the scenario says nothing about is healthy: every pod ready, no alarms.
+    infra: {
+      ...SANDBOX,
+      async health(service, sinceMs) {
+        await pause();
+        const info = world.infra[service];
+        const now = clock.now();
+        const alarms = (info?.alarms ?? [])
+          .map((a) => ({ name: a.name, since: at(a.at), ...(a.metric ? { metric: a.metric } : {}) }))
+          .filter((a) => a.since >= sinceMs && a.since <= now);
+        const pods = info?.pods ?? { ready: 3, total: 3, restarts: 0, crashLooping: 0 };
+        return {
+          service,
+          pods,
+          alarms,
+          ...(info?.cpuPercent !== undefined ? { cpuPercent: info.cpuPercent } : {}),
+          checks: [
+            { source: "sandbox", kind: "pods", checked: true, detail: `${pods.ready}/${pods.total} ready` },
+            { source: "sandbox", kind: "alarms", checked: true, detail: `${alarms.length} active` },
+            ...(info?.cpuPercent !== undefined ? [{ source: "sandbox", kind: "cpu" as const, checked: true, detail: `${info.cpuPercent}%` }] : []),
+          ],
+        };
+      },
+    },
+
+    // The scenario's roster is on call for every service.
+    oncall: {
+      ...SANDBOX,
+      async whoIsOnCall() {
+        await pause();
+        const order = { primary: 0, secondary: 1, tertiary: 2 };
+        return [...world.oncall].sort((a, b) => order[a.role] - order[b.role]).map((r) => ({ name: r.name, role: r.role, phone: r.phone, ...(r.email ? { email: r.email } : {}) }));
+      },
+    },
+
     credits: {
       ...SANDBOX,
       async issue(customerRefs, amountInr, reference) {
@@ -180,11 +239,31 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
 
     incidents: {
       ...SANDBOX,
-      async open({ incidentId, title, description }) {
+      async open({ incidentId, title, description, importance, service, tags }) {
         await pause();
         const id = `ENG-${String(record.incidents.length + 1).padStart(3, "0")}`;
-        record.incidents.push({ id, incidentId, title, description, notes: [] });
+        record.incidents.push({ id, incidentId, title, description, importance, ...(service ? { service } : {}), tags: tags ?? [], notes: [] });
         return { id };
+      },
+      async requestChange(recordId, { title, description }) {
+        await pause();
+        const found = record.incidents.find((i) => i.id === recordId);
+        if (!found) throw new Error(`no engineering incident ${recordId}`);
+        found.change = { id: `CHG-${recordId.slice(4)}`, title, description };
+        return { id: found.change.id };
+      },
+      async openProblem(recordId, { title, description }) {
+        await pause();
+        const found = record.incidents.find((i) => i.id === recordId);
+        if (!found) throw new Error(`no engineering incident ${recordId}`);
+        found.problem = { id: `PRB-${recordId.slice(4)}`, title, description };
+        return { id: found.problem.id };
+      },
+      async setImportance(recordId, importance) {
+        await pause();
+        const found = record.incidents.find((i) => i.id === recordId);
+        if (!found) throw new Error(`no engineering incident ${recordId}`);
+        found.importance = importance;
       },
       async note(recordId, text) {
         await pause();
@@ -200,4 +279,26 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
       },
     },
   };
+}
+
+/** What each responder on the roster does when called, as the sandbox telephone plays it. */
+function rosterOutcomes(roster: Scenario["world"]["oncall"]): Map<string, ScriptedCall> {
+  const outcomes: Record<(typeof roster)[number]["answers"], ScriptedCall> = {
+    acknowledges: { outcome: "completed", digits: "1" },
+    ignores: { outcome: "completed" },
+    no_answer: { outcome: "no_answer" },
+    busy: { outcome: "busy" },
+  };
+  return new Map(roster.map((r) => [e164(r.phone), outcomes[r.answers]]));
+}
+
+/** How each scenario customer with an onCall entry takes a call. */
+function customerOutcomes(customers: Scenario["world"]["customers"]): Map<string, ScriptedCall> {
+  const outcomes = new Map<string, ScriptedCall>();
+  for (const c of customers) {
+    if (!c.phone || !c.onCall) continue;
+    const { answers, press } = c.onCall;
+    outcomes.set(e164(c.phone), answers === "answers" ? { outcome: "completed", ...(press ? { digits: press } : {}) } : { outcome: answers });
+  }
+  return outcomes;
 }

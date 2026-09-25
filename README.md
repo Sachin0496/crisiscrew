@@ -18,23 +18,19 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 > **Status: it runs fully offline, in sandbox mode, and the Freshworks adapters are wired.**
 > - **Real and running:**
 >   - the detection engine, the Customer Impact Graph, the recovery policy and Recovery Coverage;
->   - the five agents, orchestrated as **LangGraph** workflows, with the policy gate and the audit log;
->   - **traces** of every workflow run, node and tool call on the Traces page, with the first problem pinpointed;
->   - **guardrails:** a prompt-injection guard on tickets and tool outputs, an output guard on customer messages, strict schemas, rate limits and an egress allow-list;
+>   - the six agents, the policy gate and the audit log;
 >   - the MCP server and the UI.
 >
 >   Every number on screen is computed from ticket text and data.
 > - **Sandbox:** the world the agents act on (releases, gateway status, error rates, customers, consent and payment attempts) comes from replayable scenarios.
-> - **Wired and run against the real thing:** **Laya**, the ticket classifier (`CLASSIFIER=laya`), against a local `laya-serve`.
 > - **Wired, not yet run against a real account:**
 >   - Freshdesk: webhook or poll ingest, and private notes and replies through REST or Freshdesk's MCP server;
 >   - Freshservice: engineering incidents;
 >   - the Freshdesk ticket-sidebar app;
->   - **LangSmith** (`TRACING=langsmith`): exercised with the LangSmith SDK against a local recorder; it needs a key to reach a real project;
->   - **Lakera Guard** (`PROMPT_GUARD=lakera`): tested against a fake.
+>   - Vobiz: outbound phone calls, with signed callbacks. For now only the admin's test call places one; on-call paging (#6) and customer calls (#11) will use it.
 >
 >   They switch on with keys in `.env`, and each is tested against a fake of its API. The team runs them against a trial account at the event.
-> - **Designed, not wired:** GitHub deployments, Razorpay status, ElevenLabs, Claude and the sponsor APIs.
+> - **Designed, not wired:** GitHub deployments, Razorpay status, ElevenLabs, Claude and the other sponsor APIs.
 >
 > The environment box in the UI's sidebar and `GET /api/wiring` show exactly what's live.
 
@@ -43,13 +39,18 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 | Step | Who | What happens |
 |---|---|---|
 | **Detect** | Pattern Agent | Compares each new complaint with the last 15 minutes by meaning and product area. It opens an incident only when a group passes four gates, and shows the plain reason when a group fails one. Detection is the trigger, not the product |
-| **Verify** | Investigator | Checks the payment gateway, recent releases and service error rates, then ranks causes by prior × likelihood ratios, with every factor shown |
+| **Verify** | Investigator | Checks the payment gateway, recent releases, service error rates and infrastructure (Kubernetes pods and cloud alarms, over MCP), then ranks causes by prior × likelihood ratios, with every factor shown |
 | **Prove who was harmed** | Recovery Agent | Builds the **Customer Impact Graph**. A customer is affected when they have a failed or pending payment inside the incident window, whether or not they wrote in. A complaint with no such payment is kept as *not verified* |
 | **Find the silent** | Recovery Agent | The customers with failed payments who never contacted support: 15 of the 23 in the hero scenario |
-| **Plan each recovery** | Recovery Agent | A plan per customer from their own evidence: the channel they allow, a voice update for priority customers, and a credit sized by the harm, each with its reason and the authority it needs |
-| **Act within authority** | Recovery Agent | Updates, account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
+| **Plan each recovery** | Recovery Agent | A plan per customer from their own evidence: their outreach track, the channel they allow, a call when it's warranted, and a credit sized by the harm, each with its reason and the authority it needs |
+| **Act within authority** | Recovery Agent | Account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
+| **Reach out, by track** | Handoff Agent | Every customer message, in two tracks. **Complained:** a reply on their ticket that answers the complaint. **Not complained:** a message about a failure they may not have noticed. See [Outreach](#outreach) |
 | **Stop for a human** | Handoff Agent | Any credit above that becomes an approval for **one customer**, with their evidence. The approver approves, changes the amount or rejects, and exactly that amount is paid to exactly that customer |
-| **Write back** | Recovery Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and a Freshservice incident for engineering |
+| **File for engineering** | Issue Creator | Once the Investigator has ranked the causes, files the Freshservice incident with the likely cause and its factors, the impact so far, on-call, and links back; routed to the service's group, at the importance's priority. A rollback change request when a release is blamed at 80% or more, and a problem record for the post-incident review once recovered |
+| **Write back** | Handoff Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and notes on the engineering incident as things change |
+| **Alert first** | Incident Commander | A critical Freshservice alert on a service behind a tier-1 area opens an incident on its own, before anyone complains; complaints that follow join it. An alert during a complaint incident is linked to it and becomes evidence. See [Alerts](#alerts) |
+| **Decide how urgent** | Incident Commander | Sets the incident's importance, P1 to P3, from rules in `policy.json`: customers affected, money in failed payments, priority customers, a tier-1 area, a release as the likely cause. It rises as evidence arrives and never falls on its own; P1 means page on-call. See [Importance](#importance) |
+| **Page on-call** | Incident Commander | Phones whoever is on call (Freshservice on-call schedules) through Vobiz, and asks them to press 1. An unacknowledged call escalates to the next responder. See [Paging on-call](#paging-on-call) |
 | **Measure** | Incident Commander | Recovery Coverage = recovered confirmed customers / confirmed customers. The incident reaches **Recovered** only at 100% |
 
 Every tool call, by an agent or an external MCP client, goes through one policy gate and lands in a hash-chained audit log.
@@ -75,12 +76,8 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
 | `pnpm start` | Builds the UI and starts the server on port 8787: the UI, the API, the event stream, MCP and the Freshdesk webhook |
 | `pnpm dev` | The server and the Vite dev server, both reloading on change, for UI work |
 | `pnpm replay <scenario>` | Replays a scenario in the terminal and prints what each agent does. Add `--decide approve`, `reject` or `modify:500` to settle every approval |
-| `pnpm eval` | Detection, linking and root cause; rewrites [docs/eval.md](docs/eval.md) |
-| `pnpm eval:safety` | The prompt guard's precision and recall, and the engine under attack; rewrites [docs/eval-safety.md](docs/eval-safety.md) |
-| `pnpm eval:impact` | Affected-customer and silent-customer precision and recall, and credits; rewrites [docs/eval-impact.md](docs/eval-impact.md) |
-| `pnpm eval:classifier` | The built-in classifier against Laya (when `pnpm laya` is running); rewrites [docs/eval-classifier.md](docs/eval-classifier.md) |
-| `pnpm laya` | Runs Laya on this machine at http://localhost:8000, for `CLASSIFIER=laya` |
-| `pnpm test` | 310 tests with Vitest. They never load the model or call an external API |
+| `pnpm eval` | Runs the evaluation and rewrites [docs/eval.md](docs/eval.md) |
+| `pnpm test` | 256 tests with Vitest. They never load the model or call an external API |
 | `pnpm typecheck` | Strict TypeScript across the workspace |
 | `pnpm calibrate <model>` | The model comparison behind [docs/calibration.md](docs/calibration.md) |
 | `pnpm embeddings:warm` | Embeds every scenario, prototype and eval sentence into the committed cache |
@@ -95,17 +92,20 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
          fires: 4 failures in 18s is about 1 in 4 million at normal volume
 
   Root-cause ranking
-     97.0%  checkout-service v4.21.7
+     96.8%  checkout-service v4.21.7
             LR  6.00  released 14 min before the first complaint (3f9c2e1 by vikram-s)
             LR  8.38  checkout-service error rate 0.40% → 3.34% after the release (8.4×)
 
   customer impact: 23 affected (4 complained, 19 silent)
+  INC-2026-001: importance P1, page on-call  23 customers affected (20 or more is P1)
+  INC-2026-001: on-call  page 1: Neha Kapoor (primary), calling
+  INC-2026-001: on-call  acknowledged by Neha Kapoor (pressed 1)
   recovery plan: 48 actions for 23 customers, 2 credits for a human
 
   Approval APR-001 requested for Ananya Iyer: ₹1,000
     Ananya Iyer, a priority customer, never contacted support. Evidence: Card payment of ₹12,999 failed at 07:53:08.
     Likely cause: checkout-service v4.21.7 (97% confidence).
-    Done so far: proactive update sent; voice update prepared (voice is off).
+    Done so far: proactive update sent; phone call in progress.
     Proposed: ₹1,000 goodwill credit, above the ₹500 the agents may give one customer on their own.
 
   INC-2026-001: awaiting approval  2 credits are above the agents' authority and waiting for a human; recovery coverage 21/23
@@ -115,10 +115,10 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
   customer impact: 23 affected (5 complained, 18 silent)
 
 Summary
-  INC-2026-001: awaiting approval; root cause checkout-service v4.21.7 (97%); 8 tickets linked
+  INC-2026-001: awaiting approval, P1, on-call acknowledged by Neha Kapoor; root cause checkout-service v4.21.7 (97%); 8 tickets linked
   23 affected (8 complained, 15 silent); recovery coverage 21/23 (91%), 2 waiting for a human
   16 proactive contacts; credits ₹4,000 within authority, ₹0 approved, ₹2,000 awaiting approval
-  audit: 86 tool calls, hash chain verified
+  audit: 89 tool calls, hash chain verified
 ```
 
 Ritika was silent when the plan was made: her failed payment was already on record. When she writes in, she moves from silent to complained, and a reply on her ticket is added to her plan.
@@ -178,6 +178,110 @@ Recovery is based on each customer's actual harm, not one blanket action. The nu
 - Pooja, Manoj and Lakshmi opted out of proactive messages. Nobody messages them; their accounts get a note and a credit.
 - Ananya and Farhan are priority customers, so their ₹1,000 credits wait for a human.
 
+## Outreach
+
+The Recovery Agent decides who gets what; the **Handoff Agent sends every customer message**, one track at a time. The Recovery Agent can't message a customer at all: `send_customer_update` is on the Handoff Agent's allow-list only.
+
+| Track | Who | Message | Call |
+|---|---|---|---|
+| **Complained** | confirmed affected, and wrote in | a reply on their ticket: *"thanks for writing in (ticket T-1004). You're right: … your ₹649 card payment at 13:25 was one of them"* | when they're a priority customer or lost a large payment, and agreed to calls |
+| **Not complained** | confirmed affected, never wrote in | a proactive message: *"you may not have noticed, but your ₹999 UPI payment at 13:24 didn't go through"*; if they opted out, nobody messages them and their account gets a note | whenever they agreed to calls |
+| **Not verified** | wrote in, but no failed payment on record | an acknowledgement asking for a payment reference | never |
+
+- **Before approvals:** outreach runs before any credit goes to a human, so nobody waits for an approver to hear from us. A customer whose credit is being reviewed is told so, **without an amount**, until a human decides.
+- **The gate still decides:** consent and confirmed impact are checked on every send, exactly as before.
+- **Where to see it:** the Customers page has an **Outreach** card per track, and filters to match. The Agents page shows the **Handoff Agent's queue**. `get_customer_impact` gives each customer's `track` and takes `filter: "complained"` or `"not_complained"`.
+
+## Importance
+
+The Incident Commander decides how urgently engineering must act. The rules are deterministic, and their thresholds live in [`config/policy.json`](config/policy.json) under `importance`:
+
+| Rule | P2 at | P1 at |
+|---|---|---|
+| Confirmed affected customers | 5 | 20 |
+| Failed or pending payments of those customers | ₹25,000 | ₹2,00,000 |
+| Priority customers affected | 1 | 3 |
+| A tier-1 area (checkout and payments, login and account) | always | |
+| A release ranked as the cause at 80% or more (a rollback is an option) | always | |
+| An alert on a service behind the incident (once Alert Management is wired) | warning | critical |
+
+- **How the level is set:** each rule that fires adds a reason, and the level is the most urgent one; P3 when none fires. **P1 means page the on-call engineer** (`pageAt`).
+- **When:** the Commander assesses when the incident opens (only the area is known, so the hero starts at P2), again once impact and the root cause are known, and after every recovery pass. The level rises on its own and never falls.
+- **Engineering's record follows it:** Freshservice priority, urgency and impact are P1 → 4, 3, 3 · P2 → 3, 2, 2 · P3 → 2, 1, 1. A rise sets them again and adds a note with every reason.
+- **A human can overrule it:** `POST /api/incidents/:id/importance` with `{"level": "P2", "note": "..."}` (admin token). From then on the rules leave it alone.
+
+In the hero, 23 affected customers make it P1. The UPI outage stays P2: 10 customers affected and one priority customer, below the P1 thresholds.
+
+## Alerts
+
+Complaints are one way an incident starts; **Freshservice Alert Management** is the other. Deterministic threshold alerts (CPU, 5xx rate, latency) arrive by poll or webhook, and each one is:
+
+| The alert | What happens |
+|---|---|
+| on a service behind an **open incident's** area (within `alerts.joinWindowMin`, 60 min) | **linked** to it. The Investigator re-ranks the causes with it: a release on that service that shipped within 2 hours before the alert gains a likelihood ratio (critical 4, warning 1.5). Importance sees it (critical is P1) |
+| **critical**, on a service behind a **tier-1** area, with no incident open | **opens an incident on its own**, marked *opened by a critical alert*. It's P1 from the start, so on-call is paged at once. The impact graph comes from payment evidence, so the customers whose payments failed are found before anyone writes in |
+| anything else (a warning, or a service off the tier-1 areas) | **recorded**, and nothing more |
+
+Complaints that arrive while an alert-opened incident is open **join it** instead of opening a second incident. A repeat of the same alert (same Freshservice id) is recorded once; a resolved alert carries its resolution time.
+
+Freshservice severity *critical* (201) is critical; *error* (151) and *warning* (101) are warnings. The service comes from a `service:<name>` tag on the alert, or from `FRESHSERVICE_ALERT_SERVICES` rules matched against its resource, node, subject and tags; an alert no rule places is ignored. `POST /api/alerts` (admin) takes an alert by hand.
+
+In `alert-before-complaints`, the checkout-service 5xx alert opens the incident 20 seconds before the first failure report. The same 23 customers are found, the release is the cause (99%, with the alert as extra evidence), and all 8 complaints join the one incident. In `noisy-alert`, a latency warning and a critical alert on search-service open nothing.
+
+## Infrastructure checks
+
+The Investigator asks `get_infra_health` about every service behind the incident, alongside the gateway, releases and error rates. With `INFRA=mcp` it asks real MCP servers, configured in `INFRA_MCP_SERVERS`:
+
+```json
+[
+  { "name": "k8s-prod", "kind": "kubernetes", "url": "https://k8s-mcp.internal.example.com/mcp", "namespace": "shop", "labelSelector": "app={service}" },
+  { "name": "cloudwatch", "kind": "cloudwatch", "command": "uvx", "args": ["awslabs.cloudwatch-mcp-server@latest"] }
+]
+```
+
+- **Kubernetes** (for example [containers/kubernetes-mcp-server](https://github.com/containers/kubernetes-mcp-server)): `pods_list_in_namespace` with the service's label selector. CrisisCrew reads a JSON pod list or a `kubectl`-style table: pods ready, restarts, and CrashLoopBackOff.
+- **CloudWatch** (for example [awslabs/cloudwatch-mcp-server](https://github.com/awslabs/mcp/tree/main/src/cloudwatch-mcp-server)): `get_active_alarms`, keeping the alarms that name the service.
+- **Each result becomes an infrastructure hypothesis per service**, with its own prior and likelihood ratios (see the root-cause table). The Root cause panel names the MCP server behind each factor.
+- **Safe failure:** a server that's down, slow (3 s deadline) or answers in a shape CrisisCrew can't read shows as **not checked**, LR 1. The investigation never hangs and never makes up a value.
+- **Configuration:** a URL server must use https (plain http only for localhost), and its host must be in `INFRA_MCP_ALLOWED_HOSTS`. Command servers run as local processes.
+
+`get_infra_health` is L0, allowed for the Investigator and the read-only operator.
+
+## Paging on-call
+
+When the importance says to page (P1 by default), the Incident Commander phones the on-call engineer:
+
+1. **Who:** everyone on call now for the incident's service, primary first. It comes from Freshservice On-Call Management (`GET /api/v2/oncall/shift-events/current`), or the scenario's roster in the sandbox.
+2. **The call:** through Vobiz (or the sandbox telephone). It says the incident, the area, how many customers are affected and the likely cause, then asks them to **press 1 to acknowledge**.
+3. **No acknowledgement:** a call that ends unanswered, busy, or answered without a 1 waits `oncall.ackTimeoutMin` (5 minutes), because someone may still acknowledge another way. Then the next responder is paged, up to `oncall.maxEscalations` (2) escalations.
+4. **Acknowledging another way:**
+   - an operator: `POST /api/incidents/:id/page/acknowledge` (admin);
+   - a Freshservice workflow on the incident ticket: `POST /api/webhooks/freshservice/acknowledge` with `{"ticket_id": 314, "agent_name": "..."}` and `X-CrisisCrew-Secret`.
+
+Every call is a gated, audited `page_on_call` (L1, Incident Commander only). Its outcome is a private note on the Freshservice incident, and the Incident page's **On-call** card shows each attempt. In the hero, Neha Kapoor (primary) presses 1 on the first call; a P2 incident, like the UPI outage, pages no one.
+
+## Calling customers
+
+A voice action is a **phone call** through the telephony port (Vobiz, or the sandbox telephone), placed by the Handoff Agent with the customer's track script. After the script comes a bounded menu, with no free-form conversation:
+
+| Key | The call says | CrisisCrew does |
+|---|---|---|
+| 1 | the status of *their* payment (it failed, the bank reverses it), and their credit: named with its amount once issued, "being reviewed" without an amount before that | notes it |
+| 2 | someone will call them back | notes "please call them back" on their ticket or account |
+| 3 | they won't be called about this again | withdraws their voice consent (`record_contact_preference`) |
+
+- **Not answered or busy:** it's called again after `voice.retryAfterMin` (10 min), up to `voice.maxAttempts` (3). After that it's **not reached**: the written update stands, and the customer still counts as covered.
+- **Write-back:** every call's outcome is a private note on their ticket if they wrote in, or on their account otherwise.
+- **Guardrails, checked by the gate before every dial:**
+  - voice consent and confirmed impact;
+  - calling hours (`voice.callingHours`, 09:00 to 21:00 Asia/Kolkata). Outside them, no call, and the customer is marked not reached, not "needs attention";
+  - no second call while one is out, and none after the customer answered;
+  - at most `maxAttempts` calls;
+  - a script may name a credit amount only if that credit was issued.
+- **No phone number:** with voice consent but no number, the script is prepared for voice synthesis instead (ElevenLabs, not wired yet).
+
+In the hero, Ananya answers and presses 1; Farhan doesn't pick up, and after three calls he's marked not reached.
+
 ## Recovery Coverage
 
 ```
@@ -229,8 +333,16 @@ It reads `GET /api/freshdesk/tickets/:id`. Its README says how to run it with `f
 ![The sidebar for a confirmed customer and for a complaint that isn't verified](docs/screenshots/freshdesk-sidebar.png)
 
 **Freshservice** (`INCIDENTS=freshservice`, with `FRESHSERVICE_DOMAIN`, `FRESHSERVICE_API_KEY` and `FRESHSERVICE_REQUESTER_EMAIL`)
-- The Incident Commander files an incident when a CrisisCrew incident opens.
-- It then adds private notes: the investigation, and customer impact with coverage.
+- **The Issue Creator files it once the Investigator has ranked the causes** (each check has a deadline, so this takes seconds), so the ticket leads with what was found:
+  - the likely cause, its confidence and every factor, and the other causes considered;
+  - the suspected release (version, commit, author) or the infrastructure to look at;
+  - customer impact so far (confirmed, complained, silent, and the money in failed payments), and on-call's status, including pages made before it was filed;
+  - links to the incident and the audit log (`PUBLIC_BASE_URL`).
+- **Routing:** the group from `FRESHSERVICE_GROUPS` (`service=groupId`, `*` for the rest), priority, urgency and impact from the importance, and the tags `crisiscrew` and the product area.
+- **Follow-ups:**
+  - a **rollback change** (`POST /api/v2/changes`: emergency, open, medium risk) when a release is the likely cause at `issues.rollbackConfidence` (80%) or more, linked through `change_initiated_by_ticket`. It's a request for engineering to plan and approve; CrisisCrew never rolls anything back;
+  - a **problem** (`POST /api/v2/problems`) for the post-incident review once the incident is recovered, linked through `problem`.
+- The Incident Commander then adds private notes: customer impact with coverage, importance changes and on-call.
 - In sandbox mode, the record (`ENG-001`) is kept in memory and labeled as sandbox.
 - With the switch on, **every** incident files a real Freshservice incident, replays included.
 
@@ -238,7 +350,7 @@ It reads `GET /api/freshdesk/tickets/:id`. Its README says how to run it with `f
 
 ## Scenarios
 
-Six hand-written worlds in [`scenarios/`](scenarios/). Half of them test restraint.
+Nine hand-written worlds in [`scenarios/`](scenarios/). Five of them test restraint.
 
 | Scenario | What happens | Outcome |
 |---|---|---|
@@ -248,24 +360,27 @@ Six hand-written worlds in [`scenarios/`](scenarios/). Half of them test restrai
 | `scattered-failures` | Five real failures about different things in ten minutes | No incident: no group reaches 4 similar tickets |
 | `two-card-complaints` | Two unrelated complaints that both mention a card | No incident: similarity 0.26, and only 2 tickets |
 | `quiet-day` | Two hours of normal traffic | No incident |
+| `alert-before-complaints` | The hero's broken release, but a critical checkout-service alert fires before the first complaint | The alert opens the incident and pages on-call; 23 harmed; the 8 complaints join it; one incident, not two |
+| `noisy-alert` | A quiet day with a latency warning and a critical alert on a non-tier-1 service | No incident: both alerts recorded |
+| `pods-crashloop` | The same checkout failures, but no recent release: checkout-service's pods crash-loop and CloudWatch has a memory alarm | The infrastructure is the cause (93%), not the old release or the gateway; 23 harmed |
 
 ## What you'll see
 
 The web UI is a production-style console, light by default with a dark mode. A sidebar leads to five pages:
 - **Incident:**
   - the header, a progress stepper that ends at *Recovered*, and four numbers: customers harmed, recovery coverage, root cause and recovery spend;
-  - the main column, customer impact first: the silent-customer callout and a row per customer, then the root cause and, folded, how it was detected;
-  - the side column, what needs a person: the per-customer decisions, recovery, and incoming tickets.
+  - the main column, customer impact first: the silent-customer callout and a row per customer, then recovery coverage, root cause and detection;
+  - the side column: the per-customer decisions, tickets, the timeline and agent activity.
 - **Customers:** the Customer Impact Graph, filterable by complained, silent, needs a human and not verified, with each customer's evidence chain, their recovery plan and the decision controls.
 - **Tickets:** every ticket, tagged as a failure report or a question, with where its customer stands.
-- **Traces:** every agent workflow as a LangGraph map, every run as a step-by-step trace, and the first problem of any run pinpointed. See [docs/observability.md](docs/observability.md).
-- **Governance:** the guardrails (what the prompt guard flagged and why, refused calls, write access), the hash-chained audit log and the permissions table.
+- **Agents:** what each agent is doing, and every tool call with the adapter that served it.
+- **Governance:** the hash-chained audit log and the permissions table.
 
 | Restraint: similar words, but not an incident | Tickets and customer impact |
 |---|---|
 | ![The look-alike burst is refused: 4 of 5 are questions, not failures](docs/screenshots/restraint.png) | ![Every ticket with its product area, type, incident and the customer's recovery state](docs/screenshots/tickets.png) |
-| **Governance** | **Traces: where it went wrong** |
-| ![The audit log, chain verified, and the permissions generated from policy](docs/screenshots/governance.png) | ![The ticket workflow's LangGraph map with the prompt-guard step ringed amber, and the trace opened at the flagged step](docs/screenshots/traces.png) |
+| **Governance** | |
+| ![The audit log, chain verified, and the permissions generated from policy](docs/screenshots/governance.png) | |
 
 ## How it works
 
@@ -275,9 +390,12 @@ flowchart LR
   RP[Replay or typed complaint] --> PA
   PA -- all four gates pass --> IC[Incident Commander]
   IC --> INV[Investigator]
+  INV -- ranked causes --> IS[Issue Creator]
+  IS -- incident, rollback change, problem --> FS[Freshservice]
   IC --> REC[Recovery Agent]
   REC -- impact graph and plan --> REC
-  REC -- credit above authority --> HO[Handoff Agent]
+  REC -- outreach and credits above authority --> HO[Handoff Agent]
+  HO -- complained and not-complained tracks --> CU((Customers))
   HO -- one approval per customer --> H((Human))
   INV & REC & HO & IC --> G[Policy gate]
   MCP[MCP clients: /mcp] --> G
@@ -287,23 +405,15 @@ flowchart LR
   A -. notes and replies .-> FD
 ```
 
-**Agents as LangGraph workflows:** the incident lifecycle runs as five compiled LangGraph graphs:
-- ticket intake;
-- incident response, with the investigation, the impact assessment and the engineering filing in parallel;
-- the recovery pass;
-- a late complaint;
-- a human decision.
-
-Every run is traced span by span: graph → node → policy-gate call, guard check or classifier call. It shows on the Traces page, and in LangSmith with a key. See [docs/observability.md](docs/observability.md).
-
 **One process:** `apps/server` holds the engine. It serves the JSON API, the event stream (SSE), the MCP endpoint, the Freshdesk webhook and the built UI. So MCP calls, Freshdesk tickets, typed tickets and approvals all act on the same incident.
 
 **Recovery is one idempotent pass,** run after the root cause, for each later complaint and after each human decision:
 1. rebuild the impact graph;
 2. plan only the actions each customer is still missing;
-3. carry out everything within authority;
-4. hand the rest to the Handoff Agent;
-5. set the incident's status from coverage.
+3. the Recovery Agent carries out its account notes and credits within authority;
+4. the Handoff Agent sends the messages, complained track first, then not complained;
+5. the Handoff Agent asks a human about each credit above authority;
+6. set the incident's status from coverage.
 
 Passes for one incident run one at a time, so nothing is planned or paid twice.
 
@@ -336,8 +446,11 @@ Each hypothesis is scored as its prior multiplied by the likelihood ratios of it
 | The service's error-rate ratio after the release | the ratio itself, capped at 10, when it's at least 2 · 1 between 1.2 and 2 · 0.3 below 1.2 |
 | Payment provider status | 0.1 when operational · 8 when degraded · 1 when the check fails |
 | Payment methods named in the complaints | 2 when one method dominates (80% or more) · 0.7 when they're spread |
+| The service's pods (infrastructure hypothesis) | 8 when any are in CrashLoopBackOff · 4 when fewer are ready than wanted · 2 when every pod is ready but they've restarted 5 or more times · 0.3 when healthy |
+| A cloud alarm on the service (infrastructure) | 4 when one is active · 0.6 when none is |
+| The service's CPU (infrastructure) | 3 at 90% or more |
 
-The priors (deploy 0.5, provider 0.25, unknown 0.25) are stated assumptions in [`config/policy.json`](config/policy.json), and the UI says so.
+The priors (deploy 0.5, provider 0.25, infrastructure 0.15, unknown 0.25) are stated assumptions in [`config/policy.json`](config/policy.json), and the UI says so.
 
 ### Authority: the policy gate
 
@@ -360,11 +473,12 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 | Agent | Highest level | Tools |
 |---|---|---|
 | Pattern Agent | L0 | `search_recent_tickets`, `get_incident` |
-| Incident Commander | L1 | `open_incident`, `file_engineering_incident`, `update_engineering_incident`, `get_recovery_coverage`, `get_incident`, `search_recent_tickets` |
-| Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_incident` |
-| Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `send_customer_update`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
-| Handoff Agent | L3 | `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |
-| External MCP client (operator) | L0 | the seven read tools, including `get_customer_impact` and `get_recovery_coverage` |
+| Incident Commander | L1 | `open_incident`, `update_engineering_incident`, `page_on_call`, `get_recovery_coverage`, `get_incident`, `search_recent_tickets` |
+| Issue Creator | L1 | `file_engineering_incident`, `update_engineering_incident`, `request_rollback_change`, `open_problem_record`, `get_incident`, `get_infra_health` |
+| Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_infra_health`, `get_incident` |
+| Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
+| Handoff Agent | L3 | `send_customer_update`, `record_contact_preference`, `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `add_account_note`, `get_incident`, `get_customer_impact` |
+| External MCP client (operator) | L0 | the eight read tools, including `get_customer_impact` and `get_recovery_coverage` |
 
 ## MCP server
 
@@ -373,7 +487,7 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 Tokens come from `MCP_TOKEN_*` in `.env`. Any that aren't set are generated at startup and printed in the console.
 
 ```bash
-# The read-only operator sees seven read tools
+# The read-only operator sees eight read tools
 curl -s http://localhost:8787/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
   -H "authorization: Bearer $MCP_TOKEN_OPERATOR" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
@@ -407,6 +521,14 @@ MCP Inspector, Claude, or Freshservice's Agent Studio MCP Gateway can connect th
 | `POST /api/replay` | start a replay: `{"scenario": "...", "speed": 2}` |
 | `POST /api/live` | start a fresh live session |
 | `POST /api/tickets` | type a ticket: `{"customerName": "...", "body": "..."}`; a known customer's name or `customerEmail` ties it to their payments |
+| `POST /api/alerts` | admin: `{"service", "metric", "severity": "critical" or "warning", "label", "value"?, "threshold"?}` takes an alert by hand |
+| `POST /api/webhooks/freshservice/alerts` | a Freshservice workflow: `{"alert_id": 9101}` with `X-CrisisCrew-Secret`; CrisisCrew reads the alert back from Alert Management |
+| `POST /api/incidents/:id/page/acknowledge` | admin: `{"by"?: "..."}` takes the on-call page, so no one else is called |
+| `POST /api/webhooks/freshservice/acknowledge` | a Freshservice workflow: `{"ticket_id": 314, "agent_name"?: "..."}` with `X-CrisisCrew-Secret` acknowledges the page for the incident filed as that ticket |
+| `POST /api/incidents/:id/importance` | admin: `{"level": "P1", "P2" or "P3", "note"?: "..."}` sets the importance by hand; the rules then leave it alone |
+| `POST /api/telephony/test-call` | admin: place one short call to `{"to": "+91..."}` to check the phone line; its progress arrives as `call.updated` events |
+| `GET /api/calls/:id` | a call's state: queued, ringing, answered, then completed, no answer, busy or failed. Numbers are masked to the last four digits |
+| `POST /api/webhooks/vobiz/:callId/:kind` | Vobiz's callbacks (`answer`, `ring`, `hangup`, `digits`), checked against `X-Vobiz-Signature-V3` |
 | `POST /api/approvals/:id` | `{"decision": "approve", "reject" or "modify", "amountInr"?: 500}` for one customer's credit |
 | `GET /api/audit`, `GET /api/audit/verify` | audit entries, and the hash-chain check |
 | `GET /api/policy` | the agents × tools permission matrix and limits, computed from `config/policy.json` |
@@ -424,14 +546,15 @@ The `POST` routes need `ADMIN_TOKEN`, or `APPROVER_TOKEN` for approvals, when th
 | Orders (customers, consent, payment attempts) | sandbox: the scenario's world | none planned: in production this reads the commerce platform | none |
 | Deployments | sandbox: the scenario's releases | GitHub Deployments API (designed, not wired) | `GITHUB_*` |
 | Payment health | sandbox: the scenario's gateway status | Razorpay's public status API (designed, not wired) | `RAZORPAY_STATUS_URL` |
-| Metrics | sandbox: simulated from the scenario | none planned | none |
+| Metrics | sandbox: simulated from the scenario | not wired yet (a Prometheus or CloudWatch MCP server could serve it) | none |
+| Infrastructure | sandbox: the scenario's pods and alarms; a service it doesn't describe is healthy | `INFRA=mcp`: Kubernetes (`pods_list_in_namespace`) and CloudWatch (`get_active_alarms`) MCP servers. **Wired; tested against in-process MCP servers** | `INFRA_MCP_SERVERS`, `INFRA_MCP_ALLOWED_HOSTS` |
+| Alerts | sandbox: the scenario's alert timeline | `ALERTS=freshservice`: poll or webhook. **Wired; tested against a fake Freshservice** | `FRESHSERVICE_ALERTS_*`, `FRESHSERVICE_ALERT_SERVICES` |
+| On-call schedule | sandbox: the scenario's roster | `ONCALL=freshservice`, with `FRESHSERVICE_ONCALL_SCHEDULE_ID`. **Wired; tested against a fake Freshservice** | `FRESHSERVICE_ONCALL_*` |
+| Phone calls | sandbox: calls ring, then are answered, missed or busy, the same way on every replay | `TELEPHONY=vobiz`, with an https `PUBLIC_BASE_URL` and `ADMIN_TOKEN`. **Wired; tested against a fake Vobiz** | `VOBIZ_*` |
 | Voice | off: scripts are prepared, not spoken | ElevenLabs (designed, not wired) | `ELEVENLABS_*` |
 | LLM | off: fixed templates | Claude for narratives and drafts (designed, not wired). It would never compute the numbers | `ANTHROPIC_*` |
 | Credits | sandbox: an in-memory ledger | Dodo Payments test mode (designed, not wired) | `DODO_PAYMENTS_*` |
 | Translation | off | Sarvam, for Hindi and Hinglish tickets (designed, not wired) | `SARVAM_API_KEY` |
-| Ticket classifier | **live**: built in, against the embedding prototypes | `CLASSIFIER=laya`: **wired, and run against a local Laya server** | `LAYA_*` |
-| Prompt guard | **live**: built-in rules | `PROMPT_GUARD=lakera`: Lakera Guard layered over the rules. **Wired; tested against a fake** | `LAKERA_*` |
-| Tracing | **live**: the Traces page | `TRACING=langsmith`: **wired; exercised with the LangSmith SDK against a local recorder** | `LANGSMITH_*` |
 
 Selecting an adapter that isn't wired, or a wired one without its keys, stops the server at startup with a clear message:
 
@@ -451,26 +574,11 @@ The full reports are [docs/calibration.md](docs/calibration.md) and [docs/eval.m
 | Median detection | at the 4th complaint, 55 seconds after the first |
 | Root cause correct | 100% of caught incidents |
 
-**Safety** ([docs/eval-safety.md](docs/eval-safety.md)):
-- 44 prompt-injection attacks went through the hero incident, and 51 direct attacks hit the gate. The result: **0** unauthorized tool executions, **0** wrong-customer credits, **0** policy bypasses, **0** successful injections and **0** duplicate payments.
-- The guard caught 98% of the attacks (95% on the held-out half), with no false alarms on 221 genuine tickets.
-
-**Impact** ([docs/eval-impact.md](docs/eval-impact.md)):
-- 30 generated worlds with distractors: failures before the release, successful payments only, and walk-ins with no payment on record.
-- Affected-customer precision, recall and **silent-customer recall are all 100%**, and every harmed customer got exactly the policy's credit.
-
-**Classifier** ([docs/eval-classifier.md](docs/eval-classifier.md)):
-- Zero-shot Laya scores a failure F1 of 0.95; the built-in classifier, tuned on similar sentences, scores 0.99.
-- With Laya above its thresholds and the built-in classifier as the fallback, detection stays at 100%.
-
 The known weak spot is several *different* delivery problems arriving within ten minutes: an incident opens in 10 of 20 stress runs. The data is hand-written and synthetic, and the reports say so. The recovery numbers (who is harmed, coverage, spend) come from the scenarios' worlds and are checked by the lifecycle tests.
 
 ## Tests
 
-310 tests with Vitest run on every push in CI (GitHub Actions: install, typecheck, test, build). None loads the embedding model or calls an external API. They cover:
-- the LangGraph workflows and their traces: span nesting, first problems, redaction, the graphs' structure, and refused MCP calls as traces;
-- the security scenarios from issue #3, the prompt guard on every attack and every genuine ticket, the output guard, strict schemas, rate limits and the egress allow-list;
-- Laya and Lakera against fakes of their APIs, and the LangSmith exporter's run trees;
+256 tests with Vitest run on every push in CI (GitHub Actions: install, typecheck, test, build). None loads the embedding model or calls an external API. They cover:
 - the maths, each detection gate, and root-cause scoring;
 - the impact assessment (confirmed, not verified, paid on retry, severity, every evidence edge), the recovery planner (every rule, budget escalation), and coverage and its metrics;
 - every agent × tool permission, per-customer credit authority, exact approved amounts, and audit-chain tampering;
@@ -502,16 +610,15 @@ It was built before the event, as the organizers allowed by email: they told fin
 crisiscrew/
 ├── packages/
 │   ├── contracts/   zod schemas and types shared by server and UI; the event reducer; coverage, metrics and the impact graph
-│   ├── core/        the engine, with no I/O: LangGraph workflows, tracing, guards, correlation, agents, root cause, impact, recovery, policy gate, audit
-│   └── adapters/    sandbox ports, Freshdesk and Freshservice, Laya, Lakera, the LangSmith exporter, the egress allow-list, and the embedders
+│   ├── core/        the engine, with no I/O: correlation, agents, root cause, impact assessment, recovery planning, policy gate, audit
+│   └── adapters/    sandbox ports, the Freshdesk and Freshservice adapters, and the embedders (local model, cache, hash)
 ├── apps/
 │   ├── server/      the one process: Hono API, SSE, MCP, Freshdesk webhook, runtime, replay CLI, eval
 │   └── web/         React console, driven by the event stream
 ├── integrations/
 │   └── freshdesk-sidebar/  the Freshdesk ticket-sidebar app (Freshworks platform 3.0)
 ├── config/policy.json   levels, allow-lists, limits, thresholds, priors, recovery policy: data, not code
-├── scenarios/       six scenarios, the eval's paraphrase pools, the security corpus, the committed embedding cache
-├── scripts/laya.sh  runs Laya locally (pnpm laya)
+├── scenarios/       six scenarios, the eval's paraphrase pools, the committed embedding cache
 ├── prototype/       the Stage 1 page, archived unchanged
 └── docs/            design, the pivot's design, calibration, eval, compliance, demo script and more
 ```
@@ -520,10 +627,6 @@ crisiscrew/
 
 | Document | What's in it |
 |---|---|
-| [pitch.md](docs/pitch.md) | The business case: the problem in numbers, the gap, the market and competitors, the moat, the model, and the pitch |
-| [observability.md](docs/observability.md) | The LangGraph workflows, what a trace records, the Traces page, LangSmith, and finding where a run went wrong |
-| [guardrails.md](docs/guardrails.md) | Laya and the classifiers, the prompt-injection guard, every production guardrail with its test, and the security scenarios |
-| [eval-safety.md](docs/eval-safety.md), [eval-impact.md](docs/eval-impact.md), [eval-classifier.md](docs/eval-classifier.md) | The safety, impact and classifier evaluations |
 | [customer-harm-response.md](docs/customer-harm-response.md) | The pivot: the Customer Impact Graph, the recovery policy, Recovery Coverage, and the Freshworks workflow |
 | [design.md](docs/design.md) | The Stage 2 spec: architecture, detection and root-cause formulas, interfaces, risks |
 | [calibration.md](docs/calibration.md) | How the model and the hybrid similarity were chosen |

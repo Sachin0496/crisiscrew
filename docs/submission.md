@@ -56,11 +56,11 @@ CrisisCrew is a **customer harm response** layer for Freshworks. Incident tools 
   - a Freshdesk ticket-sidebar app (platform 3.0).
 - **MCP:** CrisisCrew's own MCP server at `/mcp`. Each bearer token is one identity and sees only its own tools. A read-only operator can call `get_customer_impact` and `get_recovery_coverage`, so an Agent Studio agent sees the same incident customer by customer.
 - **Agent workflows (LangGraph):**
-  - The lifecycle runs as five compiled LangGraph graphs: ticket intake; incident response, with the investigation, the impact assessment and the engineering filing in parallel; the recovery pass; a late complaint; a human decision.
-  - The graphs decide the order. The agents' steps do the work, and every action still goes through the gate.
+  - Five lifecycle entry points run through LangGraph: ticket intake, incident response, recovery pass, late complaint and human decision. Each graph wraps its agent operation in one orchestration node.
+  - Agent operations decide the order within each node. Investigation and impact assessment run in parallel, and every action still goes through the gate.
 - **Traces (LangSmith):**
   - Every workflow run is recorded span by span: graph → node → gate call, guard check or classifier call. Inputs and outputs are redacted.
-  - The Traces page draws each workflow, marks the path a run took, and opens at the first refused, flagged or failed step.
+  - The Traces page draws each workflow entry point and opens at the first refused, flagged or failed step.
   - With a key, the same run trees go to LangSmith, one thread per incident.
 - **Guardrails:**
   - A prompt-injection guard screens tickets and the text in tool outputs; Lakera Guard can be layered over it.

@@ -11,6 +11,8 @@ import { screenText } from "./injection";
 export type OutboundContext = {
   /** Amounts this customer may be told about: their planned or approved credit. */
   allowedAmountsInr: number[];
+  /** Confirmed failed payment amounts may be described as payments, never as issued credits. */
+  allowedPaymentAmountsInr?: number[];
   /** Hosts an update may link to. Empty: no links at all. */
   allowedHosts: string[];
   /** This customer's own contact details, which the text may contain. */
@@ -26,7 +28,9 @@ const PHONE = /(?:\+91[\s-]?)?\b[6-9]\d{4}[\s-]?\d{5}\b/g;
 export function checkOutbound(text: string, ctx: OutboundContext): string | null {
   for (const m of text.matchAll(AMOUNT)) {
     const amount = Number(m[1]!.replace(/,/g, ""));
-    if (!ctx.allowedAmountsInr.includes(amount)) return `the message mentions ₹${amount.toLocaleString("en-IN")}, which nobody approved for this customer`;
+    const surrounding = text.slice(Math.max(0, m.index - 24), Math.min(text.length, m.index + m[0].length + 24));
+    const payment = /\b(payment|transaction)\b/i.test(surrounding) && !/\b(credit|credited|refund)\b/i.test(surrounding);
+    if (!ctx.allowedAmountsInr.includes(amount) && !(payment && ctx.allowedPaymentAmountsInr?.includes(amount))) return `the message mentions ₹${amount.toLocaleString("en-IN")}, which nobody approved for this customer`;
   }
   for (const m of text.matchAll(URL)) {
     const host = m[1]!.toLowerCase();

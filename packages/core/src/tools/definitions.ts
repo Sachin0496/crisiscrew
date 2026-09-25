@@ -1,6 +1,7 @@
 import {
   actionsFor,
   customerState,
+  outreachTrack,
   recoveryCoverage,
   recoveryMetrics,
   Surface,
@@ -11,7 +12,10 @@ import {
   type CustomerImpact,
   type CustomerUpdate,
   type EventInput,
+  type ImportanceLevel,
   type IncidentView,
+  type PageAttempt,
+  type PagingView,
   type Level,
   type Policy,
   type Ticket,
@@ -20,10 +24,10 @@ import {
 import { z } from "zod";
 import { checkOutbound } from "../guard/outbound";
 import type { ToolDef } from "../policy/gate";
-import type { Deployment, Ports, ProviderHealth } from "../ports";
+import type { Deployment, InfraHealth, Ports, ProviderHealth } from "../ports";
 import { assessImpact } from "../recovery/impact";
 import { planRecovery } from "../recovery/plan";
-import { customerCase, draftUpdate, engineeringSummary, inr, type Draft } from "../recovery/templates";
+import { callMenu, customerCase, draftUpdate, engineeringSummary, engineeringTicket, inr, pageScript, problemRecord, rollbackChange, type Draft } from "../recovery/templates";
 
 export type ToolCtx = {
   now(): number;
@@ -35,6 +39,8 @@ export type ToolCtx = {
   nextId(kind: "update" | "approval" | "action"): string;
   /** Approvals already used for a credit, so one approval can't pay twice. */
   spentApprovals: Set<string>;
+  /** This server's public URL, for links back from engineering records. */
+  publicBaseUrl?: string;
 };
 
 type Tool = ToolDef<ToolCtx> & { name: ToolName };
@@ -57,8 +63,11 @@ function ticketsOf(ctx: ToolCtx, incident: IncidentView): Ticket[] {
   return [...ids].map((id) => ctx.state().tickets[id]?.ticket).filter((t): t is Ticket => Boolean(t));
 }
 
+/** When the first sign of the incident arrived: its first complaint, or its first alert. */
 function firstComplaintAt(ctx: ToolCtx, incident: IncidentView): number {
-  return Math.min(...ticketsOf(ctx, incident).map((t) => t.receivedAt));
+  const alerts = (incident.alertIds ?? []).map((id) => ctx.state().alerts[id]?.firedAt ?? Number.POSITIVE_INFINITY);
+  const first = Math.min(...ticketsOf(ctx, incident).map((t) => t.receivedAt), ...alerts);
+  return Number.isFinite(first) ? first : incident.openedAt;
 }
 
 function rootOf(incident: IncidentView) {
@@ -92,6 +101,7 @@ function customerView(incident: IncidentView, c: AffectedCustomer) {
     name: c.name,
     confidence: c.confidence,
     complained: c.complained,
+    track: outreachTrack(c),
     severity: c.severity ?? null,
     tier: c.tier,
     recovery: customerState(c, actions),
@@ -99,6 +109,7 @@ function customerView(incident: IncidentView, c: AffectedCustomer) {
     actions: actions.map((a) => ({
       id: a.id,
       kind: a.kind,
+      ...(a.track ? { track: a.track } : {}),
       status: a.status,
       reason: a.reason,
       ...(a.amountInr !== undefined ? { amountInr: a.amountInr } : {}),
@@ -154,6 +165,7 @@ export function createTools(): Tool[] {
           id: i.id,
           status: i.status,
           severity: i.severity,
+          importance: i.importance ? { level: i.importance.level, page: i.importance.page, reasons: i.importance.reasons.map((r) => r.text), by: i.importance.by ?? null } : null,
           surface: i.surface,
           openedAt: new Date(i.openedAt).toISOString(),
           linkedTickets: i.linkedTicketIds.length,
@@ -162,16 +174,20 @@ export function createTools(): Tool[] {
           recoveryCoverage: coverage.confirmed ? { recovered: coverage.recovered, of: coverage.confirmed, needsHuman: coverage.needsHuman } : null,
           pendingDecisions: pending.map((a) => ({ id: a.id, customer: a.customerName, amountInr: a.amountInr })),
           engineeringIncident: i.engineering ?? null,
+          onCall: i.paging
+            ? { status: i.paging.status, acknowledgedBy: i.paging.acknowledgedBy ?? null, attempts: i.paging.attempts.map((a) => ({ responder: a.responder, role: a.role, state: a.state })) }
+            : null,
         };
       },
     },
     {
       name: "get_customer_impact",
       description:
-        "The Customer Impact Graph for an incident (the latest when no id is given): every affected customer, whether they complained or stayed silent, the evidence that links them to the incident, and their recovery actions and state.",
+        "The Customer Impact Graph for an incident (the latest when no id is given): every affected customer, their outreach track (complained, not complained, or unverified), the evidence that links them to the incident, and their recovery actions and state.",
       input: z.object({
         incidentId: z.string().optional(),
-        filter: z.enum(["all", "complained", "silent", "needs_human", "unverified"]).default("all"),
+        /** complained and silent are the Handoff Agent's two outreach tracks; not_complained is the same as silent. */
+        filter: z.enum(["all", "complained", "silent", "not_complained", "needs_human", "unverified"]).default("all"),
       }),
       level: fixed(0),
       async run(args, ctx) {
@@ -181,7 +197,7 @@ export function createTools(): Tool[] {
         const customers = (i.impact?.customers ?? []).map((c) => customerView(i, c));
         const shown = customers.filter((c) => {
           if (filter === "complained") return c.confidence === "confirmed" && c.complained;
-          if (filter === "silent") return c.confidence === "confirmed" && !c.complained;
+          if (filter === "silent" || filter === "not_complained") return c.confidence === "confirmed" && !c.complained;
           if (filter === "needs_human") return c.recovery === "needs_human";
           if (filter === "unverified") return c.confidence === "unverified";
           return true;
@@ -230,7 +246,6 @@ export function createTools(): Tool[] {
         const list = r as { version: string; sha: string }[];
         return list.length ? `${list.length} releases: ${list.map((d) => `${d.version} (${d.sha.slice(0, 7)})`).join(", ")}` : "no releases";
       },
-      // Commit messages are written by people outside this system: data, never instructions.
       untrusted: (r) => (r as Deployment[]).map((d) => d.message),
     },
     {
@@ -247,6 +262,24 @@ export function createTools(): Tool[] {
       summarize: (r) => {
         const { service, points, latestRate } = r as { service: string; points: unknown[]; latestRate: number | null };
         return `${service}: ${points.length} points, latest ${latestRate === null ? "n/a" : `${(latestRate * 100).toFixed(2)}%`}`;
+      },
+    },
+    {
+      name: "get_infra_health",
+      description:
+        "A service's infrastructure now: its pods (ready, restarts, CrashLoopBackOff) from Kubernetes, its cloud alarms (CloudWatch) over the last N minutes, and its CPU. A part no source could check is reported as not checked.",
+      input: z.object({ service: z.string().min(1), minutes: z.number().int().min(5).max(1440).default(120) }),
+      level: fixed(0),
+      adapter: (ctx) => ctx.ports.infra.adapter,
+      async run(args, ctx) {
+        const { service, minutes } = args as { service: string; minutes: number };
+        return ctx.ports.infra.health(service, ctx.now() - minutes * 60_000);
+      },
+      summarize: (r) => {
+        const h = r as InfraHealth;
+        const pods = h.pods ? `${h.pods.ready}/${h.pods.total} pods ready${h.pods.crashLooping ? `, ${h.pods.crashLooping} crash-looping` : ""}` : "pods not checked";
+        const alarms = h.alarms ? `${h.alarms.length} ${h.alarms.length === 1 ? "alarm" : "alarms"}` : "alarms not checked";
+        return `${h.service}: ${pods}; ${alarms}`;
       },
     },
     {
@@ -295,22 +328,32 @@ export function createTools(): Tool[] {
     {
       name: "open_incident",
       description: "Open an incident for a cluster that passed every detection gate.",
-      input: z.object({
-        incidentId: z.string().min(1),
-        clusterId: z.string().min(1),
-        ticketIds: z.array(z.string()).min(1),
-        surface: Surface,
-        severity: z.enum(["high", "medium"]),
-      }),
+      input: z
+        .object({
+          incidentId: z.string().min(1),
+          clusterId: z.string().min(1),
+          ticketIds: z.array(z.string()),
+          surface: Surface,
+          importance: z.enum(["P1", "P2", "P3"]),
+          /** An alert-triggered incident starts from its alert, with no tickets yet. */
+          alertId: z.string().optional(),
+        })
+        .refine((a) => a.ticketIds.length > 0 || a.alertId !== undefined, { message: "an incident needs failure reports or an alert", path: ["ticketIds"] }),
       level: fixed(1),
-      condition: (args, ctx) => (ctx.state().incidents[(args as { incidentId: string }).incidentId] ? "incident is already open" : null),
+      condition: (args, ctx) => {
+        const { incidentId, alertId } = args as { incidentId: string; alertId?: string };
+        if (ctx.state().incidents[incidentId]) return "incident is already open";
+        if (alertId && !ctx.state().alerts[alertId]) return `no alert ${alertId}`;
+        return null;
+      },
       async run(args, ctx) {
-        const a = args as { incidentId: string; clusterId: string; ticketIds: string[]; surface: Surface; severity: "high" | "medium" };
+        const a = args as { incidentId: string; clusterId: string; ticketIds: string[]; surface: Surface; importance: ImportanceLevel; alertId?: string };
+        const alert = a.alertId ? ctx.state().alerts[a.alertId] : undefined;
         const now = ctx.now();
         const incident: IncidentView = {
           id: a.incidentId,
           status: "detected",
-          severity: a.severity,
+          severity: a.importance === "P1" ? "high" : "medium",
           openedAt: now,
           surface: a.surface,
           clusterId: a.clusterId,
@@ -319,9 +362,17 @@ export function createTools(): Tool[] {
           hypotheses: [],
           actions: [],
           updates: [],
-          timeline: [{ at: now, status: "detected", note: `${a.ticketIds.length} similar failure reports passed every detection gate` }],
+          trigger: alert ? "alert" : "complaints",
+          timeline: [
+            {
+              at: now,
+              status: "detected",
+              note: alert ? `Critical alert on ${alert.service}: ${alert.label}` : `${a.ticketIds.length} similar failure reports passed every detection gate`,
+            },
+          ],
         };
         ctx.emit({ type: "incident.opened", payload: { incident } });
+        if (alert) ctx.emit({ type: "alert.linked", payload: { alertId: alert.id, incidentId: a.incidentId } });
         return { incidentId: a.incidentId };
       },
       summarize: (r) => `opened ${(r as { incidentId: string }).incidentId}`,
@@ -340,22 +391,94 @@ export function createTools(): Tool[] {
       async run(args, ctx) {
         const { incidentId } = args as { incidentId: string };
         const incident = incidentOf(ctx, incidentId);
-        const record = await ctx.ports.incidents.open({ incidentId, severity: incident.severity, ...engineeringSummary(incident) });
-        ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, adapter: ctx.ports.incidents.adapter } } });
+        const importance = incident.importance?.level ?? (incident.severity === "high" ? "P1" : "P2");
+        const alert = incident.trigger === "alert" ? ctx.state().alerts[incident.alertIds?.[0] ?? ""] : undefined;
+        const base = ctx.publicBaseUrl?.replace(/\/+$/, "");
+        const record = await ctx.ports.incidents.open({
+          incidentId,
+          importance,
+          service: ctx.ports.catalog.servicesFor(incident.surface)[0]?.name,
+          tags: ["crisiscrew", incident.surface],
+          ...engineeringTicket(incident, { ...(alert ? { alert } : {}), ...(incident.paging ? { paging: incident.paging } : {}), ...(base ? { links: { incident: `${base}/#/incident`, audit: `${base}/api/audit` } } : {}) }),
+        });
+        ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, adapter: ctx.ports.incidents.adapter, importance } } });
         return record;
       },
       summarize: (r) => `filed ${(r as { id: string }).id}`,
     },
     {
+      name: "request_rollback_change",
+      description:
+        "Request a rollback of the release blamed for the incident, as a change record linked to the engineering incident, for engineering to plan and approve. Only when a release is the likely cause with high confidence.",
+      input: idOnly,
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.incidents.adapter,
+      condition(args, ctx) {
+        const incident = ctx.state().incidents[(args as { incidentId: string }).incidentId];
+        if (!incident) return "no such incident";
+        if (!incident.engineering) return "no engineering incident has been filed";
+        if (incident.engineering.change) return `already requested as ${incident.engineering.change.id}`;
+        const top = incident.hypotheses[0];
+        if (top?.kind !== "deploy" || incident.rootCause?.hypothesisId !== top.id) return "no release is the likely cause";
+        return top.confidence >= ctx.policy.issues.rollbackConfidence ? null : `${top.label} is only ${Math.round(top.confidence * 100)}% likely; a rollback needs ${Math.round(ctx.policy.issues.rollbackConfidence * 100)}%`;
+      },
+      async run(args, ctx) {
+        const { incidentId } = args as { incidentId: string };
+        const incident = incidentOf(ctx, incidentId);
+        const record = incident.engineering!;
+        const top = incident.hypotheses[0]!;
+        const change = await ctx.ports.incidents.requestChange(record.id, {
+          ...rollbackChange(incident),
+          importance: incident.importance?.level ?? "P2",
+          service: top.subject.split("@")[0],
+        });
+        ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, change } } });
+        return change;
+      },
+      summarize: (r) => `rollback change ${(r as { id: string }).id} requested`,
+    },
+    {
+      name: "open_problem_record",
+      description: "Open a problem record for the post-incident review once the incident is recovered, linked to the engineering incident.",
+      input: idOnly,
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.incidents.adapter,
+      condition(args, ctx) {
+        const incident = ctx.state().incidents[(args as { incidentId: string }).incidentId];
+        if (!incident) return "no such incident";
+        if (!incident.engineering) return "no engineering incident has been filed";
+        if (incident.engineering.problem) return `already opened as ${incident.engineering.problem.id}`;
+        return incident.status === "recovered" ? null : "the incident isn't recovered yet";
+      },
+      async run(args, ctx) {
+        const { incidentId } = args as { incidentId: string };
+        const incident = incidentOf(ctx, incidentId);
+        const record = incident.engineering!;
+        const problem = await ctx.ports.incidents.openProblem(record.id, {
+          ...problemRecord(incident, recoveryCoverage(incident)),
+          importance: incident.importance?.level ?? "P2",
+          service: ctx.ports.catalog.servicesFor(incident.surface)[0]?.name,
+        });
+        ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, problem } } });
+        return problem;
+      },
+      summarize: (r) => `problem ${(r as { id: string }).id} opened for the post-incident review`,
+    },
+    {
       name: "update_engineering_incident",
-      description: "Add a private note to the engineering incident: the root cause, or customer impact and recovery coverage.",
-      input: z.object({ incidentId: z.string().min(1), note: z.string().min(1).max(4000) }),
+      description:
+        "Add a private note to the engineering incident: the root cause, customer impact and recovery coverage, or a change of importance (which also sets its priority).",
+      input: z.object({ incidentId: z.string().min(1), note: z.string().min(1).max(4000), importance: z.enum(["P1", "P2", "P3"]).optional() }),
       level: fixed(1),
       adapter: (ctx) => ctx.ports.incidents.adapter,
       condition: (args, ctx) => (ctx.state().incidents[(args as { incidentId: string }).incidentId]?.engineering ? null : "no engineering incident has been filed"),
       async run(args, ctx) {
-        const { incidentId, note } = args as { incidentId: string; note: string };
+        const { incidentId, note, importance } = args as { incidentId: string; note: string; importance?: ImportanceLevel };
         const record = incidentOf(ctx, incidentId).engineering!;
+        if (importance && importance !== record.importance) {
+          await ctx.ports.incidents.setImportance(record.id, importance);
+          ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, importance } } });
+        }
         await ctx.ports.incidents.note(record.id, note);
         return { recordId: record.id };
       },
@@ -470,32 +593,34 @@ export function createTools(): Tool[] {
       level: fixed(2),
       adapter: (ctx, args) => {
         const { incidentId, customerRef, channel } = (args ?? {}) as { incidentId?: string; customerRef?: string; channel?: string };
-        if (channel === "voice") return ctx.ports.voice.adapter;
+        if (channel === "voice") return ctx.ports.telephony.adapter;
         if (channel !== "ticket_reply") return ctx.ports.notifier.adapter;
         const incident = incidentId ? ctx.state().incidents[incidentId] : undefined;
         const ticket = incident ? ticketsOf(ctx, incident).filter((t) => t.customerRef === customerRef).at(-1) : undefined;
         return ticketAdapter(ctx, ticket?.id);
       },
       async condition(args, ctx) {
-        const { incidentId, customerRef, channel, text } = args as { incidentId: string; customerRef: string; channel: string; text: string };
+        const { incidentId, customerRef, channel } = args as { incidentId: string; customerRef: string; channel: string };
         const incident = ctx.state().incidents[incidentId];
         if (!incident) return `no incident ${incidentId}`;
+        if (channel === "ticket_reply" && !ticketsOf(ctx, incident).some((t) => t.customerRef === customerRef)) return "this customer has no ticket in the incident";
+        if (channel !== "ticket_reply" && affectedCustomer(incident, customerRef)?.confidence !== "confirmed") return "no evidence this customer was affected, so they aren't contacted";
         const customer = await ctx.ports.orders.customer(customerRef);
-        if (channel === "ticket_reply") {
-          if (!ticketsOf(ctx, incident).some((t) => t.customerRef === customerRef)) return "this customer has no ticket in the incident";
-        } else {
-          if (affectedCustomer(incident, customerRef)?.confidence !== "confirmed") return "no evidence this customer was affected, so they aren't contacted";
-          if (!customer) return `unknown customer ${customerRef}`;
-          if (channel === "proactive_message" && !customer.consent.proactive) return "customer has not agreed to proactive messages";
-          if (channel === "voice" && !customer.consent.voice) return "customer has not agreed to voice contact";
+        if (!customer && channel !== "ticket_reply") return `unknown customer ${customerRef}`;
+        if (channel === "proactive_message" && !customer?.consent.proactive) return "customer has not agreed to proactive messages";
+        if (channel === "voice" && !customer?.consent.voice) return "customer has not agreed to voice contact";
+        if (channel === "voice") {
+          const refusal = callGuardrails(ctx, incident, customerRef, (args as { text: string }).text);
+          if (refusal) return refusal;
         }
-        // The output guard: only amounts this customer was planned or approved, no links off the allow-list, nobody else's details.
+        const text = (args as { text: string }).text;
         const approvals = Object.values(ctx.state().approvals).filter((a) => a.incidentId === incidentId && a.customerRef === customerRef);
         const refusal = checkOutbound(text, {
           allowedAmountsInr: [
-            ...incident.actions.filter((a) => a.customerRef === customerRef && a.kind === "credit").flatMap((a) => (a.amountInr === undefined ? [] : [a.amountInr])),
-            ...approvals.flatMap((a) => (a.approvedAmountInr === undefined ? [] : [a.approvedAmountInr])),
+            ...incident.actions.filter((a) => a.customerRef === customerRef && a.kind === "credit").flatMap((a) => a.amountInr === undefined ? [] : [a.amountInr]),
+            ...approvals.flatMap((a) => a.approvedAmountInr === undefined ? [] : [a.approvedAmountInr]),
           ],
+          allowedPaymentAmountsInr: [affectedCustomer(incident, customerRef)?.amountInr ?? 0],
           allowedHosts: ctx.policy.guardrails.allowedLinkHosts,
           ownContacts: [customer?.email, customer?.phone].filter((c): c is string => Boolean(c)),
         });
@@ -516,12 +641,25 @@ export function createTools(): Tool[] {
         let adapter: string;
         let status: CustomerUpdate["status"] = "sent";
         let audioId: string | null | undefined;
+        let callId: string | undefined;
         if (channel === "ticket_reply") {
           await ctx.ports.ticketActions.reply(ticket!, text);
           adapter = ticketAdapter(ctx, ticket!.id);
         } else if (channel === "proactive_message") {
           await ctx.ports.notifier.proactive(customer!, text);
           adapter = ctx.ports.notifier.adapter;
+        } else if (customer?.phone) {
+          // A real call: the script, then a bounded menu whose replies come from what CrisisCrew knows.
+          const credit = incident.actions.find((a) => a.customerRef === customerRef && a.kind === "credit");
+          ({ callId } = await ctx.ports.telephony.call({
+            to: customer.phone,
+            script: text,
+            purpose: "customer",
+            gather: callMenu(affectedCustomer(incident, customerRef)!, credit),
+            metadata: { incidentId, customerRef, ...(actionId ? { actionId } : {}) },
+          }));
+          adapter = ctx.ports.telephony.adapter;
+          status = "calling";
         } else {
           ({ audioId } = await ctx.ports.voice.synthesize(text));
           adapter = ctx.ports.voice.adapter;
@@ -537,17 +675,36 @@ export function createTools(): Tool[] {
           source: ctx.drafts.get(incidentId)?.draft.source ?? "template",
           status,
           adapter,
-          ...(channel === "voice" ? { audioId: audioId ?? null } : {}),
+          ...(channel === "voice" && !callId ? { audioId: audioId ?? null } : {}),
+          ...(callId ? { callId } : {}),
           ...(actionId ? { actionId } : {}),
         };
         ctx.emit({ type: "update.sent", payload: { update } });
-        return { updateId: update.id, customer: name, channel, status, adapter };
+        return { updateId: update.id, customer: name, channel, status, adapter, ...(callId ? { callId } : {}) };
       },
       summarize: (r) => {
         const { updateId, customer, channel, status } = r as { updateId: string; customer: string; channel: string; status: string };
         const how = channel === "ticket_reply" ? "ticket reply" : channel === "proactive_message" ? "proactive message" : "voice script";
+        if (status === "calling") return `calling ${customer} (${updateId}, ${(r as { callId?: string }).callId})`;
         return `${how} to ${customer} ${status === "prepared" ? "prepared (voice is off)" : "sent"} (${updateId})`;
       },
+    },
+    {
+      name: "record_contact_preference",
+      description: "Record that a customer no longer wants to be contacted this way (for example, they pressed 3 on a call: stop calling me).",
+      input: z.object({ incidentId: z.string().min(1), customerRef: z.string().min(1), channel: z.enum(["voice", "proactive"]) }),
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.orders.adapter,
+      async condition(args, ctx) {
+        const { customerRef } = args as { customerRef: string };
+        return (await ctx.ports.orders.customer(customerRef)) ? null : `unknown customer ${customerRef}`;
+      },
+      async run(args, ctx) {
+        const { customerRef, channel } = args as { customerRef: string; channel: "voice" | "proactive" };
+        await ctx.ports.orders.withdrawConsent(customerRef, channel);
+        return { customerRef, channel, consent: false };
+      },
+      summarize: (r) => `${(r as { customerRef: string }).customerRef} opted out of ${(r as { channel: string }).channel === "voice" ? "calls" : "proactive messages"}`,
     },
     {
       name: "add_account_note",
@@ -661,5 +818,106 @@ export function createTools(): Tool[] {
         return `${inr(amountInr)} credit issued to ${customerRef} (${creditId})`;
       },
     },
+    {
+      name: "page_on_call",
+      description:
+        "Phone the on-call engineer for an important incident and ask them to press 1 to acknowledge. Attempt 1 calls the primary responder; each later attempt escalates to the next one on the schedule.",
+      input: z.object({ incidentId: z.string().min(1), attempt: z.number().int().min(1) }),
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.telephony.adapter,
+      condition(args, ctx) {
+        const { incidentId, attempt } = args as { incidentId: string; attempt: number };
+        const incident = ctx.state().incidents[incidentId];
+        if (!incident) return `no incident ${incidentId}`;
+        if (!incident.importance?.page) return `${incidentId} is ${incident.importance?.level ?? "not assessed"}, below the level that pages on-call`;
+        const paging = incident.paging;
+        if (paging?.status === "acknowledged") return `already acknowledged by ${paging.acknowledgedBy}`;
+        const made = paging?.attempts.length ?? 0;
+        if (attempt !== made + 1) return attempt <= made ? `attempt ${attempt} was already made` : `attempt ${made + 1} comes first`;
+        if (paging?.attempts.at(-1)?.state === "calling") return `attempt ${made} is still in progress`;
+        const max = ctx.policy.oncall.maxEscalations + 1;
+        return attempt > max ? `no escalations left: ${max} ${max === 1 ? "responder was" : "responders were"} already paged` : null;
+      },
+      async run(args, ctx) {
+        const { incidentId, attempt } = args as { incidentId: string; attempt: number };
+        const incident = incidentOf(ctx, incidentId);
+        const service = ctx.ports.catalog.servicesFor(incident.surface)[0]?.name ?? incident.surface;
+        const responders = (await ctx.ports.oncall.whoIsOnCall(service)).filter((r) => r.phone);
+        const responder = responders[attempt - 1];
+        const attempts = incident.paging?.attempts ?? [];
+        if (!responder) {
+          const status = attempt === 1 ? "no_responder" : "exhausted";
+          const note = attempt === 1 ? `Nobody on call for ${service} has a phone number` : `Nobody left on call for ${service} to escalate to`;
+          ctx.emit({ type: "paging.updated", payload: { incidentId, paging: { status, attempts, note } } });
+          return { paged: false, reason: note };
+        }
+        const now = ctx.now();
+        const masked = `••••${responder.phone!.replace(/\D/g, "").slice(-4)}`;
+        const entry: PageAttempt = { attempt, responder: responder.name, role: responder.role, phone: masked, state: "calling", startedAt: now, updatedAt: now };
+        // Recorded before dialling, so the call's first updates always find their attempt.
+        ctx.emit({ type: "paging.updated", payload: { incidentId, paging: { status: "paging", attempts: [...attempts, entry] } } });
+        let callId: string;
+        try {
+          ({ callId } = await ctx.ports.telephony.call({
+            to: responder.phone!,
+            script: pageScript(incident),
+            purpose: "oncall",
+            gather: { prompt: "Press 1 to acknowledge this incident." },
+            metadata: { incidentId, attempt: String(attempt) },
+          }));
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          patchAttempt(ctx, incidentId, attempt, { state: "failed", reason });
+          throw error;
+        }
+        patchAttempt(ctx, incidentId, attempt, { callId });
+        return { callId, responder: responder.name, role: responder.role };
+      },
+      summarize: (r) => {
+        const res = r as { paged?: false; reason?: string; responder?: string; role?: string; callId?: string };
+        return res.paged === false ? `not paged: ${res.reason}` : `calling ${res.responder} (${res.role}), ${res.callId}`;
+      },
+    },
   ];
+}
+
+const CALL_FINAL = ["completed", "no_answer", "busy", "failed"];
+
+/** The hour of the day, 0 to 23, in a time zone. */
+function hourIn(at: number, timeZone: string): number {
+  return Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone }).format(at));
+}
+
+/**
+ * What may stop a call to a customer, beyond consent and evidence: the hour,
+ * a call already out, a call already answered, the number of calls, and a
+ * script that names a credit amount nobody has issued.
+ */
+function callGuardrails(ctx: ToolCtx, incident: IncidentView, customerRef: string, text: string): string | null {
+  const { callingHours, maxAttempts } = ctx.policy.voice;
+  const hour = hourIn(ctx.now(), callingHours.timeZone);
+  if (hour < callingHours.start || hour >= callingHours.end) {
+    return `outside calling hours (${String(callingHours.start).padStart(2, "0")}:00 to ${String(callingHours.end).padStart(2, "0")}:00, ${callingHours.timeZone})`;
+  }
+  const calls = Object.values(ctx.state().calls).filter((c) => c.purpose === "customer" && c.metadata?.incidentId === incident.id && c.metadata?.customerRef === customerRef);
+  if (calls.some((c) => !CALL_FINAL.includes(c.state))) return "a call to this customer is already in progress";
+  if (calls.some((c) => c.state === "completed")) return "this customer was already reached by phone about this incident";
+  if (calls.length >= maxAttempts) return `already called ${calls.length} times, the most allowed`;
+  // Only a credit that was actually issued may be named, and only at its amount.
+  const issued = new Set(ctx.state().credits.filter((c) => c.incidentId === incident.id && c.customerRef === customerRef).map((c) => c.amountInr));
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    if (!/credit/i.test(sentence)) continue;
+    for (const m of sentence.matchAll(/₹\s?([\d,]+)/g)) {
+      if (!issued.has(Number(m[1]!.replace(/,/g, "")))) return "the call can't promise a credit amount that hasn't been issued";
+    }
+  }
+  return null;
+}
+
+/** Changes one page attempt, leaving whatever else has happened to the paging since. */
+export function patchAttempt(ctx: Pick<ToolCtx, "state" | "emit" | "now">, incidentId: string, attempt: number, change: Partial<PageAttempt>, paging?: Partial<PagingView>): void {
+  const current = ctx.state().incidents[incidentId]?.paging;
+  if (!current) return;
+  const attempts = current.attempts.map((a) => (a.attempt === attempt ? { ...a, ...change, updatedAt: ctx.now() } : a));
+  ctx.emit({ type: "paging.updated", payload: { incidentId, paging: { ...current, ...paging, attempts } } });
 }

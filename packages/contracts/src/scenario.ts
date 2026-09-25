@@ -24,6 +24,37 @@ export const ScenarioCustomer = z.object({
   consent: z
     .object({ voice: z.boolean().default(false), proactive: z.boolean().default(false) })
     .default({ voice: false, proactive: false }),
+  /** How the customer takes a call in the sandbox: answers (and which key they press), or doesn't. Unset: rolled from the scenario. */
+  onCall: z.object({ answers: z.enum(["answers", "no_answer", "busy"]), press: z.enum(["1", "2", "3"]).optional() }).optional(),
+});
+
+/** Someone on the on-call schedule, and what they do when paged in the sandbox. */
+export const ScenarioResponder = z.object({
+  name: z.string().min(1),
+  role: z.enum(["primary", "secondary", "tertiary"]),
+  phone: z.string().min(8),
+  email: z.string().optional(),
+  /** acknowledges: answers and presses 1; ignores: answers but doesn't press 1. */
+  answers: z.enum(["acknowledges", "ignores", "no_answer", "busy"]).default("acknowledges"),
+});
+
+/** A service's infrastructure as Kubernetes and CloudWatch would report it. Missing means healthy: every pod ready, no alarms. */
+export const ScenarioInfra = z.object({
+  pods: z.object({ ready: z.number().int().min(0), total: z.number().int().min(0), restarts: z.number().int().min(0).default(0), crashLooping: z.number().int().min(0).default(0) }).optional(),
+  alarms: z.array(z.object({ name: z.string().min(1), at: z.string(), metric: z.string().optional() })).default([]),
+  cpuPercent: z.number().min(0).max(100).optional(),
+});
+
+/** An operational alert in the scenario's timeline, as Freshservice Alert Management would send it. */
+export const ScenarioAlert = z.object({
+  id: z.string().min(1),
+  at: z.string(),
+  service: z.string().min(1),
+  metric: z.string().min(1),
+  value: z.string().optional(),
+  threshold: z.string().optional(),
+  severity: z.enum(["critical", "warning"]),
+  label: z.string().min(1),
 });
 
 export const ScenarioService = z.object({
@@ -79,6 +110,15 @@ export const ScenarioExpected = z.object({
   /** Credits the agents issue on their own, in total. */
   autoCreditInr: z.number().optional(),
   refusedBy: z.enum(["size", "cohesion", "failure_share", "burst"]).optional(),
+  /** The Incident Commander's importance once the scenario has played, and whether it pages on-call. */
+  importance: z.enum(["P1", "P2", "P3"]).optional(),
+  pages: z.boolean().optional(),
+  /** What opens the incident: complaints (the default) or an alert. */
+  trigger: z.enum(["complaints", "alert"]).optional(),
+  /** How many incidents the scenario opens, when it isn't one. */
+  incidents: z.number().int().min(0).optional(),
+  /** Who acknowledges the page, when one is expected. */
+  acknowledgedBy: z.string().optional(),
 });
 
 export const ScenarioSchema = z
@@ -94,6 +134,9 @@ export const ScenarioSchema = z
       providers: z.array(ScenarioProvider),
       customers: z.array(ScenarioCustomer),
       attempts: z.array(ScenarioAttempt),
+      oncall: z.array(ScenarioResponder).default([]),
+      alerts: z.array(ScenarioAlert).default([]),
+      infra: z.record(z.string(), ScenarioInfra).default({}),
       baselinePerHour: z.partialRecord(Surface, z.number().positive()).default({}),
     }),
     tickets: z.array(ScenarioTicket).min(1),
@@ -125,3 +168,5 @@ export type ScenarioDeployment = z.infer<typeof ScenarioDeployment>;
 export type ScenarioProvider = z.infer<typeof ScenarioProvider>;
 export type ScenarioAttempt = z.infer<typeof ScenarioAttempt>;
 export type ScenarioService = z.infer<typeof ScenarioService>;
+export type ScenarioResponder = z.infer<typeof ScenarioResponder>;
+export type ScenarioAlert = z.infer<typeof ScenarioAlert>;

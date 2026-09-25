@@ -9,7 +9,9 @@
     "affected": 10,
     "silent": 4,
     "needsHuman": 1,
-    "autoCreditInr": 1800
+    "autoCreditInr": 1800,
+    "importance": "P2",
+    "pages": false
   },
   "world": {
     "baselinePerHour": { "checkout_payments": 3 },
@@ -27,6 +29,10 @@
         ],
         "detail": "Elevated UPI failure rates reported by partner banks"
       }
+    ],
+    "oncall": [
+      { "name": "Neha Kapoor", "role": "primary", "phone": "+91 90000 10001", "email": "neha.kapoor@example.com", "answers": "acknowledges" },
+      { "name": "Rohan Mehta", "role": "secondary", "phone": "+91 90000 10002", "email": "rohan.mehta@example.com", "answers": "acknowledges" }
     ],
     "customers": [
       { "ref": "u-anil", "name": "Anil Kapoor", "consent": { "proactive": true } },

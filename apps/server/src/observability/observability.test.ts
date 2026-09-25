@@ -53,7 +53,7 @@ describe("agent workflow traces", () => {
     expect(runtime.state().traces.map((t) => t.id).sort()).toEqual(traces.map((t) => t.id).sort());
   });
 
-  it("serves a trace span by span: LangGraph nodes under the workflow, policy-gate calls under the node that made them", async () => {
+  it("serves the incident and recovery steps with policy-gate calls under the step that made them", async () => {
     const { app, runtime } = await setup();
     await replay(app, runtime, "checkout-v4.21.7");
     const { traces } = await get<{ traces: TraceSummary[] }>(app, "/api/traces");
@@ -61,26 +61,29 @@ describe("agent workflow traces", () => {
     const byId = new Map(detail.spans.map((s) => [s.id, s]));
     const parentName = (s: Span) => (s.parentId ? byId.get(s.parentId)?.name : null);
     const nodes = detail.spans.filter((s) => s.kind === "node").map((s) => s.name);
-    expect(nodes.slice(0, 6)).toEqual(expect.arrayContaining(["open_incident", "investigate", "assess_impact", "file_engineering", "brief_engineering", "recover"]));
-    expect(nodes).toEqual(expect.arrayContaining(["reassess_impact", "plan_recovery", "act_within_authority", "write_back", "request_approvals", "settle"]));
+    expect(nodes).toEqual(expect.arrayContaining(["respond", "open_incident", "investigate", "assess_impact", "file_engineering", "recover"]));
     const health = detail.spans.find((s) => s.name === "get_payment_health")!;
     expect(health).toMatchObject({ kind: "tool", actor: "investigator", status: "ok" });
     expect(parentName(health)).toBe("investigate");
-    const credit = detail.spans.find((s) => s.name === "issue_recovery_credit")!;
-    expect(parentName(credit)).toBe("act_within_authority");
+    const recovery = traces.find((t) => t.workflow === "recovery_pass")!;
+    const recoveryDetail = await get<TraceDetail>(app, `/api/traces/${recovery.id}`);
+    const recoveryById = new Map(recoveryDetail.spans.map((s) => [s.id, s]));
+    expect(recoveryDetail.spans.filter((s) => s.kind === "node").map((s) => s.name)).toEqual(expect.arrayContaining(["plan_recovery", "reach_out", "request_approvals", "write_back", "settle"]));
+    const credit = recoveryDetail.spans.find((s) => s.name === "issue_recovery_credit")!;
+    expect(recoveryById.get(credit.parentId!)?.name).toBe("plan_recovery");
     expect(credit.meta).toMatchObject({ decision: "allowed", level: 2 });
-    expect(detail.spans.find((s) => s.name === "recovery_pass")).toMatchObject({ kind: "workflow" });
+    expect(recovery).toMatchObject({ parentTraceId: detail.trace.id });
   });
 
-  it("describes each LangGraph workflow from the compiled graph, parallel branches and all", async () => {
+  it("describes the five workflow graphs used by the current incident flow", async () => {
     const { app } = await setup();
     const workflows = await get<WorkflowGraph[]>(app, "/api/workflows");
     expect(workflows.map((w) => w.name)).toEqual(["ticket", "incident", "recovery_pass", "late_ticket", "decision"]);
     const incident = workflows.find((w) => w.name === "incident")!;
     const from = (id: string) => incident.edges.filter((e) => e.from === id).map((e) => `${e.to}${e.conditional ? "?" : ""}`);
-    expect(from("open_incident").sort()).toEqual(["__end__?", "assess_impact?", "file_engineering?", "investigate?"]);
-    expect(incident.edges.filter((e) => e.to === "brief_engineering").map((e) => e.from).sort()).toEqual(["assess_impact", "file_engineering", "investigate"]);
-    expect(incident.nodes.find((n) => n.id === "investigate")).toMatchObject({ actor: "investigator", label: "Investigate" });
+    expect(from("__start__")).toEqual(["respond"]);
+    expect(from("respond")).toEqual(["__end__"]);
+    expect(incident.nodes.find((n) => n.id === "respond")).toMatchObject({ actor: "commander", label: "respond" });
   });
 
   it("pinpoints a refused MCP call: its own trace, marked for attention, with the refusal as the first problem", async () => {

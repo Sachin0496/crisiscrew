@@ -14,6 +14,10 @@ export type AgentKit = {
   policy: Policy;
   ports: Pick<Ports, "catalog">;
   now(): number;
+  /** Waits on the session's clock (scaled in replays). */
+  sleep(ms: number): Promise<void>;
+  /** False once a newer session has replaced this one: nothing more should reach the outside world. */
+  alive(): boolean;
   emit(event: EventInput): void;
   setAgent(agent: AgentId, status: AgentStatus, task?: string): void;
   setStatus(incidentId: string, to: IncidentStatus, note: string): void;

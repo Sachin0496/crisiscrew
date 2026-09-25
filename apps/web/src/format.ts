@@ -4,7 +4,9 @@ import {
   type AuditEntry,
   type CustomerRecoveryState,
   type EvidenceKind,
+  type ImportanceLevel,
   type IncidentStatus,
+  type OutreachTrack,
   type PortMode,
   type PortName,
   type RecoveryKind,
@@ -62,6 +64,12 @@ export const STATUS_TONE: Record<IncidentStatus, Tone> = {
   dismissed: "neutral",
 };
 
+export const IMPORTANCE: Record<ImportanceLevel, { tone: Tone; meaning: string }> = {
+  P1: { tone: "danger", meaning: "urgent: page the on-call engineer" },
+  P2: { tone: "warning", meaning: "high: engineering acts today" },
+  P3: { tone: "neutral", meaning: "normal: working hours" },
+};
+
 export const SEVERITY: Record<Severity, { label: string; tone: Tone }> = {
   high: { label: "High severity", tone: "danger" },
   medium: { label: "Medium severity", tone: "warning" },
@@ -85,18 +93,24 @@ export const RECOVERY_KIND: Record<RecoveryKind, string> = {
   ticket_reply: "Reply on their ticket",
   acknowledge: "Acknowledgement",
   proactive_message: "Proactive message",
-  voice: "Voice update",
+  voice: "Phone call",
   account_note: "Account note",
   credit: "Goodwill credit",
   no_credit: "No credit",
 };
 
 /** Short names for the recovery chips in tables. */
+export const TRACK_LABELS: Record<OutreachTrack, { label: string; lede: string }> = {
+  complained: { label: "Complained", lede: "Wrote in: the update answers their ticket" },
+  not_complained: { label: "Not complained", lede: "Never wrote in: told about a failure they may not have noticed" },
+  unverified: { label: "Not verified", lede: "No failed payment on record: acknowledged, and asked for a reference" },
+};
+
 export const RECOVERY_CHIP: Record<RecoveryKind, string> = {
   ticket_reply: "Reply",
   acknowledge: "Acknowledge",
   proactive_message: "Message",
-  voice: "Voice",
+  voice: "Call",
   account_note: "Account note",
   credit: "Credit",
   no_credit: "No credit",
@@ -106,6 +120,8 @@ export const RECOVERY_STATUS: Record<RecoveryStatus, { label: string; tone: Tone
   planned: { label: "Planned", tone: "neutral" },
   done: { label: "Done", tone: "success" },
   prepared: { label: "Prepared", tone: "neutral" },
+  calling: { label: "Calling", tone: "accent" },
+  unreached: { label: "Not reached", tone: "neutral" },
   awaiting_approval: { label: "Waiting for approval", tone: "warning" },
   declined: { label: "Declined", tone: "neutral" },
   failed: { label: "Failed", tone: "danger" },
@@ -138,6 +154,10 @@ export const PORT_LABELS: Record<PortName, string> = {
   metrics: "Metrics",
   orders: "Orders",
   voice: "Voice",
+  telephony: "Phone calls",
+  oncall: "On-call schedule",
+  alerts: "Alerts",
+  infra: "Infrastructure",
   llm: "Language model",
   embeddings: "Embeddings",
   credits: "Credits",
@@ -178,6 +198,7 @@ export const TOOL_OWNER: Record<string, string> = {
   pattern: "Pattern Agent",
   commander: "Commander",
   investigator: "Investigator",
+  issue_creator: "Issue Creator",
   recovery: "Recovery",
   handoff: "Handoff",
   operator: "MCP client",

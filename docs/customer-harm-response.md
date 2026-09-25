@@ -119,13 +119,16 @@ It also tracks:
 
 ## 5. The engine
 
-The Recovery Agent runs one idempotent **reconcile** step:
-1. identify the affected customers;
-2. plan the actions that are missing;
-3. carry out every planned action within authority;
-4. hand L3 credits to the Handoff Agent, which asks for approval.
+Each recovery pass is idempotent and split between two agents:
+1. the Recovery Agent identifies the affected customers;
+2. it plans the actions that are missing, putting each customer's outreach on a track: complained, not complained, or not verified;
+3. it carries out its own actions within authority: account notes and credits up to the limits;
+4. the **Handoff Agent sends every customer message**, one track at a time, before any approval is requested. A customer whose credit waits for a human is told a credit is being reviewed, with no amount;
+5. the Handoff Agent asks a human about each L3 credit.
 
-The reconcile step runs:
+Only the Handoff Agent may call `send_customer_update`. The complained track answers the customer's own ticket; the not-complained track tells them about a failed payment they may not have noticed. Calls follow the track: for a complaint, when the customer is a priority customer or lost a large payment; for a silent customer, whenever they agreed to calls.
+
+The pass runs:
 - **after the root cause:** the first full pass;
 - **for each later complaint:** a silent customer who writes in gets a ticket reply added to their plan, and a new customer is assessed and planned;
 - **after each human decision:** the Handoff Agent carries out exactly the decision, and the incident status is recomputed.

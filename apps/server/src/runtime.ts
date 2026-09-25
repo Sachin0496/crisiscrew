@@ -5,8 +5,13 @@ import {
   type FreshdeskClient,
   type FreshdeskTicket,
   type FreshdeskWriter,
+  type VobizTelephony,
+  freshserviceAlertToInput,
+  type AlertServiceRule,
+  type FreshserviceAlert,
+  type FreshserviceAlertsClient,
 } from "@crisiscrew/adapters";
-import type { Approval, AuditEntry, CrisisState, Customer, DecisionBody, Policy, Scenario, Ticket, TicketInput } from "@crisiscrew/contracts";
+import type { Alert, AlertInput, Approval, AuditEntry, ImportanceAssessment, ImportanceLevel, CrisisState, Customer, DecisionBody, Policy, Scenario, Ticket, TicketInput } from "@crisiscrew/contracts";
 import {
   CrisisEngine,
   EventBus,
@@ -15,14 +20,17 @@ import {
   type Clock,
   type EngineSession,
   type Embedder,
+  type CallRequest,
   type IncidentsPort,
+  type InfraHealthPort,
+  type OnCallPort,
   type Ports,
   type PromptGuard,
   type TicketClassifier,
   type TraceSink,
 } from "@crisiscrew/core";
 import { TraceStore } from "./observability/trace-store";
-import { scenarioTickets } from "./scenarios";
+import { scenarioAlerts, scenarioTickets } from "./scenarios";
 
 /** Live Freshworks adapters, layered over the sandbox world when their switches are on. */
 export type LiveAdapters = {
@@ -30,6 +38,14 @@ export type LiveAdapters = {
   freshdesk?: { client: FreshdeskClient; writer: FreshdeskWriter };
   /** INCIDENTS=freshservice: files engineering incidents in Freshservice. */
   incidents?: IncidentsPort;
+  /** TELEPHONY=vobiz: places real phone calls. */
+  telephony?: VobizTelephony;
+  /** ONCALL=freshservice: who's on call, from Freshservice on-call schedules. */
+  oncall?: OnCallPort;
+  /** INFRA=mcp: infrastructure health from Kubernetes and CloudWatch MCP servers. */
+  infra?: InfraHealthPort;
+  /** ALERTS=freshservice: alerts from Freshservice Alert Management, and the rules that tie them to services. */
+  alerts?: { client: FreshserviceAlertsClient; rules: AlertServiceRule[] };
 };
 
 export type RuntimeOptions = {
@@ -41,15 +57,14 @@ export type RuntimeOptions = {
   /** Scenario whose world backs the live session (for tickets typed into the UI or arriving from Freshdesk). */
   liveWorld: string;
   live?: LiveAdapters;
-  /** The prompt guard (built-in rules, or Lakera layered over them). Defaults to the built-in rules. */
   guard?: PromptGuard;
-  /** Laya, when CLASSIFIER=laya. */
   classifier?: TicketClassifier | null;
-  /** Where traces go besides the Traces page: the LangSmith exporter. */
   traceSinks?: TraceSink[];
   /** Called for every audit entry, with the session it belongs to (each session is its own hash chain). */
   onAudit?: (entry: AuditEntry, sessionId: string) => void;
   onError?: (error: unknown) => void;
+  /** This server's public URL, for links back from engineering records. */
+  publicBaseUrl?: string;
 };
 
 export type ScenarioSummary = Pick<Scenario, "id" | "title" | "purpose" | "speed" | "expected"> & { tickets: number };
@@ -74,7 +89,6 @@ export type FreshdeskIngest =
  */
 export class Runtime {
   readonly bus = new EventBus();
-  /** Every session's workflow traces, span by span, for the Traces page. */
   readonly traces = new TraceStore();
   private engine: CrisisEngine | null = null;
   private ports: Ports | null = null;
@@ -85,6 +99,7 @@ export class Runtime {
   /** Freshdesk tickets already ingested in this session, so a retried webhook or an overlapping poll is ignored. */
   private seenExternal = new Set<string>();
   private lastPoll: Date | null = null;
+  private lastAlertPoll: Date | null = null;
 
   constructor(private readonly options: RuntimeOptions) {}
 
@@ -162,6 +177,64 @@ export class Runtime {
     return ingested;
   }
 
+  setImportance(incidentId: string, level: ImportanceLevel, by: string, note?: string): Promise<ImportanceAssessment> {
+    return this.current().setImportance(incidentId, level, by, note);
+  }
+
+  /** The live Vobiz adapter, for its callbacks; null when calls are simulated. */
+  get vobiz(): VobizTelephony | null {
+    return this.options.live?.telephony ?? null;
+  }
+
+  /** Places a call through the current session's telephony port (Vobiz or the sandbox). */
+  placeCall(request: CallRequest): Promise<{ callId: string }> {
+    return this.currentPorts().telephony.call(request);
+  }
+
+  acknowledgePage(incidentId: string, by: string): Promise<void> {
+    return this.current().acknowledgePage(incidentId, by);
+  }
+
+  /** The incident whose engineering record is this Freshservice ticket ("#314" or 314). */
+  incidentForEngineering(recordId: string | number): string | null {
+    const id = `#${String(recordId).replace(/^#/, "")}`;
+    const state = this.state();
+    return state.incidentOrder.find((i) => state.incidents[i]?.engineering?.id === id) ?? null;
+  }
+
+  /** An alert from any source, in arrival order with tickets. */
+  ingestAlert(input: AlertInput & { resolvedAt?: number }): Promise<Alert> {
+    return this.current().ingestAlert(input);
+  }
+
+  get freshserviceAlertsEnabled(): boolean {
+    return Boolean(this.options.live?.alerts);
+  }
+
+  /** The Freshservice webhook names an alert; read it back and ingest it. Null when it's an "ok" alert or no rule ties it to a service. */
+  async ingestFreshserviceAlert(id: number): Promise<Alert | null> {
+    const alerts = this.options.live?.alerts;
+    if (!alerts) throw new Error("Freshservice alerts are off: set ALERTS=freshservice");
+    return this.ingestFreshservice(await alerts.client.alert(id));
+  }
+
+  /** The poll: every Freshservice alert updated since the last poll (or the session's start). Returns how many were ingested. */
+  async pollFreshserviceAlerts(): Promise<number> {
+    const alerts = this.options.live?.alerts;
+    if (!alerts) return 0;
+    const since = this.lastAlertPoll ?? new Date(this.startedAt);
+    const polledAt = new Date();
+    let ingested = 0;
+    for (const a of await alerts.client.updatedSince(since)) if (await this.ingestFreshservice(a)) ingested += 1;
+    this.lastAlertPoll = polledAt;
+    return ingested;
+  }
+
+  private async ingestFreshservice(alert: FreshserviceAlert): Promise<Alert | null> {
+    const input = freshserviceAlertToInput(alert, this.options.live?.alerts?.rules ?? []);
+    return input ? this.current().ingestAlert(input) : null;
+  }
+
   decide(approvalId: string, body: DecisionBody, by: string): Promise<Approval> {
     return this.current().decide(approvalId, body, by);
   }
@@ -224,6 +297,9 @@ export class Runtime {
       ...sandbox,
       ...(live?.freshdesk ? { ticketActions: freshdeskTicketActions(live.freshdesk.writer, sandbox.ticketActions) } : {}),
       ...(live?.incidents ? { incidents: live.incidents } : {}),
+      ...(live?.telephony ? { telephony: live.telephony } : {}),
+      ...(live?.oncall ? { oncall: live.oncall } : {}),
+      ...(live?.infra ? { infra: live.infra } : {}),
     };
   }
 
@@ -233,6 +309,7 @@ export class Runtime {
     this.run = { cancelled: false };
     this.seenExternal = new Set();
     this.lastPoll = null;
+    this.lastAlertPoll = null;
     this.startedAt = Date.now();
     const sessionId = `S${++this.sessions}`;
     const ports = this.portsFor(scenario, clock, t0);
@@ -249,6 +326,7 @@ export class Runtime {
       traceSinks: [this.traces, ...(this.options.traceSinks ?? [])],
       onAudit: this.options.onAudit ? (entry) => this.options.onAudit!(entry, sessionId) : undefined,
       onError: this.options.onError,
+      ...(this.options.publicBaseUrl ? { publicBaseUrl: this.options.publicBaseUrl } : {}),
     });
     this.engine = engine;
     this.ports = ports;
@@ -259,11 +337,20 @@ export class Runtime {
 
   private async play(scenario: Scenario, engine: CrisisEngine, clock: Clock, t0: number, token: { cancelled: boolean }): Promise<void> {
     try {
-      for (const t of scenarioTickets(scenario, t0).sort((a, b) => a.receivedAt - b.receivedAt)) {
-        const wait = t.receivedAt - clock.now();
+      // Tickets and alerts share one timeline.
+      const timeline = [
+        ...scenarioTickets(scenario, t0).map((t) => ({ at: t.receivedAt, ticket: t })),
+        ...scenarioAlerts(scenario, t0).map((a) => ({ at: a.firedAt, alert: a })),
+      ].sort((a, b) => a.at - b.at);
+      for (const item of timeline) {
+        const wait = item.at - clock.now();
         if (wait > 0) await clock.sleep(wait);
         if (token.cancelled) return;
-        const { id: _id, source: _source, ...input } = t;
+        if ("alert" in item) {
+          await engine.ingestAlert(item.alert);
+          continue;
+        }
+        const { id: _id, source: _source, ...input } = item.ticket;
         await engine.ingest(input, "sandbox");
       }
       await engine.whenIdle();

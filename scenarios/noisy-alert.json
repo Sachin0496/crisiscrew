@@ -1,0 +1,255 @@
+{
+  "id": "noisy-alert",
+  "title": "Noisy alerts on a quiet day",
+  "purpose": "Two hours of normal traffic with two alerts that shouldn't page anyone: a warning on checkout-service latency, and a critical alert on search-service, which isn't behind a tier-1 area. Both are recorded; neither opens an incident.",
+  "speed": 30,
+  "expected": {
+    "incident": false,
+    "incidents": 0
+  },
+  "world": {
+    "baselinePerHour": {
+      "checkout_payments": 3
+    },
+    "services": [
+      {
+        "name": "checkout-service",
+        "surfaces": [
+          "checkout_payments"
+        ]
+      },
+      {
+        "name": "search-service",
+        "surfaces": [
+          "app_performance"
+        ]
+      }
+    ],
+    "deployments": [],
+    "providers": [
+      {
+        "name": "razorpay",
+        "status": "operational"
+      }
+    ],
+    "customers": [
+      {
+        "ref": "n01",
+        "name": "Aarav Malhotra"
+      },
+      {
+        "ref": "n02",
+        "name": "Bhumi Pednekar"
+      },
+      {
+        "ref": "n03",
+        "name": "Chandan Roy"
+      },
+      {
+        "ref": "n04",
+        "name": "Dia Mirza"
+      },
+      {
+        "ref": "n05",
+        "name": "Eshan Khatri"
+      },
+      {
+        "ref": "n06",
+        "name": "Fatima Sana"
+      },
+      {
+        "ref": "n07",
+        "name": "Girish Karnad"
+      },
+      {
+        "ref": "n08",
+        "name": "Hema Malini"
+      },
+      {
+        "ref": "n09",
+        "name": "Irfan Pathan"
+      },
+      {
+        "ref": "n10",
+        "name": "Jaya Bachchan"
+      },
+      {
+        "ref": "n11",
+        "name": "Kabir Bedi"
+      },
+      {
+        "ref": "n12",
+        "name": "Lata Iyer"
+      }
+    ],
+    "attempts": [],
+    "alerts": [
+      {
+        "id": "fs-alert-7001",
+        "at": "+20m",
+        "service": "checkout-service",
+        "metric": "p95_latency_ms",
+        "value": "1450",
+        "threshold": "1200",
+        "severity": "warning",
+        "label": "checkout-service p95 latency 1,450 ms (threshold 1,200 ms)"
+      },
+      {
+        "id": "fs-alert-7002",
+        "at": "+50m",
+        "service": "search-service",
+        "metric": "cpu_percent",
+        "value": "97",
+        "threshold": "90",
+        "severity": "critical",
+        "label": "search-service CPU 97% for 10 minutes (threshold 90%)"
+      }
+    ]
+  },
+  "tickets": [
+    {
+      "at": "+0s",
+      "customerRef": "n01",
+      "channel": "email",
+      "body": "How do I change the delivery address on my order?"
+    },
+    {
+      "at": "+5m",
+      "customerRef": "n02",
+      "channel": "chat",
+      "body": "What is your return policy for electronics?"
+    },
+    {
+      "at": "+10m",
+      "customerRef": "n03",
+      "channel": "chat",
+      "body": "My payment failed once at checkout."
+    },
+    {
+      "at": "+15m",
+      "customerRef": "n04",
+      "channel": "portal",
+      "body": "Can I get a GST invoice for my purchase?"
+    },
+    {
+      "at": "+20m",
+      "customerRef": "n05",
+      "channel": "email",
+      "body": "My parcel shows delivered but I haven't received it."
+    },
+    {
+      "at": "+25m",
+      "customerRef": "n06",
+      "channel": "chat",
+      "body": "How long does a refund take to reach my bank account?"
+    },
+    {
+      "at": "+30m",
+      "customerRef": "n07",
+      "channel": "chat",
+      "body": "Is there a discount for first-time customers?"
+    },
+    {
+      "at": "+35m",
+      "customerRef": "n08",
+      "channel": "email",
+      "body": "The OTP to log in arrived after five minutes."
+    },
+    {
+      "at": "+40m",
+      "customerRef": "n09",
+      "channel": "chat",
+      "body": "Can I cancel an order after it has shipped?"
+    },
+    {
+      "at": "+45m",
+      "customerRef": "n10",
+      "channel": "portal",
+      "body": "Where can I see all my past orders?"
+    },
+    {
+      "at": "+50m",
+      "customerRef": "n11",
+      "channel": "chat",
+      "body": "Do you deliver to Guwahati?"
+    },
+    {
+      "at": "+55m",
+      "customerRef": "n12",
+      "channel": "email",
+      "body": "The app logged me out and I had to sign in again."
+    },
+    {
+      "at": "+60m",
+      "customerRef": "n01",
+      "channel": "chat",
+      "body": "How do I track my order?"
+    },
+    {
+      "at": "+65m",
+      "customerRef": "n02",
+      "channel": "email",
+      "body": "My card payment was declined, I used a different card and it worked."
+    },
+    {
+      "at": "+70m",
+      "customerRef": "n03",
+      "channel": "chat",
+      "body": "Can I exchange a product instead of returning it?"
+    },
+    {
+      "at": "+75m",
+      "customerRef": "n04",
+      "channel": "chat",
+      "body": "What are your customer support hours?"
+    },
+    {
+      "at": "+80m",
+      "customerRef": "n05",
+      "channel": "portal",
+      "body": "The size chart for shoes seems wrong."
+    },
+    {
+      "at": "+85m",
+      "customerRef": "n06",
+      "channel": "email",
+      "body": "Is my data safe if I save my card?"
+    },
+    {
+      "at": "+90m",
+      "customerRef": "n07",
+      "channel": "chat",
+      "body": "The product page images are not loading."
+    },
+    {
+      "at": "+95m",
+      "customerRef": "n08",
+      "channel": "chat",
+      "body": "Can I schedule a delivery for the weekend?"
+    },
+    {
+      "at": "+100m",
+      "customerRef": "n09",
+      "channel": "email",
+      "body": "The coupon code SAVE10 says it has expired."
+    },
+    {
+      "at": "+105m",
+      "customerRef": "n10",
+      "channel": "chat",
+      "body": "UPI payment took a long time but finally went through."
+    },
+    {
+      "at": "+110m",
+      "customerRef": "n11",
+      "channel": "portal",
+      "body": "How do I update my phone number?"
+    },
+    {
+      "at": "+115m",
+      "customerRef": "n12",
+      "channel": "chat",
+      "body": "Do you offer gift wrapping?"
+    }
+  ]
+}

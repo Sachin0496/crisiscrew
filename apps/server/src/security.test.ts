@@ -131,7 +131,7 @@ describe("security scenarios (issue #3)", () => {
 
   it("refuses an update that promises money nobody approved (the output guard)", async () => {
     const { engine } = await run(hero());
-    const r = await engine.gate.call("recovery", "send_customer_update", {
+    const r = await engine.gate.call("handoff", "send_customer_update", {
       incidentId: "INC-2026-001",
       customerRef: "s01",
       channel: "proactive_message",

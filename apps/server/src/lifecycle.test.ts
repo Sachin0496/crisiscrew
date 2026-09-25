@@ -75,8 +75,10 @@ describe("hero scenario: checkout release v4.21.7", () => {
     expect(plan("s05")).toEqual(["account_note:done", "credit:done"]);
     // Nisha's payment went through on a retry: the update, and a recorded decision not to credit.
     expect(plan("s07")).toEqual(["proactive_message:done", "no_credit:done"]);
-    // Ananya is a priority customer: a voice update (prepared, voice is off) and a ₹1,000 credit for a human to decide.
-    expect(plan("s03")).toEqual(["proactive_message:done", "voice:prepared", "credit:awaiting_approval"]);
+    // Ananya is a priority customer: a call (she answers) and a ₹1,000 credit for a human to decide.
+    expect(plan("s03")).toEqual(["proactive_message:done", "voice:done", "credit:awaiting_approval"]);
+    // Farhan doesn't pick up: three calls, then "not reached"; his written update stands.
+    expect(plan("s09")).toEqual(["proactive_message:done", "voice:unreached", "credit:awaiting_approval"]);
     // Ritika was silent when the plan was made; her later ticket adds a reply to it.
     expect(plan("c-ritika")).toEqual(["proactive_message:done", "credit:done", "ticket_reply:done"]);
   });
@@ -104,8 +106,9 @@ describe("hero scenario: checkout release v4.21.7", () => {
     const { incident } = await replay("checkout-v4.21.7");
     const updates = incident?.updates ?? [];
     const by = (channel: string) => updates.filter((u) => u.channel === channel).map((u) => u.customerRef);
-    expect(by("voice").sort()).toEqual(["s03", "s09"]);
-    expect(updates.filter((u) => u.channel === "voice").every((u) => u.status === "prepared" && u.audioId === null)).toBe(true);
+    // Voice is a phone call now: Ananya answers the first; Farhan is called three times.
+    expect(by("voice").sort()).toEqual(["s03", "s09", "s09", "s09"]);
+    expect(updates.filter((u) => u.channel === "voice").every((u) => u.status === "calling" && u.callId)).toBe(true);
     expect(by("ticket_reply")).toHaveLength(8);
     for (const noConsent of ["s05", "s11", "s14"]) expect(by("proactive_message")).not.toContain(noConsent);
   });
@@ -115,14 +118,50 @@ describe("hero scenario: checkout release v4.21.7", () => {
     const outcomes = ports.record.notes.filter((n) => n.text.startsWith("CrisisCrew · "));
     expect(outcomes).toHaveLength(8);
     expect(outcomes[0]?.text).toMatch(/Confirmed affected: .*failed at/);
-    expect(incident?.engineering).toEqual({ id: "ENG-001", adapter: "sandbox" });
-    expect(ports.record.incidents[0]?.notes.map((n) => n.split(":")[0])).toEqual(["Investigation", "Customer impact"]);
+    expect(incident?.engineering).toEqual({ id: "ENG-001", adapter: "sandbox", importance: "P1", change: { id: "CHG-001" } });
+    // Filed after the investigation, so the findings are in the ticket itself; notes follow as recovery moves.
+    expect(ports.record.incidents[0]?.description).toContain("Likely cause: checkout-service v4.21.7 (97% confidence)");
+    expect(ports.record.incidents[0]?.notes.map((n) => n.split(/[:.]/)[0])).toEqual(["Customer impact"]);
+  });
+
+  it("opens at P2 for a tier-1 area, then raises it to P1 and pages on-call once 23 customers are proved affected", async () => {
+    const { engine, ports, incident } = await replay("checkout-v4.21.7");
+    expect(incident?.importance).toMatchObject({ level: "P1", page: true, source: "rules", stage: "root_cause" });
+    expect(incident?.importance?.reasons.map((r) => r.text)).toEqual([
+      "23 customers affected (20 or more is P1)",
+      "₹63,987 in failed or pending payments (₹25,000 or more is P2)",
+      "2 priority customers affected (1 or more is P2)",
+      "Checkout & payments is a tier-1 area",
+      "checkout-service v4.21.7 is the likely cause (97%), so a rollback is an option",
+    ]);
+    expect(incident?.severity).toBe("high");
+    // The record is filed after the importance is known, so it starts at P1 and needs no raise.
+    expect(ports.record.incidents[0]?.importance).toBe("P1");
+    const raised = engine.audit.entries().filter((e) => e.tool === "update_engineering_incident" && e.argsSummary.includes(`"importance":"P1"`));
+    expect(raised).toHaveLength(0);
+  });
+
+  it("lets a human lower the importance, and the rules then leave it alone", async () => {
+    const { engine, ports, incident, clock } = await replay("checkout-v4.21.7");
+    const id = incident!.id;
+    const set = await engine.setImportance(id, "P3", "Asha", "rollback done, customers covered");
+    expect(set).toMatchObject({ level: "P3", page: false, source: "human", by: "Asha" });
+    expect(ports.record.incidents[0]?.importance).toBe("P3");
+    expect(ports.record.incidents[0]?.notes.at(-1)).toMatch(/^Importance P3\. Set by Asha: “rollback done, customers covered”/);
+    // A later complaint joins the incident, and the rules would say P1 again.
+    clock.advance(30_000);
+    const again = scenarios.get("checkout-v4.21.7")!.tickets.find((t) => t.customerRef === "c-arjun")!;
+    await engine.ingest({ customerRef: "s02", customerName: "Kavya Reddy", channel: "chat", body: again.body, receivedAt: clock.now() });
+    await engine.whenIdle();
+    expect(engine.snapshot().incidents[id]?.linkedTicketIds).toHaveLength(9);
+    expect(engine.snapshot().incidents[id]?.importance).toMatchObject({ level: "P3", source: "human" });
+    await expect(engine.setImportance("INC-404", "P1", "Asha")).rejects.toThrow(/no incident INC-404/);
   });
 
   it("refuses contact and money that the evidence and consent don't support", async () => {
     const { engine, incident } = await replay("checkout-v4.21.7");
     const id = incident!.id;
-    const send = (customerRef: string, channel: string) => engine.gate.call("recovery", "send_customer_update", { incidentId: id, customerRef, channel, text: "test" });
+    const send = (customerRef: string, channel: string) => engine.gate.call("handoff", "send_customer_update", { incidentId: id, customerRef, channel, text: "test" });
     expect(await send("s05", "proactive_message")).toMatchObject({ ok: false, reason: "customer has not agreed to proactive messages" });
     expect(await send("s01", "voice")).toMatchObject({ ok: false, reason: "customer has not agreed to voice contact" });
     expect(await send("s01", "ticket_reply")).toMatchObject({ ok: false, reason: "this customer has no ticket in the incident" });
@@ -134,6 +173,35 @@ describe("hero scenario: checkout release v4.21.7", () => {
     expect(await credit("s07", 200)).toMatchObject({ ok: false, reason: "no credit is planned for this customer" });
     expect(await credit("s03", 1_000)).toMatchObject({ ok: false, reason: expect.stringMatching(/needs L3; Recovery Agent is limited to L2/) });
     expect(engine.audit.entries().slice(-8).every((e) => e.decision === "denied")).toBe(true);
+  });
+
+  it("gives every customer message to the Handoff Agent, and refuses one from the Recovery Agent", async () => {
+    const { engine, incident } = await replay("checkout-v4.21.7");
+    const sends = engine.audit.entries().filter((e) => e.tool === "send_customer_update" && e.decision === "allowed");
+    expect(sends.length).toBeGreaterThan(0);
+    expect(new Set(sends.map((e) => e.identity))).toEqual(new Set(["handoff"]));
+    expect(await engine.gate.call("recovery", "send_customer_update", { incidentId: incident!.id, customerRef: "s01", channel: "proactive_message", text: "test" })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/not on Recovery Agent's allow-list|not allowed|allow-list/),
+    });
+  });
+
+  it("sends each track its own message: an answer to the complaint, or news of a failure the customer may not have noticed", async () => {
+    const { incident } = await replay("checkout-v4.21.7");
+    const update = (ref: string, channel: string) => incident!.updates.find((u) => u.customerRef === ref && u.channel === channel)?.text ?? "";
+    // Priya wrote in: her reply names her ticket and her payment.
+    expect(update("c-priya", "ticket_reply")).toMatch(/^Hi Priya, thanks for writing in \(ticket T-\d+\)\. You're right: some payments at checkout have been failing since about \d\d:\d\d, and your ₹[\d,]+ \w+ payment at \d\d:\d\d was one of them\./);
+    // Aditya never wrote in: the message tells him what happened to his payment.
+    expect(update("s01", "proactive_message")).toMatch(/^Hi Aditya, you may not have noticed, but your ₹[\d,]+ UPI payment at \d\d:\d\d didn't go through\./);
+    // Ananya's ₹1,000 credit waits for a human: she hears now that a credit is under review, with no amount promised.
+    const ananya = update("s03", "proactive_message");
+    expect(ananya).toContain("We're also reviewing a goodwill credit for you and will confirm it shortly.");
+    expect(ananya).not.toContain("₹1,000");
+    expect(update("s01", "proactive_message")).not.toContain("goodwill credit");
+    expect(update("s03", "voice")).toMatch(/^Hello Ananya, this is customer care\. You may not have noticed, but your ₹12,999 card payment at \d\d:\d\d didn't go through today\./);
+    // Every outreach action carries its track.
+    const tracks = new Set(incident!.actions.filter((a) => ["ticket_reply", "proactive_message", "voice", "account_note"].includes(a.kind)).map((a) => `${a.kind}:${a.track}`));
+    expect(tracks).toEqual(new Set(["ticket_reply:complained", "proactive_message:not_complained", "voice:not_complained", "account_note:not_complained"]));
   });
 
   it("keeps the Pattern Agent read-only and the audit chain intact", async () => {
@@ -206,6 +274,15 @@ describe("UPI provider outage", () => {
     expect(Object.values(state.approvals).map((a) => a.customerName)).toEqual(["Indu Nair"]);
     expect(state.credits.reduce((sum, c) => sum + c.amountInr, 0)).toBe(1_800);
     expect(incident?.status).toBe("awaiting_approval");
+  });
+});
+
+describe("importance, as each scenario expects", () => {
+  it.each([...scenarios.values()].filter((s) => s.expected.importance).map((s) => [s.id, s] as const))("%s", async (id) => {
+    const scenario = scenarios.get(id)!;
+    const { incident } = await replay(id);
+    expect(incident?.importance?.level).toBe(scenario.expected.importance);
+    expect(incident?.importance?.page).toBe(scenario.expected.pages);
   });
 });
 

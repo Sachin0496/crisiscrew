@@ -19,9 +19,8 @@ type Props = {
 };
 
 /**
- * One LangGraph workflow, drawn from the compiled graph: nodes in columns by
- * their longest path from Start, parallel branches stacked, conditional
- * edges dashed. With a trace open, the nodes it ran are marked, and a node
+ * One workflow entry point: nodes in columns by their longest path from Start.
+ * With a trace open, the nodes it ran are marked, and a node
  * with a problem anywhere under it is ringed in red or amber.
  */
 export function WorkflowMap({ graph, states, showRuns, onNode }: Props) {

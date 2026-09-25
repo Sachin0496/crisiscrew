@@ -86,11 +86,12 @@ describe("sandbox orders", () => {
 });
 
 describe("sandbox engineering incidents", () => {
-  it("files a numbered record and adds notes to it", async () => {
+  it("files a numbered record, changes its importance and adds notes to it", async () => {
     const { ports: p } = ports(0);
-    expect(await p.incidents.open({ incidentId: "INC-1", title: "Checkout", description: "d", severity: "high" })).toEqual({ id: "ENG-001" });
+    expect(await p.incidents.open({ incidentId: "INC-1", title: "Checkout", description: "d", importance: "P2" })).toEqual({ id: "ENG-001" });
+    await p.incidents.setImportance("ENG-001", "P1");
     await p.incidents.note("ENG-001", "root cause");
-    expect(p.record.incidents[0]).toMatchObject({ incidentId: "INC-1", notes: ["root cause"] });
+    expect(p.record.incidents[0]).toMatchObject({ incidentId: "INC-1", importance: "P1", notes: ["root cause"] });
     await expect(p.incidents.note("ENG-404", "x")).rejects.toThrow(/no engineering incident/);
   });
 });

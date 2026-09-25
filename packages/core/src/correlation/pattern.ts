@@ -194,6 +194,22 @@ export class PatternEngine {
     return { signal, nearest, candidate, fires: candidate.fires };
   }
 
+  /**
+   * Adds tickets to an incident, creating its entry if it has none yet (an
+   * incident opened by an alert starts with no tickets). Later matching
+   * failures then join it by similarity, like any other incident.
+   */
+  joinIncident(incidentId: string, memberIds: readonly string[]): void {
+    const incident = this.incidents.get(incidentId);
+    if (!incident) {
+      this.attachIncident(incidentId, memberIds);
+      return;
+    }
+    for (const id of memberIds) if (this.stored.has(id)) incident.members.add(id);
+    incident.lastActivity = Math.max(incident.lastActivity, ...memberIds.map((id) => this.stored.get(id)?.ticket.receivedAt ?? 0));
+    this.recentre(incident);
+  }
+
   /** Registers an incident so later matching failures join it instead of forming a new cluster. */
   attachIncident(incidentId: string, memberIds: readonly string[]): void {
     const known = memberIds.filter((id) => this.stored.has(id));

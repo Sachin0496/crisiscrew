@@ -110,7 +110,7 @@ export function TracesPage({ state, wiring, traceId }: { state: CrisisState; wir
 
       <Card
         title="Workflow map"
-        subtitle={graph ? graph.description : "The LangGraph workflows, read from the compiled graphs"}
+        subtitle={graph ? graph.description : "The five LangGraph workflow entry points"}
         actions={
           <Segmented
             label="Workflow"

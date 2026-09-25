@@ -1,19 +1,27 @@
-import type { EvidenceItem, Hypothesis, RcaConfig } from "@crisiscrew/contracts";
-import type { Deployment, ErrorRatePoint, ProviderHealth } from "../ports";
+import type { AlertSeverity, AlertsConfig, EvidenceItem, Hypothesis, RcaConfig } from "@crisiscrew/contracts";
+import type { Deployment, ErrorRatePoint, InfraHealth, ProviderHealth } from "../ports";
 
 const MIN = 60_000;
 
 export type RcaInput = {
+  /** When the first sign of trouble arrived: the first complaint, or the first alert. */
   firstComplaintAt: number;
+  /** What that first sign was, for the wording of the release timing. Defaults to a complaint. */
+  firstSignal?: "complaint" | "alert";
+  /** Alerts linked to the incident. A release on an alerting service gains evidence; weighed only with alertLr. */
+  alerts?: { service: string; severity: AlertSeverity; label: string; firedAt: number }[];
+  alertLr?: Pick<AlertsConfig, "criticalLr" | "warningLr">;
   /** Releases of the services behind the incident's product area; null when the check failed. */
   deployments: Deployment[] | null;
   /** Error-rate series per service; null when the check failed. */
   errorSeries: Record<string, ErrorRatePoint[]> | null;
   /** Payment provider status; null when the check failed. */
   providers: ProviderHealth[] | null;
+  /** Infrastructure health per service behind the incident; null when the check failed, absent when it wasn't run. */
+  infra?: Record<string, InfraHealth> | null;
   /** Payment methods named in each complaint. */
   paymentMethods: string[][];
-  adapters: { deployments: string; metrics: string; payments: string };
+  adapters: { deployments: string; metrics: string; payments: string; infra?: string };
 };
 
 function mean(xs: number[]): number {
@@ -24,17 +32,37 @@ function pct(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;
 }
 
-function describeGap(ms: number): string {
+function describeGap(ms: number, first: string): string {
   const minutes = Math.round(Math.abs(ms) / MIN);
   const text = minutes < 120 ? `${minutes} min` : `${Math.round(minutes / 60)} h`;
-  return ms >= 0 ? `released ${text} before the first complaint` : `released ${text} after the first complaint`;
+  return ms >= 0 ? `released ${text} before the first ${first}` : `released ${text} after the first ${first}`;
 }
 
-function timingEvidence(d: Deployment, firstAt: number, cfg: RcaConfig, adapter: string): EvidenceItem {
+function timingEvidence(d: Deployment, firstAt: number, first: string, cfg: RcaConfig, adapter: string): EvidenceItem {
   const gap = firstAt - d.at;
   const g = cfg.deployGap;
   const lr = gap < 0 ? g.afterLr : gap <= g.withinMin * MIN ? g.withinLr : gap <= g.nearMin * MIN ? g.nearLr : g.farLr;
-  return { source: "get_recent_deployments", observation: `${describeGap(gap)} (${d.sha.slice(0, 7)} by ${d.author}: "${d.message}")`, lr, adapter, checked: true };
+  return { source: "get_recent_deployments", observation: `${describeGap(gap, first)} (${d.sha.slice(0, 7)} by ${d.author}: "${d.message}")`, lr, adapter, checked: true };
+}
+
+/**
+ * A release gains evidence when its own service alerted soon after it
+ * shipped (within the deploy-gap "near" window); the strongest such alert
+ * counts once. An alert hours after an old release says nothing about it.
+ */
+function alertEvidence(d: Deployment, input: RcaInput, cfg: RcaConfig): EvidenceItem | null {
+  if (!input.alertLr) return null;
+  const after = (input.alerts ?? []).filter((a) => a.service === d.service && a.firedAt >= d.at && a.firedAt - d.at <= cfg.deployGap.nearMin * MIN);
+  const alert = after.find((a) => a.severity === "critical") ?? after[0];
+  if (!alert) return null;
+  const minutes = Math.round((alert.firedAt - d.at) / MIN);
+  return {
+    source: "alerts",
+    observation: `${alert.severity} alert on ${d.service} ${minutes} min after the release: ${alert.label}`,
+    lr: alert.severity === "critical" ? input.alertLr.criticalLr : input.alertLr.warningLr,
+    adapter: "core",
+    checked: true,
+  };
 }
 
 function errorEvidence(d: Deployment, series: ErrorRatePoint[] | undefined | null, cfg: RcaConfig, adapter: string): EvidenceItem {
@@ -57,6 +85,49 @@ function errorEvidence(d: Deployment, series: ErrorRatePoint[] | undefined | nul
     adapter,
     checked: true,
   };
+}
+
+/** Where each infrastructure check came from: the sources that answered, or all of them when none did. */
+function sourcesOf(health: InfraHealth, kind: InfraHealth["checks"][number]["kind"], fallback: string): { checked: boolean; adapter: string; detail: string } {
+  const checks = health.checks.filter((c) => c.kind === kind);
+  const ok = checks.filter((c) => c.checked);
+  const used = ok.length > 0 ? ok : checks;
+  return { checked: ok.length > 0, adapter: used.map((c) => c.source).join(", ") || fallback, detail: used.map((c) => c.detail).join("; ") };
+}
+
+/** Pods, cloud alarms and CPU, each one likelihood ratio. A part no source could check counts as "not checked", LR 1. */
+function infraEvidence(health: InfraHealth, cfg: RcaConfig, fallback: string): EvidenceItem[] {
+  const c = cfg.infra;
+  const items: EvidenceItem[] = [];
+  const pods = sourcesOf(health, "pods", fallback);
+  if (!health.pods) {
+    items.push({ source: "get_infra_health", observation: `${health.service} pods not checked${pods.detail ? `: ${pods.detail}` : ""}`, lr: 1, adapter: pods.adapter, checked: false });
+  } else {
+    const p = health.pods;
+    const counts = `${p.ready}/${p.total} pods ready, ${p.restarts} restarts`;
+    const [lr, what] =
+      p.crashLooping > 0
+        ? [c.crashLoopLr, `${p.crashLooping} ${p.crashLooping === 1 ? "pod" : "pods"} in CrashLoopBackOff (${counts})`]
+        : p.ready < p.total
+          ? [c.unreadyLr, `only ${counts}`]
+          : p.restarts >= c.restartsMin
+            ? [c.restartsLr, `${counts}: pods keep restarting`]
+            : [c.healthyLr, `${counts}: pods look healthy`];
+    items.push({ source: "get_infra_health", observation: `${health.service}: ${what}`, lr, adapter: pods.adapter, checked: true });
+  }
+  const alarms = sourcesOf(health, "alarms", fallback);
+  if (!health.alarms) {
+    items.push({ source: "get_infra_health", observation: `cloud alarms not checked${alarms.detail ? `: ${alarms.detail}` : ""}`, lr: 1, adapter: alarms.adapter, checked: false });
+  } else if (health.alarms.length > 0) {
+    items.push({ source: "get_infra_health", observation: `cloud alarm on ${health.service}: ${health.alarms.map((a) => a.name).join(", ")}`, lr: c.alarmLr, adapter: alarms.adapter, checked: true });
+  } else {
+    items.push({ source: "get_infra_health", observation: `no cloud alarm on ${health.service}`, lr: c.noAlarmLr, adapter: alarms.adapter, checked: true });
+  }
+  if (health.cpuPercent !== undefined && health.cpuPercent >= c.saturationPercent) {
+    const cpu = sourcesOf(health, "cpu", fallback);
+    items.push({ source: "get_infra_health", observation: `${health.service} CPU at ${Math.round(health.cpuPercent)}% (${c.saturationPercent}% or more is saturation)`, lr: c.saturationLr, adapter: cpu.adapter, checked: true });
+  }
+  return items;
 }
 
 function methodEvidence(paymentMethods: string[][], cfg: RcaConfig): EvidenceItem | null {
@@ -101,8 +172,9 @@ export function scoreHypotheses(input: RcaInput, cfg: RcaConfig): Hypothesis[] {
         prior: cfg.priors.deploy / input.deployments.length,
         startedAt: d.at,
         evidence: [
-          timingEvidence(d, input.firstComplaintAt, cfg, input.adapters.deployments),
+          timingEvidence(d, input.firstComplaintAt, input.firstSignal ?? "complaint", cfg, input.adapters.deployments),
           errorEvidence(d, input.errorSeries === null ? null : input.errorSeries[d.service], cfg, input.adapters.metrics),
+          ...[alertEvidence(d, input, cfg)].filter((e): e is EvidenceItem => e !== null),
         ],
       });
     }
@@ -141,6 +213,32 @@ export function scoreHypotheses(input: RcaInput, cfg: RcaConfig): Hypothesis[] {
           },
           ...(methods ? [methods] : []),
         ],
+      });
+    }
+  }
+
+  if (input.infra !== undefined) {
+    const services = input.infra === null ? [] : Object.values(input.infra);
+    if (services.length === 0) {
+      drafts.push({
+        id: "infra:unverified",
+        kind: "infra",
+        subject: "unverified",
+        label: "Our own infrastructure (not checked)",
+        prior: cfg.priors.infra,
+        evidence: [{ source: "get_infra_health", observation: "infrastructure not checked", lr: 1, adapter: input.adapters.infra ?? "none", checked: false }],
+      });
+    }
+    for (const health of services) {
+      const alarmAt = Math.min(...(health.alarms ?? []).map((a) => a.since ?? Number.POSITIVE_INFINITY));
+      drafts.push({
+        id: `infra:${health.service}`,
+        kind: "infra",
+        subject: health.service,
+        label: `${health.service} infrastructure`,
+        prior: cfg.priors.infra / services.length,
+        ...(Number.isFinite(alarmAt) ? { startedAt: alarmAt } : {}),
+        evidence: infraEvidence(health, cfg, input.adapters.infra ?? "none"),
       });
     }
   }

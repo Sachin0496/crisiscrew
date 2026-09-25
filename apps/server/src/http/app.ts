@@ -1,4 +1,5 @@
 import { serveStatic } from "@hono/node-server/serve-static";
+import { VOBIZ_CALLBACKS, type VobizCallback } from "@crisiscrew/adapters";
 import { DecisionBody, impactGraph, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
 import { describeWorkflows } from "@crisiscrew/core";
 import { timingSafeEqual } from "node:crypto";
@@ -18,21 +19,45 @@ export type AppDeps = { runtime: Runtime; config: Config; onError?: (error: unkn
 
 const VERSION = "0.2.0";
 
-const ManualTicket = z
-  .object({
-    customerName: z.string().trim().min(1).max(80).default("Walk-in customer"),
-    customerEmail: z.string().trim().max(120).optional(),
-    channel: z.enum(["chat", "email", "phone", "portal"]).default("chat"),
-    subject: z.string().trim().max(200).optional(),
-    body: z.string().trim().min(1).max(2000),
-  })
-  .strict();
+const ManualTicket = z.object({
+  customerName: z.string().trim().min(1).max(80).default("Walk-in customer"),
+  customerEmail: z.string().trim().max(120).optional(),
+  channel: z.enum(["chat", "email", "phone", "portal"]).default("chat"),
+  subject: z.string().trim().max(200).optional(),
+  body: z.string().trim().min(1).max(2000),
+}).strict();
 
 /** Freshdesk's automation rule posts {"ticket_id": 123}; its simple mode nests the fields under "freshdesk_webhook". */
 const FreshdeskWebhook = z.union([
   z.object({ ticket_id: z.coerce.number().int().positive() }),
   z.object({ freshdesk_webhook: z.object({ ticket_id: z.coerce.number().int().positive() }) }),
 ]);
+
+/** An alert posted by hand (a demo, or a monitoring tool CrisisCrew doesn't read directly). */
+const ManualAlert = z
+  .object({
+    service: z.string().trim().min(1).max(80),
+    metric: z.string().trim().min(1).max(80),
+    severity: z.enum(["critical", "warning"]),
+    label: z.string().trim().min(1).max(200),
+    value: z.string().trim().max(40).optional(),
+    threshold: z.string().trim().max(40).optional(),
+  })
+  .strict();
+
+/** A Freshservice workflow names the alert; CrisisCrew reads it back from the API. */
+const FreshserviceAlertHook = z.object({ alert_id: z.coerce.number().int().positive() });
+
+const AcknowledgeBody = z.object({ by: z.string().trim().min(1).max(60).optional() }).strict();
+
+/** A Freshservice workflow's webhook: the incident ticket's id, and who acknowledged. */
+const FreshserviceAck = z.object({ ticket_id: z.coerce.number().int().positive(), agent_name: z.string().trim().max(60).optional() });
+
+const ImportanceBody = z.object({ level: z.enum(["P1", "P2", "P3"]), note: z.string().trim().max(500).optional() }).strict();
+
+const TestCall = z.object({ to: z.string().trim().min(8).max(20) }).strict();
+
+const TEST_CALL_SCRIPT = "This is a test call from CrisisCrew. Your phone line is set up to receive incident calls.";
 
 function sameSecret(given: string, expected: string): boolean {
   const a = Buffer.from(given);
@@ -72,9 +97,10 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   const limit = config.rateLimitPerMinute;
   const adminLimit = rateLimit("admin", limit);
   const approvalLimit = rateLimit("approval", limit);
+  const webhookLimit = rateLimit("webhook", limit * 5);
+  const workflows = describeWorkflows();
   const admin = requireToken(config.adminToken, "admin");
   const approver = requireToken(config.approverToken, "approver");
-  const workflows = describeWorkflows();
   const startedAt = Date.now();
   const baseUrl = (c: Context) => config.publicBaseUrl ?? new URL(c.req.url).origin;
 
@@ -135,7 +161,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json(ticketImpact(runtime.state(), view, baseUrl(c)));
   });
 
-  app.post("/api/webhooks/freshdesk", rateLimit("webhook", limit * 5), async (c) => {
+  app.post("/api/webhooks/freshdesk", webhookLimit, async (c) => {
     if (!runtime.freshdeskEnabled || !config.freshdesk?.webhookSecret) return c.json({ error: "Freshdesk webhook ingest is off: set TICKETS=freshdesk and FRESHDESK_INGEST=webhook" }, 404);
     if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshdesk.webhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
     const parsed = await body(c, FreshdeskWebhook);
@@ -144,6 +170,104 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     // Answer at once; Freshdesk's webhook times out quickly, and ingest reads the ticket back from the API.
     void runtime.ingestFreshdesk(ticketId).catch((error) => onError?.(error));
     return c.json({ accepted: true, ticketId }, 202);
+  });
+
+  app.post("/api/alerts", adminLimit, admin, async (c) => {
+    const parsed = await body(c, ManualAlert);
+    if (!parsed.ok) return parsed.response;
+    const alert = await runtime.ingestAlert({ ...parsed.data, source: "manual", firedAt: Date.now() });
+    return c.json(alert, 202);
+  });
+
+  app.post("/api/webhooks/freshservice/alerts", webhookLimit, async (c) => {
+    if (!runtime.freshserviceAlertsEnabled || !config.freshserviceWebhookSecret) {
+      return c.json({ error: "Freshservice alert webhooks are off: set ALERTS=freshservice and FRESHSERVICE_WEBHOOK_SECRET" }, 404);
+    }
+    if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshserviceWebhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
+    const parsed = await body(c, FreshserviceAlertHook);
+    if (!parsed.ok) return parsed.response;
+    // Answer at once; the alert is read back from the API.
+    void runtime.ingestFreshserviceAlert(parsed.data.alert_id).catch((error) => onError?.(error));
+    return c.json({ accepted: true, alertId: parsed.data.alert_id }, 202);
+  });
+
+  // An operator takes the page, so no one else is called.
+  app.post("/api/incidents/:id/page/acknowledge", adminLimit, admin, async (c) => {
+    const parsed = await body(c, AcknowledgeBody);
+    if (!parsed.ok) return parsed.response;
+    const id = c.req.param("id");
+    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
+    try {
+      await runtime.acknowledgePage(id, parsed.data.by ?? (c.req.header("x-operator-name")?.slice(0, 60) || "an operator"));
+      return c.json(runtime.state().incidents[id]!.paging);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
+    }
+  });
+
+  // Acknowledging in Freshservice: a workflow on the incident ticket posts its id here with the shared secret.
+  app.post("/api/webhooks/freshservice/acknowledge", webhookLimit, async (c) => {
+    if (!config.freshserviceWebhookSecret) return c.json({ error: "Freshservice acknowledgements are off: set FRESHSERVICE_WEBHOOK_SECRET" }, 404);
+    if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshserviceWebhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
+    const parsed = await body(c, FreshserviceAck);
+    if (!parsed.ok) return parsed.response;
+    const incidentId = runtime.incidentForEngineering(parsed.data.ticket_id);
+    if (!incidentId) return c.json({ error: `no incident is filed as Freshservice ticket #${parsed.data.ticket_id}` }, 404);
+    try {
+      await runtime.acknowledgePage(incidentId, parsed.data.agent_name || "Freshservice");
+      return c.json({ incidentId, paging: runtime.state().incidents[incidentId]!.paging });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
+    }
+  });
+
+  // A human sets an incident's importance, up or down; the Commander's rules leave it alone from then on.
+  app.post("/api/incidents/:id/importance", adminLimit, admin, async (c) => {
+    const parsed = await body(c, ImportanceBody);
+    if (!parsed.ok) return parsed.response;
+    const id = c.req.param("id");
+    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
+    const by = c.req.header("x-operator-name")?.slice(0, 60) || "an operator";
+    return c.json(await runtime.setImportance(id, parsed.data.level, by, parsed.data.note || undefined));
+  });
+
+  // Vobiz fetches what a call says and reports its progress here. Each callback is signed with the account's auth token.
+  app.post("/api/webhooks/vobiz/:callId/:kind", webhookLimit, async (c) => {
+    const vobiz = runtime.vobiz;
+    if (!vobiz) return c.json({ error: "Vobiz calls are off: set TELEPHONY=vobiz" }, 404);
+    const kind = c.req.param("kind") as VobizCallback;
+    if (!VOBIZ_CALLBACKS.includes(kind)) return c.json({ error: `unknown Vobiz callback "${kind}"` }, 404);
+    const callId = c.req.param("callId");
+    // Vobiz signs the public URL it called, which a tunnel or proxy rewrites before it reaches us.
+    if (!vobiz.verifySignature(vobiz.callbackUrl(callId, kind), (name) => c.req.header(name))) return c.json({ error: "Vobiz signature is missing or wrong" }, 401);
+    const form = await c.req.parseBody().catch(() => ({}));
+    const params = Object.fromEntries(Object.entries(form).filter((e): e is [string, string] => typeof e[1] === "string"));
+    const reply = vobiz.handleCallback(callId, kind, params);
+    if (reply === null) return kind === "answer" || kind === "digits" ? c.json({ error: `no call ${callId}` }, 404) : c.body(null, 204);
+    return c.body(reply, 200, { "content-type": "application/xml; charset=utf-8" });
+  });
+
+  // Checks the phone line end to end: places one short call, and its progress arrives as call.updated events.
+  app.post("/api/telephony/test-call", adminLimit, admin, async (c) => {
+    const parsed = await body(c, TestCall);
+    if (!parsed.ok) return parsed.response;
+    try {
+      const { callId } = await runtime.placeCall({
+        to: parsed.data.to,
+        script: TEST_CALL_SCRIPT,
+        purpose: "oncall",
+        gather: { prompt: "Press 1 to confirm you can hear this." },
+        metadata: { test: "true" },
+      });
+      return c.json({ callId, status: runtime.state().calls[callId] ?? null }, 202);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
+  app.get("/api/calls/:id", (c) => {
+    const call = runtime.state().calls[c.req.param("id")];
+    return call ? c.json(call) : c.json({ error: `no call ${c.req.param("id")}` }, 404);
   });
 
   app.post("/api/approvals/:id", approvalLimit, approver, async (c) => {
@@ -175,7 +299,6 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
 
   app.get("/api/voice/:id", (c) => c.json({ error: "voice is off: no audio is generated in sandbox mode" }, 404));
 
-  // The LangGraph workflows, read from the compiled graphs, and their traces.
   app.get("/api/workflows", (c) => c.json(workflows));
   app.get("/api/traces", (c) => {
     const session = c.req.query("session") === "all" ? undefined : runtime.state().session.id;

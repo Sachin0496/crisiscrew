@@ -1,11 +1,17 @@
-import type { AffectedCustomer, CustomerRecoveryState, IncidentView, RecoveryAction, RecoveryStatus } from "./domain";
+import type { AffectedCustomer, CustomerRecoveryState, IncidentView, OutreachTrack, RecoveryAction, RecoveryStatus } from "./domain";
 import type { CrisisState } from "./state";
 
-/** Statuses after which an action needs nothing more: done, prepared (voice is off), or settled by a human. */
-const SETTLED: readonly RecoveryStatus[] = ["done", "prepared", "declined"];
+/** Statuses after which an action needs nothing more: done, prepared (voice is off), unreached by phone after every allowed call, or settled by a human. */
+const SETTLED: readonly RecoveryStatus[] = ["done", "prepared", "unreached", "declined"];
 
 export function actionsFor(incident: Pick<IncidentView, "actions">, customerRef: string): RecoveryAction[] {
   return incident.actions.filter((a) => a.customerRef === customerRef);
+}
+
+/** The outreach track a customer belongs to: complained, not complained (silent), or unverified. */
+export function outreachTrack(customer: Pick<AffectedCustomer, "confidence" | "complained">): OutreachTrack {
+  if (customer.confidence !== "confirmed") return "unverified";
+  return customer.complained ? "complained" : "not_complained";
 }
 
 /** Where one customer's recovery stands. Only confirmed customers can be recovered; the rest are "unverified". */

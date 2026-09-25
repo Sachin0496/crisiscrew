@@ -5,6 +5,13 @@ import { Badge, Card, Empty } from "../ui";
 
 const SOURCE: Record<string, string> = { sandbox: "Sandbox", core: "Engine", live: "Live" };
 
+/** Who answered a check: the sandbox, the engine, or the MCP servers by name ("mcp:k8s-prod, mcp:cloudwatch" → "MCP · k8s-prod, cloudwatch"). */
+export function sourceLabel(adapter: string): string {
+  if (SOURCE[adapter]) return SOURCE[adapter]!;
+  if (adapter.startsWith("mcp:")) return `MCP · ${adapter.split(/,\s*|\+/).map((a) => a.replace(/^mcp:/, "")).join(", ")}`;
+  return "Live";
+}
+
 /** The Investigator's ranking: each cause's prior times the likelihood ratios of its evidence. */
 export function RootCause({ incident }: { incident?: IncidentView }) {
   const hypotheses = incident?.hypotheses ?? [];
@@ -20,7 +27,7 @@ export function RootCause({ incident }: { incident?: IncidentView }) {
     >
       {!incident ? (
         <Empty icon={<Search size={18} />} title="Starts when an incident opens">
-          The Investigator checks the payment gateway, recent releases and service error rates, then ranks every possible cause by its evidence.
+          The Investigator checks the payment gateway, recent releases, service error rates and infrastructure, then ranks every possible cause by its evidence.
         </Empty>
       ) : hypotheses.length === 0 ? (
         <Empty icon={<Search size={18} />} title="Investigating">
@@ -56,7 +63,7 @@ export function RootCause({ incident }: { incident?: IncidentView }) {
                       <span className={`ev-lr${e.lr > 1 ? " up" : e.lr < 1 ? " down" : ""}`}>×{e.lr.toFixed(e.lr >= 10 ? 0 : 2)}</span>
                       <span>{sentence(e.observation)}</span>
                       <Badge tone={e.checked && SOURCE[e.adapter] === undefined ? "success" : "neutral"}>
-                        {e.checked ? (SOURCE[e.adapter] ?? "Live") : "Not checked"}
+                        {e.checked ? sourceLabel(e.adapter) : "Not checked"}
                       </Badge>
                     </div>
                   ))}

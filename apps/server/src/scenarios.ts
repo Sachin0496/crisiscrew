@@ -1,4 +1,4 @@
-import { parseOffset, parsePolicy, ScenarioSchema, TOOL_NAMES, type Policy, type Scenario, type Ticket } from "@crisiscrew/contracts";
+import { parseOffset, parsePolicy, ScenarioSchema, TOOL_NAMES, type AlertInput, type Policy, type Scenario, type Ticket } from "@crisiscrew/contracts";
 import { readdirSync, readFileSync } from "node:fs";
 import { POLICY_FILE, SCENARIO_DIR } from "./paths";
 
@@ -34,4 +34,19 @@ export function scenarioTickets(scenario: Scenario, t0: number): Ticket[] {
 
 export function loadPolicy(file: URL = POLICY_FILE): Policy {
   return parsePolicy(JSON.parse(readFileSync(file, "utf8")), TOOL_NAMES);
+}
+
+/** The scenario's alerts on its timeline, as Freshservice Alert Management would deliver them. */
+export function scenarioAlerts(scenario: Scenario, t0: number): AlertInput[] {
+  return scenario.world.alerts.map((a) => ({
+    source: "sandbox",
+    externalId: a.id,
+    service: a.service,
+    metric: a.metric,
+    ...(a.value ? { value: a.value } : {}),
+    ...(a.threshold ? { threshold: a.threshold } : {}),
+    severity: a.severity,
+    label: a.label,
+    firedAt: t0 + parseOffset(a.at),
+  }));
 }
