@@ -54,6 +54,10 @@ const clock = (at: number) => {
 };
 /** Incidents already announced: a later cluster update for one of them is a ticket joining it. */
 const announced = new Set<string>();
+/** The last paging line printed for each incident. */
+const pagingPrinted = new Map<string, string>();
+/** The last importance heading printed for each incident. */
+const importancePrinted = new Map<string, string>();
 
 function print(e: CrisisEvent): void {
   switch (e.type) {
@@ -88,8 +92,38 @@ function print(e: CrisisEvent): void {
       break;
     }
     case "incident.opened":
-      console.log(red(bold(`\n  ${e.payload.incident.id} opened: ${e.payload.incident.ticketIds.length} tickets, ${SURFACE_LABELS[e.payload.incident.surface]}, severity ${e.payload.incident.severity}\n`)));
+      console.log(red(bold(`\n  ${e.payload.incident.id} opened: ${e.payload.incident.ticketIds.length} tickets, ${SURFACE_LABELS[e.payload.incident.surface]}\n`)));
       break;
+    case "alert.received": {
+      const a = e.payload.alert;
+      console.log(yellow(`${clock(a.firedAt).padStart(6)}  ALERT   ${a.severity.padEnd(8)} ${a.service}: ${a.label}`));
+      break;
+    }
+    case "alert.linked":
+      console.log(dim(`         alert ${e.payload.alertId} linked to ${e.payload.incidentId}`));
+      break;
+    case "paging.updated": {
+      const p = e.payload.paging;
+      const last = p.attempts.at(-1);
+      const line =
+        p.status === "acknowledged"
+          ? `acknowledged by ${p.acknowledgedBy}${p.via === "call" ? " (pressed 1)" : ""}`
+          : p.status === "paging"
+            ? last ? `page ${last.attempt}: ${last.responder} (${last.role}), ${last.state.replace(/_/g, " ")}` : "paging"
+            : (p.note ?? p.status.replace(/_/g, " "));
+      // Adding the call id to an attempt changes nothing worth printing.
+      if (pagingPrinted.get(e.payload.incidentId) !== line) console.log(bold(`  ${e.payload.incidentId}: on-call`) + dim(`  ${line}`));
+      pagingPrinted.set(e.payload.incidentId, line);
+      break;
+    }
+    case "incident.importance": {
+      const imp = e.payload.importance;
+      const heading = `  ${e.payload.incidentId}: importance ${imp.level}${imp.page ? ", page on-call" : ""}`;
+      // Refreshed reasons at the same level aren't news.
+      if (importancePrinted.get(e.payload.incidentId) !== heading) console.log(bold(heading) + dim(`  ${imp.reasons[0]?.text ?? "no rule raised it"}`));
+      importancePrinted.set(e.payload.incidentId, heading);
+      break;
+    }
     case "incident.status_changed":
       console.log(bold(`  ${e.payload.incidentId}: ${e.payload.to.replace(/_/g, " ")}`) + dim(`  ${e.payload.note}`));
       break;
@@ -169,7 +203,7 @@ for (const i of summary) {
   const m = recoveryMetrics(final, i);
   const pct = c.ratio === null ? "n/a" : `${Math.round(c.ratio * 100)}%`;
   console.log(
-    `  ${i.id}: ${i.status.replace("_", " ")}; root cause ${i.rootCause ? `${i.rootCause.label} (${(i.rootCause.confidence * 100).toFixed(0)}%)` : "not identified"}; ` +
+    `  ${i.id}: ${i.status.replace("_", " ")}${i.importance ? `, ${i.importance.level}` : ""}${i.paging ? `, on-call ${i.paging.status === "acknowledged" ? `acknowledged by ${i.paging.acknowledgedBy}` : i.paging.status.replace(/_/g, " ")}` : ""}; root cause ${i.rootCause ? `${i.rootCause.label} (${(i.rootCause.confidence * 100).toFixed(0)}%)` : "not identified"}; ` +
       `${i.linkedTicketIds.length} tickets linked\n` +
       `  ${c.confirmed} affected (${c.complained} complained, ${c.silent} silent${c.unverified ? `, ${c.unverified} not verified` : ""}); ` +
       `${bold(`recovery coverage ${c.recovered}/${c.confirmed} (${pct})`)}${c.needsHuman ? `, ${c.needsHuman} waiting for a human` : ""}\n` +

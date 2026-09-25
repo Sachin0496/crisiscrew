@@ -3,6 +3,7 @@ import {
   type AgentStatus,
   type CustomerRecoveryState,
   type EvidenceKind,
+  type ImportanceLevel,
   type IncidentStatus,
   type OutreachTrack,
   type PortMode,
@@ -60,6 +61,12 @@ export const STATUS_TONE: Record<IncidentStatus, Tone> = {
   recovered: "success",
   resolved: "success",
   dismissed: "neutral",
+};
+
+export const IMPORTANCE: Record<ImportanceLevel, { tone: Tone; meaning: string }> = {
+  P1: { tone: "danger", meaning: "urgent: page the on-call engineer" },
+  P2: { tone: "warning", meaning: "high: engineering acts today" },
+  P3: { tone: "neutral", meaning: "normal: working hours" },
 };
 
 export const SEVERITY: Record<Severity, { label: string; tone: Tone }> = {
@@ -144,6 +151,10 @@ export const PORT_LABELS: Record<PortName, string> = {
   metrics: "Metrics",
   orders: "Orders",
   voice: "Voice",
+  telephony: "Phone calls",
+  oncall: "On-call schedule",
+  alerts: "Alerts",
+  infra: "Infrastructure",
   llm: "Language model",
   embeddings: "Embeddings",
   credits: "Credits",
@@ -174,6 +185,7 @@ export const TOOL_OWNER: Record<string, string> = {
   pattern: "Pattern Agent",
   commander: "Commander",
   investigator: "Investigator",
+  issue_creator: "Issue Creator",
   recovery: "Recovery",
   handoff: "Handoff",
   operator: "MCP client",

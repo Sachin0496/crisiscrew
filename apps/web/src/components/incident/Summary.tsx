@@ -1,7 +1,7 @@
 import { recoveryCoverage, recoveryMetrics, type CrisisState, type IncidentView } from "@crisiscrew/contracts";
-import { Check, CirclePlay, Clock, ExternalLink, GitCommitHorizontal, Inbox, Users, Wrench } from "lucide-react";
+import { Check, CirclePlay, Clock, ExternalLink, GitCommitHorizontal, Inbox, Users, Wrench, Siren, ClipboardList, RotateCcw } from "lucide-react";
 import type { ScenarioSummary } from "../../api";
-import { ADAPTER_LABELS, clock, inr, pct, plural, SEVERITY, since, STATUS_LABELS, STATUS_TONE } from "../../format";
+import { ADAPTER_LABELS, clock, IMPORTANCE, inr, pct, plural, SEVERITY, since, STATUS_LABELS, STATUS_TONE } from "../../format";
 import { expectedOutcome, incidentTitle, progressSteps } from "../../view";
 import { Badge, Stat } from "../ui";
 
@@ -39,6 +39,7 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
   }
   const tickets = new Set([...incident.ticketIds, ...incident.linkedTicketIds]).size;
   const severity = SEVERITY[incident.severity];
+  const importance = incident.importance;
   const coverage = recoveryCoverage(incident);
   const record = incident.engineering;
   return (
@@ -48,10 +49,22 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
         <Badge tone={STATUS_TONE[incident.status]} dot>
           {STATUS_LABELS[incident.status]}
         </Badge>
-        <Badge tone={severity.tone}>{severity.label}</Badge>
+        {importance ? (
+          <Badge tone={IMPORTANCE[importance.level].tone}>
+            {importance.level}
+            {importance.page ? " · page on-call" : ""}
+          </Badge>
+        ) : (
+          <Badge tone={severity.tone}>{severity.label}</Badge>
+        )}
       </div>
       <div className="page-meta">
         <span className="mono">{incident.id}</span>
+        {incident.trigger === "alert" && (
+          <span>
+            <Siren size={14} aria-hidden /> Opened by a critical alert
+          </span>
+        )}
         <span>
           <Clock size={14} aria-hidden /> Opened {clock(incident.openedAt)}
         </span>
@@ -80,9 +93,47 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
                 Engineering incident <strong className="mono">{record.id}</strong> ({(ADAPTER_LABELS[record.adapter] ?? record.adapter).toLowerCase()})
               </>
             )}
+            {record.importance && <span className="muted">· filed at {record.importance}</span>}
+          </span>
+        )}
+        {record?.change && (
+          <span title="A rollback requested for engineering to plan and approve">
+            <RotateCcw size={14} aria-hidden />
+            {record.change.url ? (
+              <a href={record.change.url} target="_blank" rel="noreferrer">
+                Rollback change {record.change.id} <ExternalLink size={12} aria-hidden />
+              </a>
+            ) : (
+              <>
+                Rollback change <strong className="mono">{record.change.id}</strong>
+              </>
+            )}
+          </span>
+        )}
+        {record?.problem && (
+          <span title="Opened for the post-incident review">
+            <ClipboardList size={14} aria-hidden />
+            {record.problem.url ? (
+              <a href={record.problem.url} target="_blank" rel="noreferrer">
+                Problem {record.problem.id} <ExternalLink size={12} aria-hidden />
+              </a>
+            ) : (
+              <>
+                Problem <strong className="mono">{record.problem.id}</strong> for the review
+              </>
+            )}
           </span>
         )}
       </div>
+      {importance && importance.reasons.length > 0 && (
+        <p className="page-lede importance-why">
+          <strong>
+            {importance.level}, {IMPORTANCE[importance.level].meaning}
+          </strong>
+          {" — "}
+          {importance.reasons.map((r) => r.text).join("; ")}.
+        </p>
+      )}
     </div>
   );
 }

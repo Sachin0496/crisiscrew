@@ -53,11 +53,13 @@ What the team does before and at Stage 2 (Bangalore, 25–26 September 2026). Th
   |---|---|---|
   | Freshdesk | `FRESHDESK_DOMAIN`, `FRESHDESK_API_KEY` (+ `FRESHDESK_WEBHOOK_SECRET`) | **Wired:** `TICKETS=freshdesk` switches it on |
   | Freshservice | `FRESHSERVICE_DOMAIN`, `FRESHSERVICE_API_KEY`, `FRESHSERVICE_REQUESTER_EMAIL` | **Wired:** `INCIDENTS=freshservice` switches it on |
+  | Freshservice alerts | `FRESHSERVICE_ALERT_SERVICES` (+ `FRESHSERVICE_ALERTS_INGEST`, `FRESHSERVICE_WEBHOOK_SECRET` for the webhook) | **Wired:** `ALERTS=freshservice` switches it on. The API key's agent needs the "View Alerts" privilege |
+  | Freshservice on-call | `FRESHSERVICE_ONCALL_SCHEDULE_ID` (+ `FRESHSERVICE_ONCALL_SCHEDULES`, `FRESHSERVICE_WEBHOOK_SECRET`) | **Wired:** `ONCALL=freshservice` switches it on. The API key's agent needs the "View On-call schedules" privilege |
   | ElevenLabs | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | designed, not wired |
   | Anthropic | `ANTHROPIC_API_KEY` | designed, not wired |
   | Sarvam | `SARVAM_API_KEY` | designed, not wired |
   | Dodo Payments | `DODO_PAYMENTS_API_KEY` | designed, not wired |
-  | Vobiz | `VOBIZ_AUTH_ID`, `VOBIZ_AUTH_TOKEN` | designed, not wired |
+  | Vobiz | `VOBIZ_AUTH_ID`, `VOBIZ_AUTH_TOKEN`, `VOBIZ_FROM_NUMBER` | **Wired:** `TELEPHONY=vobiz` switches it on (needs an https `PUBLIC_BASE_URL` and `ADMIN_TOKEN`) |
   | AWS | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | designed, not wired |
 
 ### Switch Freshdesk on (about 20 minutes)

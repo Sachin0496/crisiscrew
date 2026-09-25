@@ -18,7 +18,7 @@ export function AgentsPage({ state }: { state: CrisisState }) {
       <div className="page-header">
         <h1 className="page-title">Agents</h1>
         <p className="page-lede">
-          Five agents, each with its own identity, allow-list and highest authority level. Every tool call goes through the policy gate and is written to the audit
+          Six agents, each with its own identity, allow-list and highest authority level. Every tool call goes through the policy gate and is written to the audit
           log, with the adapter that served it: the sandbox, or Freshdesk and Freshservice when they're switched on.
         </p>
       </div>

@@ -89,10 +89,10 @@ export type ClusterView = {
   incidentId?: string;
 };
 
-export const Identity = z.enum(["pattern", "commander", "investigator", "recovery", "handoff", "operator"]);
+export const Identity = z.enum(["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff", "operator"]);
 export type Identity = z.infer<typeof Identity>;
 export type AgentId = Exclude<Identity, "operator">;
-export const AGENT_IDS: readonly AgentId[] = ["pattern", "commander", "investigator", "recovery", "handoff"];
+export const AGENT_IDS: readonly AgentId[] = ["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff"];
 
 export type Level = 0 | 1 | 2 | 3;
 export const LEVEL_NAMES: Record<Level, string> = {
@@ -127,7 +127,8 @@ export type EvidenceItem = {
   checked: boolean;
 };
 
-export type HypothesisKind = "deploy" | "provider" | "unknown";
+/** What a root-cause hypothesis blames: a release, the payment gateway, our own infrastructure (pods, cloud), or nothing yet identified. */
+export type HypothesisKind = "deploy" | "provider" | "infra" | "unknown";
 export type Hypothesis = {
   id: string;
   kind: HypothesisKind;
@@ -148,6 +149,32 @@ export type Customer = {
   phone?: string;
   tier: "standard" | "priority";
   consent: { voice: boolean; proactive: boolean };
+};
+
+/** Why a phone call is made: paging the on-call engineer, or calling an affected customer. */
+export type CallPurpose = "oncall" | "customer";
+
+/** A call's lifecycle. The last four are final. */
+export type CallState = "queued" | "ringing" | "answered" | "completed" | "no_answer" | "busy" | "failed";
+
+export const FINAL_CALL_STATES: readonly CallState[] = ["completed", "no_answer", "busy", "failed"];
+
+/** One outbound phone call, as the telephony adapter last reported it. */
+export type CallView = {
+  id: string;
+  purpose: CallPurpose;
+  /** The number called, masked to its last four digits for display and logs. */
+  to: string;
+  state: CallState;
+  adapter: string;
+  startedAt: number;
+  updatedAt: number;
+  durationSec?: number;
+  /** Keys the callee pressed, when the call asked for input. */
+  digits?: string;
+  /** Why a call failed or ended without an answer, in the provider's words. */
+  reason?: string;
+  metadata?: Record<string, string>;
 };
 
 export type UpdateChannel = "ticket_reply" | "proactive_message" | "voice";
@@ -301,12 +328,119 @@ export type RecoveryAction = {
 export type CustomerRecoveryState = "recovered" | "needs_human" | "in_progress" | "attention" | "unverified";
 
 /** The engineering incident record (Freshservice, or its sandbox) that the operational side works from. */
-export type EngineeringRecord = { id: string; url?: string; adapter: string };
+export type EngineeringRecord = {
+  id: string;
+  url?: string;
+  adapter: string;
+  /** The importance the record's priority was last set from. */
+  importance?: "P1" | "P2" | "P3";
+  /** A rollback change requested for a release blamed with high confidence, linked to the record. */
+  change?: { id: string; url?: string };
+  /** The problem record opened for the post-incident review once the incident is recovered. */
+  problem?: { id: string; url?: string };
+};
+
+/** How urgently engineering must act: P1 pages the on-call engineer, P3 can wait for working hours. */
+export type ImportanceLevel = "P1" | "P2" | "P3";
+
+/** One rule that raised an incident's importance, in plain words. */
+export type ImportanceReason = { rule: string; level: ImportanceLevel; text: string };
+
+/**
+ * The Incident Commander's decision on how important an incident is, from
+ * deterministic rules in policy.json. It only goes up on its own; a human
+ * can set it either way, and then the rules stop changing it.
+ */
+export type ImportanceAssessment = {
+  level: ImportanceLevel;
+  /** Whether the on-call engineer should be paged. */
+  page: boolean;
+  reasons: ImportanceReason[];
+  /** What the assessment knew: the incident opening, its customer impact, its root cause, or a human's decision. */
+  stage: "opened" | "impact" | "root_cause" | "human";
+  source: "rules" | "human";
+  by?: string;
+  note?: string;
+  assessedAt: number;
+};
+
+/** How serious an operational alert is: a critical one can open an incident on its own. */
+export type AlertSeverity = "critical" | "warning";
+
+/**
+ * A deterministic threshold alert on a service (CPU, error rate, latency),
+ * from Freshservice Alert Management or a scenario. It can open an incident
+ * on its own, or be linked to one that complaints opened.
+ */
+export type Alert = {
+  id: string;
+  /** Where it came from: "freshservice" or "sandbox". */
+  source: string;
+  /** The alert's id in its source, used to ignore repeats. */
+  externalId?: string;
+  service: string;
+  metric: string;
+  value?: string;
+  threshold?: string;
+  severity: AlertSeverity;
+  /** What crossed which threshold, in a sentence. */
+  label: string;
+  firedAt: number;
+  resolvedAt?: number;
+  incidentId?: string;
+};
+
+export type AlertInput = Omit<Alert, "id" | "incidentId" | "resolvedAt">;
+
+/** Where a responder sits in the on-call schedule, in the order they're paged. */
+export type OnCallRole = "primary" | "secondary" | "tertiary";
+
+/**
+ * One call to one on-call responder. calling: the phone is ringing or the
+ * call is in progress; acknowledged: they pressed 1; not_acknowledged: they
+ * answered but didn't press 1; the rest say why the call didn't connect.
+ */
+export type PageAttemptState = "calling" | "acknowledged" | "not_acknowledged" | "no_answer" | "busy" | "failed";
+
+export type PageAttempt = {
+  attempt: number;
+  responder: string;
+  role: OnCallRole;
+  /** Masked to the last four digits. */
+  phone: string;
+  callId?: string;
+  state: PageAttemptState;
+  startedAt: number;
+  updatedAt: number;
+  reason?: string;
+};
+
+/**
+ * Paging the on-call engineer for an incident. paging: a call is out or the
+ * next one is due; acknowledged: someone took it; exhausted: every allowed
+ * attempt went unacknowledged; no_responder: nobody on call could be called.
+ */
+export type PagingView = {
+  status: "paging" | "acknowledged" | "exhausted" | "no_responder";
+  attempts: PageAttempt[];
+  acknowledgedBy?: string;
+  acknowledgedAt?: number;
+  /** How it was acknowledged: a key press on the call, or an operator (in CrisisCrew or Freshservice). */
+  via?: "call" | "operator";
+  note?: string;
+};
 
 export type IncidentView = {
   id: string;
   status: IncidentStatus;
+  /** high for P1, medium otherwise; kept for readers that predate importance. */
   severity: Severity;
+  importance?: ImportanceAssessment;
+  paging?: PagingView;
+  /** What opened it: a burst of complaints (the default), or a critical alert. */
+  trigger?: "complaints" | "alert";
+  /** Alerts linked to it, the triggering one first. */
+  alertIds?: string[];
   openedAt: number;
   surface: Surface;
   clusterId: string;

@@ -7,9 +7,12 @@ export const TOOL_NAMES = [
   "get_payment_health",
   "get_recent_deployments",
   "get_service_status",
+  "get_infra_health",
   "identify_affected_customers",
   "open_incident",
   "file_engineering_incident",
+  "request_rollback_change",
+  "open_problem_record",
   "update_engineering_incident",
   "link_ticket_to_incident",
   "add_ticket_note",
@@ -19,6 +22,7 @@ export const TOOL_NAMES = [
   "request_human_approval",
   "send_customer_update",
   "issue_recovery_credit",
+  "page_on_call",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];

@@ -13,13 +13,17 @@ describe("loadConfig", () => {
       metrics: "sandbox",
       orders: "sandbox",
       voice: "off",
+      telephony: "sandbox",
+      oncall: "sandbox",
+      alerts: "sandbox",
+      infra: "sandbox",
       llm: "template",
       embeddings: "local",
       credits: "sandbox",
       translate: "off",
     });
     expect(config.embeddingsModel).toBe(DEFAULT_EMBEDDING_MODEL);
-    expect(config).toMatchObject({ freshdesk: null, freshservice: null });
+    expect(config).toMatchObject({ freshdesk: null, freshservice: null, vobiz: null });
   });
 
   it("switches Freshdesk on with its keys, and refuses without them", () => {
@@ -33,10 +37,76 @@ describe("loadConfig", () => {
 
   it("switches Freshservice on with its keys and requester, and names what's missing", () => {
     const config = loadConfig({ INCIDENTS: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs", FRESHSERVICE_REQUESTER_EMAIL: "ops@acme.test" });
-    expect(config.freshservice).toEqual({ domain: "acme.freshservice.com", apiKey: "fs", requesterEmail: "ops@acme.test", workspaceId: null });
+    expect(config.freshservice).toEqual({ domain: "acme.freshservice.com", apiKey: "fs", requesterEmail: "ops@acme.test", workspaceId: null, groups: {} });
+    const routed = loadConfig({ INCIDENTS: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs", FRESHSERVICE_REQUESTER_EMAIL: "ops@acme.test", FRESHSERVICE_GROUPS: "checkout-service=12, *=34" });
+    expect(routed.freshservice?.groups).toEqual({ "checkout-service": 12, "*": 34 });
+    expect(() => loadConfig({ INCIDENTS: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs", FRESHSERVICE_REQUESTER_EMAIL: "o@a.t", FRESHSERVICE_GROUPS: "checkout" })).toThrow(/service=groupId/);
     expect(() => loadConfig({ INCIDENTS: "freshservice", FRESHSERVICE_DOMAIN: "acme" })).toThrow(
       "INCIDENTS=freshservice needs FRESHSERVICE_API_KEY, FRESHSERVICE_REQUESTER_EMAIL; see .env.example",
     );
+  });
+
+  it("switches Vobiz on only with its keys, a public https URL and an admin token", () => {
+    const keys = {
+      TELEPHONY: "vobiz",
+      VOBIZ_AUTH_ID: "MA123",
+      VOBIZ_AUTH_TOKEN: "tok",
+      VOBIZ_FROM_NUMBER: "+918065551234",
+      PUBLIC_BASE_URL: "https://crisis.example.com",
+      ADMIN_TOKEN: "admin",
+    };
+    expect(loadConfig(keys).vobiz).toEqual({ authId: "MA123", authToken: "tok", from: "+918065551234", ringTimeoutSec: 30, timeLimitSec: 300 });
+    expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "live", adapter: "vobiz" });
+    expect(() => loadConfig({ ...keys, VOBIZ_AUTH_TOKEN: "", VOBIZ_FROM_NUMBER: "" })).toThrow("TELEPHONY=vobiz needs VOBIZ_AUTH_TOKEN, VOBIZ_FROM_NUMBER; see .env.example");
+    expect(() => loadConfig({ ...keys, PUBLIC_BASE_URL: "http://localhost:8787" })).toThrow(/PUBLIC_BASE_URL.*https/);
+    expect(() => loadConfig({ ...keys, ADMIN_TOKEN: "" })).toThrow(/needs ADMIN_TOKEN/);
+    expect(() => loadConfig({ ...keys, VOBIZ_FROM_NUMBER: "reception" })).toThrow(/E\.164/);
+  });
+
+  it("reads Freshservice on-call schedules, per service or by default, and names what's missing", () => {
+    const keys = { ONCALL: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs", FRESHSERVICE_ONCALL_SCHEDULE_ID: "8569" };
+    expect(loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULES: "checkout-service=8570, auth-service=8571" }).oncall).toEqual({
+      domain: "acme.freshservice.com",
+      apiKey: "fs",
+      defaultScheduleId: 8569,
+      schedules: { "checkout-service": 8570, "auth-service": 8571 },
+    });
+    expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "live", adapter: "freshservice" });
+    expect(() => loadConfig({ ONCALL: "freshservice", FRESHSERVICE_DOMAIN: "acme" })).toThrow("ONCALL=freshservice needs FRESHSERVICE_API_KEY, FRESHSERVICE_ONCALL_SCHEDULE_ID; see .env.example");
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULE_ID: "weekly" })).toThrow(/schedule id/);
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULES: "checkout-service" })).toThrow(/service=scheduleId/);
+  });
+
+  it("reads Freshservice Alert Management: poll by default, webhook only with its secret, and service rules", () => {
+    const keys = { ALERTS: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs" };
+    expect(loadConfig({ ...keys, FRESHSERVICE_ALERT_SERVICES: "checkout-5xx=checkout-service, auth=auth-service" }).alerts).toEqual({
+      domain: "acme.freshservice.com",
+      apiKey: "fs",
+      ingest: "poll",
+      pollSeconds: 30,
+      rules: [
+        { match: "checkout-5xx", service: "checkout-service" },
+        { match: "auth", service: "auth-service" },
+      ],
+    });
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ALERTS_INGEST: "webhook" })).toThrow(/needs FRESHSERVICE_WEBHOOK_SECRET/);
+    expect(loadConfig({ ...keys, FRESHSERVICE_ALERTS_INGEST: "webhook", FRESHSERVICE_WEBHOOK_SECRET: "s" }).alerts?.ingest).toBe("webhook");
+    expect(() => loadConfig({ ALERTS: "freshservice" })).toThrow("ALERTS=freshservice needs FRESHSERVICE_DOMAIN, FRESHSERVICE_API_KEY; see .env.example");
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ALERT_SERVICES: "checkout" })).toThrow(/text=service pairs/);
+  });
+
+  it("reads infrastructure MCP servers, and refuses a URL that isn't https or isn't on the allow-list", () => {
+    const servers = (list: unknown[]) => ({ INFRA: "mcp", INFRA_MCP_SERVERS: JSON.stringify(list), INFRA_MCP_ALLOWED_HOSTS: "k8s-mcp.internal.example.com" });
+    const k8s = { name: "k8s-prod", kind: "kubernetes", url: "https://k8s-mcp.internal.example.com/mcp", namespace: "shop" };
+    const cw = { name: "cloudwatch", kind: "cloudwatch", command: "uvx", args: ["awslabs.cloudwatch-mcp-server@latest"] };
+    expect(loadConfig(servers([k8s, cw])).infra).toEqual({ servers: [k8s, cw] });
+    expect(wiringReport(loadConfig(servers([k8s]))).ports.find((p) => p.port === "infra")).toMatchObject({ mode: "live", adapter: "mcp" });
+    expect(loadConfig(servers([{ ...k8s, url: "http://localhost:8080/mcp" }])).infra?.servers[0]?.url).toBe("http://localhost:8080/mcp");
+    expect(() => loadConfig(servers([{ ...k8s, url: "http://k8s-mcp.internal.example.com/mcp" }]))).toThrow(/must use https/);
+    expect(() => loadConfig(servers([{ ...k8s, url: "https://evil.example.net/mcp" }]))).toThrow(/evil.example.net isn't in INFRA_MCP_ALLOWED_HOSTS/);
+    expect(() => loadConfig(servers([{ name: "both", kind: "kubernetes", url: k8s.url, command: "x" }]))).toThrow(/a url or a command, not both/);
+    expect(() => loadConfig({ INFRA: "mcp" })).toThrow(/needs INFRA_MCP_SERVERS/);
+    expect(() => loadConfig({ INFRA: "mcp", INFRA_MCP_SERVERS: "k8s" })).toThrow(/must be JSON/);
   });
 
   it("refuses to start with a live adapter that isn't wired yet, naming it", () => {
@@ -68,7 +138,9 @@ describe("wiringReport", () => {
     const report = wiringReport(loadConfig({}));
     // Only the local embedding model is live: it is real computation on this machine, not simulated data.
     expect(report.liveCount).toBe(1);
-    expect(report.ports).toHaveLength(11);
+    expect(report.ports).toHaveLength(15);
+    expect(report.ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "sandbox", available: ["freshservice"], env: "ONCALL" });
+    expect(report.ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "sandbox", available: ["vobiz"], planned: [], env: "TELEPHONY" });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });
     expect(report.ports.find((p) => p.port === "incidents")).toMatchObject({ mode: "sandbox", available: ["freshservice"], planned: [] });
     expect(report.ports.find((p) => p.port === "voice")).toMatchObject({ mode: "off", available: [], planned: ["elevenlabs"] });

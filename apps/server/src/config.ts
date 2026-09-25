@@ -1,4 +1,5 @@
-import { normalizeDomain } from "@crisiscrew/adapters";
+import { normalizeDomain, type McpServerConfig } from "@crisiscrew/adapters";
+import { z } from "zod";
 import type { Identity, PortMode, PortName, WiringReport } from "@crisiscrew/contracts";
 import { randomBytes } from "node:crypto";
 import { MODELS_DIR } from "./paths";
@@ -51,6 +52,46 @@ const PORTS: Record<PortName, PortSpec> = {
   payments: { env: "PAYMENTS", options: ["sandbox", "razorpay-status"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's gateway status" },
   metrics: { env: "METRICS", options: ["sandbox"], wired: ["sandbox"], mode: sandboxMode, detail: () => "Error rates simulated from the scenario's releases" },
   orders: { env: "ORDERS", options: ["sandbox"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's customers and payment attempts" },
+  telephony: {
+    env: "TELEPHONY",
+    options: ["sandbox", "vobiz"],
+    wired: ["sandbox", "vobiz"],
+    mode: (v) => (v === "vobiz" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "vobiz" && c.vobiz
+        ? `Vobiz: calls from ${c.vobiz.from}, with callbacks to ${c.publicBaseUrl}/api/webhooks/vobiz`
+        : "Calls are simulated: they ring, and are answered, missed or busy, the same way on every replay",
+  },
+  oncall: {
+    env: "ONCALL",
+    options: ["sandbox", "freshservice"],
+    wired: ["sandbox", "freshservice"],
+    mode: (v) => (v === "freshservice" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "freshservice" && c.oncall
+        ? `Freshservice on-call (${c.oncall.domain}): schedule ${c.oncall.defaultScheduleId}${Object.keys(c.oncall.schedules).length ? ` and ${Object.keys(c.oncall.schedules).length} per service` : ""}`
+        : "The scenario's on-call roster",
+  },
+  alerts: {
+    env: "ALERTS",
+    options: ["sandbox", "freshservice"],
+    wired: ["sandbox", "freshservice"],
+    mode: (v) => (v === "freshservice" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "freshservice" && c.alerts
+        ? `Freshservice Alert Management (${c.alerts.domain}): ${c.alerts.ingest === "poll" ? `polled every ${c.alerts.pollSeconds} s` : "webhook"}; ${c.alerts.rules.length} service ${c.alerts.rules.length === 1 ? "rule" : "rules"}`
+        : "The scenario's alert timeline, and alerts posted to /api/alerts",
+  },
+  infra: {
+    env: "INFRA",
+    options: ["sandbox", "mcp"],
+    wired: ["sandbox", "mcp"],
+    mode: (v) => (v === "mcp" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "mcp" && c.infra
+        ? `MCP servers: ${c.infra.servers.map((s) => `${s.name} (${s.kind === "kubernetes" ? "pods" : "alarms"})`).join(", ")}`
+        : "The scenario's pods and alarms; a service it doesn't describe is healthy",
+  },
   voice: { env: "VOICE", options: ["off", "elevenlabs"], wired: ["off"], mode: () => "off", detail: () => "Voice scripts are prepared; no audio is generated" },
   llm: { env: "LLM", options: ["template", "anthropic"], wired: ["template"], mode: () => "off", detail: () => "Fixed templates; no language model is called" },
   embeddings: {
@@ -64,7 +105,7 @@ const PORTS: Record<PortName, PortSpec> = {
   translate: { env: "TRANSLATE", options: ["off", "sarvam"], wired: ["off"], mode: () => "off", detail: () => "Tickets are embedded as written" },
 };
 
-const MCP_IDENTITIES: Identity[] = ["pattern", "commander", "investigator", "recovery", "handoff", "operator"];
+const MCP_IDENTITIES: Identity[] = ["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff", "operator"];
 
 export type FreshdeskConfig = {
   domain: string;
@@ -75,7 +116,37 @@ export type FreshdeskConfig = {
   actions: "rest" | "mcp";
 };
 
-export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null };
+export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null; groups: Record<string, number> };
+
+export type VobizConfig = { authId: string; authToken: string; from: string; ringTimeoutSec: number; timeLimitSec: number };
+
+export type OnCallConfig = { domain: string; apiKey: string; defaultScheduleId: number; schedules: Record<string, number> };
+
+export type AlertsConfig = {
+  domain: string;
+  apiKey: string;
+  ingest: "poll" | "webhook";
+  pollSeconds: number;
+  rules: { match: string; service: string }[];
+};
+
+export type InfraConfig = { servers: McpServerConfig[] };
+
+const McpServerSchema = z
+  .object({
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/i, "letters, digits and dashes"),
+    kind: z.enum(["kubernetes", "cloudwatch"]),
+    url: z.string().url().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    command: z.string().min(1).optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    namespace: z.string().optional(),
+    labelSelector: z.string().optional(),
+    timeoutMs: z.number().int().min(500).max(4_000).optional(),
+  })
+  .strict()
+  .refine((s) => Boolean(s.url) !== Boolean(s.command), { message: "give a url or a command, not both" });
 
 export type Config = {
   port: number;
@@ -91,6 +162,12 @@ export type Config = {
   generatedTokens: Identity[];
   freshdesk: FreshdeskConfig | null;
   freshservice: FreshserviceConfig | null;
+  vobiz: VobizConfig | null;
+  oncall: OnCallConfig | null;
+  alerts: AlertsConfig | null;
+  infra: InfraConfig | null;
+  /** Lets a Freshservice workflow acknowledge a page: POST /api/webhooks/freshservice/acknowledge with X-CrisisCrew-Secret. */
+  freshserviceWebhookSecret: string | null;
 };
 
 type Env = Record<string, string | undefined>;
@@ -141,6 +218,18 @@ function freshdeskConfig(env: Env): FreshdeskConfig {
   };
 }
 
+/** FRESHSERVICE_GROUPS: service=groupId pairs, and "*" for every other service. */
+function groupsOf(value: string | null): Record<string, number> {
+  const groups: Record<string, number> = {};
+  for (const pair of (value ?? "").split(",").map((p) => p.trim()).filter(Boolean)) {
+    const [service, id] = pair.split("=").map((p) => p.trim());
+    const n = Number(id);
+    if (!service || !Number.isInteger(n) || n <= 0) throw new ConfigError(`FRESHSERVICE_GROUPS takes service=groupId pairs, got "${pair}"`);
+    groups[service] = n;
+  }
+  return groups;
+}
+
 function freshserviceConfig(env: Env): FreshserviceConfig {
   const missing = ["FRESHSERVICE_DOMAIN", "FRESHSERVICE_API_KEY", "FRESHSERVICE_REQUESTER_EMAIL"].filter((k) => !text(env, k));
   if (missing.length > 0) throw new ConfigError(`INCIDENTS=freshservice needs ${missing.join(", ")}; see .env.example`);
@@ -150,7 +239,103 @@ function freshserviceConfig(env: Env): FreshserviceConfig {
     apiKey: text(env, "FRESHSERVICE_API_KEY")!,
     requesterEmail: text(env, "FRESHSERVICE_REQUESTER_EMAIL")!,
     workspaceId: workspace === null ? null : int(env, "FRESHSERVICE_WORKSPACE_ID", 0),
+    groups: groupsOf(text(env, "FRESHSERVICE_GROUPS")),
   };
+}
+
+function vobizConfig(env: Env): VobizConfig {
+  const missing = ["VOBIZ_AUTH_ID", "VOBIZ_AUTH_TOKEN", "VOBIZ_FROM_NUMBER"].filter((k) => !text(env, k));
+  if (missing.length > 0) throw new ConfigError(`TELEPHONY=vobiz needs ${missing.join(", ")}; see .env.example`);
+  const base = text(env, "PUBLIC_BASE_URL");
+  if (!base?.startsWith("https://")) {
+    throw new ConfigError("TELEPHONY=vobiz needs PUBLIC_BASE_URL set to this server's public https:// URL, so Vobiz can fetch what each call says");
+  }
+  // A public server that can place real calls must not let anyone start them.
+  if (!text(env, "ADMIN_TOKEN")) throw new ConfigError("TELEPHONY=vobiz needs ADMIN_TOKEN, so only an admin can place a test call");
+  const from = text(env, "VOBIZ_FROM_NUMBER")!;
+  if (!/^\+?[1-9]\d{7,14}$/.test(from.replace(/[\s()-]/g, ""))) throw new ConfigError("VOBIZ_FROM_NUMBER must be a phone number in E.164 format, e.g. +918065551234");
+  return {
+    authId: text(env, "VOBIZ_AUTH_ID")!,
+    authToken: text(env, "VOBIZ_AUTH_TOKEN")!,
+    from,
+    ringTimeoutSec: Math.max(10, int(env, "VOBIZ_RING_TIMEOUT_SEC", 30)),
+    timeLimitSec: Math.max(30, int(env, "VOBIZ_TIME_LIMIT_SEC", 300)),
+  };
+}
+
+function oncallConfig(env: Env): OnCallConfig {
+  const missing = ["FRESHSERVICE_DOMAIN", "FRESHSERVICE_API_KEY", "FRESHSERVICE_ONCALL_SCHEDULE_ID"].filter((k) => !text(env, k));
+  if (missing.length > 0) throw new ConfigError(`ONCALL=freshservice needs ${missing.join(", ")}; see .env.example`);
+  const id = (key: string, value: string) => {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n <= 0) throw new ConfigError(`${key} must be a schedule id (a whole number), got "${value}"`);
+    return n;
+  };
+  const schedules: Record<string, number> = {};
+  for (const pair of (text(env, "FRESHSERVICE_ONCALL_SCHEDULES") ?? "").split(",").map((p) => p.trim()).filter(Boolean)) {
+    const [service, schedule] = pair.split("=").map((p) => p.trim());
+    if (!service || !schedule) throw new ConfigError(`FRESHSERVICE_ONCALL_SCHEDULES takes service=scheduleId pairs, got "${pair}"`);
+    schedules[service] = id("FRESHSERVICE_ONCALL_SCHEDULES", schedule);
+  }
+  return {
+    domain: domain(env, "FRESHSERVICE_DOMAIN", "freshservice.com"),
+    apiKey: text(env, "FRESHSERVICE_API_KEY")!,
+    defaultScheduleId: id("FRESHSERVICE_ONCALL_SCHEDULE_ID", text(env, "FRESHSERVICE_ONCALL_SCHEDULE_ID")!),
+    schedules,
+  };
+}
+
+function alertsConfig(env: Env): AlertsConfig {
+  const missing = ["FRESHSERVICE_DOMAIN", "FRESHSERVICE_API_KEY"].filter((k) => !text(env, k));
+  if (missing.length > 0) throw new ConfigError(`ALERTS=freshservice needs ${missing.join(", ")}; see .env.example`);
+  const ingest = oneOf(env, "FRESHSERVICE_ALERTS_INGEST", ["poll", "webhook"] as const);
+  if (ingest === "webhook" && !text(env, "FRESHSERVICE_WEBHOOK_SECRET")) {
+    throw new ConfigError("FRESHSERVICE_ALERTS_INGEST=webhook needs FRESHSERVICE_WEBHOOK_SECRET, so only your workflow can post alerts; see .env.example");
+  }
+  const rules = (text(env, "FRESHSERVICE_ALERT_SERVICES") ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const [match, service] = pair.split("=").map((p) => p.trim());
+      if (!match || !service) throw new ConfigError(`FRESHSERVICE_ALERT_SERVICES takes text=service pairs, got "${pair}"`);
+      return { match, service };
+    });
+  return {
+    domain: domain(env, "FRESHSERVICE_DOMAIN", "freshservice.com"),
+    apiKey: text(env, "FRESHSERVICE_API_KEY")!,
+    ingest,
+    pollSeconds: Math.max(10, int(env, "FRESHSERVICE_ALERTS_POLL_SECONDS", 30)),
+    rules,
+  };
+}
+
+/**
+ * INFRA_MCP_SERVERS: a JSON array of servers. A server reached by URL must
+ * use https (plain http only for localhost), and its host must be in
+ * INFRA_MCP_ALLOWED_HOSTS, so a mistyped or injected URL can't send
+ * CrisisCrew's credentials elsewhere.
+ */
+function infraConfig(env: Env): InfraConfig {
+  const raw = text(env, "INFRA_MCP_SERVERS");
+  if (!raw) throw new ConfigError("INFRA=mcp needs INFRA_MCP_SERVERS, a JSON array of MCP servers; see .env.example");
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new ConfigError("INFRA_MCP_SERVERS must be JSON: an array of {name, kind, url or command, ...}");
+  }
+  const parsed = z.array(McpServerSchema).min(1).safeParse(json);
+  if (!parsed.success) throw new ConfigError(`INFRA_MCP_SERVERS: ${parsed.error.issues.map((i) => `${i.path.join(".") || "servers"}: ${i.message}`).join("; ")}`);
+  const allowed = new Set((text(env, "INFRA_MCP_ALLOWED_HOSTS") ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean));
+  for (const server of parsed.data) {
+    if (!server.url) continue;
+    const url = new URL(server.url);
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol !== "https:" && !local) throw new ConfigError(`INFRA_MCP_SERVERS: ${server.name} must use https (plain http is only for localhost)`);
+    if (!local && !allowed.has(url.hostname.toLowerCase())) throw new ConfigError(`INFRA_MCP_SERVERS: ${server.name}'s host ${url.hostname} isn't in INFRA_MCP_ALLOWED_HOSTS`);
+  }
+  return { servers: parsed.data };
 }
 
 /** Reads and validates configuration from environment variables. See .env.example. */
@@ -187,6 +372,11 @@ export function loadConfig(env: Env): Config {
     generatedTokens,
     freshdesk: switches.tickets === "freshdesk" ? freshdeskConfig(env) : null,
     freshservice: switches.incidents === "freshservice" ? freshserviceConfig(env) : null,
+    vobiz: switches.telephony === "vobiz" ? vobizConfig(env) : null,
+    oncall: switches.oncall === "freshservice" ? oncallConfig(env) : null,
+    alerts: switches.alerts === "freshservice" ? alertsConfig(env) : null,
+    infra: switches.infra === "mcp" ? infraConfig(env) : null,
+    freshserviceWebhookSecret: text(env, "FRESHSERVICE_WEBHOOK_SECRET"),
   };
 }
 
