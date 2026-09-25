@@ -1,4 +1,4 @@
-import type { Deployment, ErrorRatePoint, ProviderHealth } from "../ports";
+import type { Deployment, ErrorRatePoint, InfraHealth, ProviderHealth } from "../ports";
 import { scoreHypotheses } from "../rca/score";
 import { investigationNarrative } from "../recovery/templates";
 import type { AgentKit } from "./kit";
@@ -10,17 +10,20 @@ import type { AgentKit } from "./kit";
  */
 export async function investigate(kit: AgentKit, incidentId: string): Promise<void> {
   const incident = kit.state().incidents[incidentId]!;
-  kit.setAgent("investigator", "working", "Checking the payment gateway, recent releases and error rates");
+  kit.setAgent("investigator", "working", "Checking the payment gateway, recent releases, error rates and infrastructure");
 
   const services = kit.ports.catalog.servicesFor(incident.surface).map((s) => s.name);
   const lookbackMin = kit.policy.rca.lookbackHours * 60;
   const call = (tool: string, args: object) => kit.gate.call("investigator", tool, args);
 
-  const [health, deployCalls, metricCalls] = await Promise.all([
+  const [health, deployCalls, metricCalls, infraCalls] = await Promise.all([
     call("get_payment_health", {}),
     Promise.all(services.map((service) => call("get_recent_deployments", { service, sinceMinutes: lookbackMin }))),
     Promise.all(services.map((service) => call("get_service_status", { service, minutes: lookbackMin + 60 }))),
+    Promise.all(services.map((service) => call("get_infra_health", { service, minutes: 120 }))),
   ]);
+  const okInfra = infraCalls.filter((c) => c.ok);
+  const infra = okInfra.length > 0 ? Object.fromEntries(okInfra.map((c) => [(c.result as InfraHealth).service, c.result as InfraHealth])) : services.length === 0 ? {} : null;
 
   const okDeploys = deployCalls.filter((c) => c.ok);
   const deployments = services.length === 0 || okDeploys.length > 0 ? okDeploys.flatMap((c) => (c.ok ? (c.result as Deployment[]) : [])) : null;
@@ -48,11 +51,13 @@ export async function investigate(kit: AgentKit, incidentId: string): Promise<vo
       deployments,
       errorSeries,
       providers: health.ok ? (health.result as ProviderHealth[]) : null,
+      infra,
       paymentMethods: tickets.map((t) => t?.signal?.entities.paymentMethods ?? []),
       adapters: {
         deployments: deployCalls[0]?.entry.adapter ?? "sandbox",
         metrics: metricCalls[0]?.entry.adapter ?? "sandbox",
         payments: health.entry.adapter,
+        infra: infraCalls[0]?.entry.adapter ?? "none",
       },
     },
     kit.policy.rca,

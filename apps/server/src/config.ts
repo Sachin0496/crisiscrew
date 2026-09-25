@@ -1,4 +1,5 @@
-import { normalizeDomain } from "@crisiscrew/adapters";
+import { normalizeDomain, type McpServerConfig } from "@crisiscrew/adapters";
+import { z } from "zod";
 import type { Identity, PortMode, PortName, WiringReport } from "@crisiscrew/contracts";
 import { randomBytes } from "node:crypto";
 import { MODELS_DIR } from "./paths";
@@ -81,6 +82,16 @@ const PORTS: Record<PortName, PortSpec> = {
         ? `Freshservice Alert Management (${c.alerts.domain}): ${c.alerts.ingest === "poll" ? `polled every ${c.alerts.pollSeconds} s` : "webhook"}; ${c.alerts.rules.length} service ${c.alerts.rules.length === 1 ? "rule" : "rules"}`
         : "The scenario's alert timeline, and alerts posted to /api/alerts",
   },
+  infra: {
+    env: "INFRA",
+    options: ["sandbox", "mcp"],
+    wired: ["sandbox", "mcp"],
+    mode: (v) => (v === "mcp" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "mcp" && c.infra
+        ? `MCP servers: ${c.infra.servers.map((s) => `${s.name} (${s.kind === "kubernetes" ? "pods" : "alarms"})`).join(", ")}`
+        : "The scenario's pods and alarms; a service it doesn't describe is healthy",
+  },
   voice: { env: "VOICE", options: ["off", "elevenlabs"], wired: ["off"], mode: () => "off", detail: () => "Voice scripts are prepared; no audio is generated" },
   llm: { env: "LLM", options: ["template", "anthropic"], wired: ["template"], mode: () => "off", detail: () => "Fixed templates; no language model is called" },
   embeddings: {
@@ -119,6 +130,24 @@ export type AlertsConfig = {
   rules: { match: string; service: string }[];
 };
 
+export type InfraConfig = { servers: McpServerConfig[] };
+
+const McpServerSchema = z
+  .object({
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/i, "letters, digits and dashes"),
+    kind: z.enum(["kubernetes", "cloudwatch"]),
+    url: z.string().url().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    command: z.string().min(1).optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    namespace: z.string().optional(),
+    labelSelector: z.string().optional(),
+    timeoutMs: z.number().int().min(500).max(4_000).optional(),
+  })
+  .strict()
+  .refine((s) => Boolean(s.url) !== Boolean(s.command), { message: "give a url or a command, not both" });
+
 export type Config = {
   port: number;
   publicBaseUrl: string | null;
@@ -136,6 +165,7 @@ export type Config = {
   vobiz: VobizConfig | null;
   oncall: OnCallConfig | null;
   alerts: AlertsConfig | null;
+  infra: InfraConfig | null;
   /** Lets a Freshservice workflow acknowledge a page: POST /api/webhooks/freshservice/acknowledge with X-CrisisCrew-Secret. */
   freshserviceWebhookSecret: string | null;
 };
@@ -267,6 +297,34 @@ function alertsConfig(env: Env): AlertsConfig {
   };
 }
 
+/**
+ * INFRA_MCP_SERVERS: a JSON array of servers. A server reached by URL must
+ * use https (plain http only for localhost), and its host must be in
+ * INFRA_MCP_ALLOWED_HOSTS, so a mistyped or injected URL can't send
+ * CrisisCrew's credentials elsewhere.
+ */
+function infraConfig(env: Env): InfraConfig {
+  const raw = text(env, "INFRA_MCP_SERVERS");
+  if (!raw) throw new ConfigError("INFRA=mcp needs INFRA_MCP_SERVERS, a JSON array of MCP servers; see .env.example");
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new ConfigError("INFRA_MCP_SERVERS must be JSON: an array of {name, kind, url or command, ...}");
+  }
+  const parsed = z.array(McpServerSchema).min(1).safeParse(json);
+  if (!parsed.success) throw new ConfigError(`INFRA_MCP_SERVERS: ${parsed.error.issues.map((i) => `${i.path.join(".") || "servers"}: ${i.message}`).join("; ")}`);
+  const allowed = new Set((text(env, "INFRA_MCP_ALLOWED_HOSTS") ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean));
+  for (const server of parsed.data) {
+    if (!server.url) continue;
+    const url = new URL(server.url);
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol !== "https:" && !local) throw new ConfigError(`INFRA_MCP_SERVERS: ${server.name} must use https (plain http is only for localhost)`);
+    if (!local && !allowed.has(url.hostname.toLowerCase())) throw new ConfigError(`INFRA_MCP_SERVERS: ${server.name}'s host ${url.hostname} isn't in INFRA_MCP_ALLOWED_HOSTS`);
+  }
+  return { servers: parsed.data };
+}
+
 /** Reads and validates configuration from environment variables. See .env.example. */
 export function loadConfig(env: Env): Config {
   const switches = {} as Record<PortName, string>;
@@ -304,6 +362,7 @@ export function loadConfig(env: Env): Config {
     vobiz: switches.telephony === "vobiz" ? vobizConfig(env) : null,
     oncall: switches.oncall === "freshservice" ? oncallConfig(env) : null,
     alerts: switches.alerts === "freshservice" ? alertsConfig(env) : null,
+    infra: switches.infra === "mcp" ? infraConfig(env) : null,
     freshserviceWebhookSecret: text(env, "FRESHSERVICE_WEBHOOK_SECRET"),
   };
 }

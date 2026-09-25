@@ -13,3 +13,14 @@ describe("plural", () => {
     expect(plural(42, "entry", "entries")).toBe("42 entries");
   });
 });
+
+describe("root-cause source labels", () => {
+  it("names the MCP servers that answered", async () => {
+    const { sourceLabel } = await import("./components/incident/RootCause");
+    expect(sourceLabel("sandbox")).toBe("Sandbox");
+    expect(sourceLabel("mcp:k8s-prod")).toBe("MCP · k8s-prod");
+    expect(sourceLabel("mcp:k8s-prod, mcp:cloudwatch")).toBe("MCP · k8s-prod, cloudwatch");
+    expect(sourceLabel("mcp:k8s-prod+cloudwatch")).toBe("MCP · k8s-prod, cloudwatch");
+    expect(sourceLabel("github")).toBe("Live");
+  });
+});

@@ -16,6 +16,7 @@ describe("loadConfig", () => {
       telephony: "sandbox",
       oncall: "sandbox",
       alerts: "sandbox",
+      infra: "sandbox",
       llm: "template",
       embeddings: "local",
       credits: "sandbox",
@@ -91,6 +92,20 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...keys, FRESHSERVICE_ALERT_SERVICES: "checkout" })).toThrow(/text=service pairs/);
   });
 
+  it("reads infrastructure MCP servers, and refuses a URL that isn't https or isn't on the allow-list", () => {
+    const servers = (list: unknown[]) => ({ INFRA: "mcp", INFRA_MCP_SERVERS: JSON.stringify(list), INFRA_MCP_ALLOWED_HOSTS: "k8s-mcp.internal.example.com" });
+    const k8s = { name: "k8s-prod", kind: "kubernetes", url: "https://k8s-mcp.internal.example.com/mcp", namespace: "shop" };
+    const cw = { name: "cloudwatch", kind: "cloudwatch", command: "uvx", args: ["awslabs.cloudwatch-mcp-server@latest"] };
+    expect(loadConfig(servers([k8s, cw])).infra).toEqual({ servers: [k8s, cw] });
+    expect(wiringReport(loadConfig(servers([k8s]))).ports.find((p) => p.port === "infra")).toMatchObject({ mode: "live", adapter: "mcp" });
+    expect(loadConfig(servers([{ ...k8s, url: "http://localhost:8080/mcp" }])).infra?.servers[0]?.url).toBe("http://localhost:8080/mcp");
+    expect(() => loadConfig(servers([{ ...k8s, url: "http://k8s-mcp.internal.example.com/mcp" }]))).toThrow(/must use https/);
+    expect(() => loadConfig(servers([{ ...k8s, url: "https://evil.example.net/mcp" }]))).toThrow(/evil.example.net isn't in INFRA_MCP_ALLOWED_HOSTS/);
+    expect(() => loadConfig(servers([{ name: "both", kind: "kubernetes", url: k8s.url, command: "x" }]))).toThrow(/a url or a command, not both/);
+    expect(() => loadConfig({ INFRA: "mcp" })).toThrow(/needs INFRA_MCP_SERVERS/);
+    expect(() => loadConfig({ INFRA: "mcp", INFRA_MCP_SERVERS: "k8s" })).toThrow(/must be JSON/);
+  });
+
   it("refuses to start with a live adapter that isn't wired yet, naming it", () => {
     expect(() => loadConfig({ DEPLOYMENTS: "github" })).toThrow(ConfigError);
     expect(() => loadConfig({ DEPLOYMENTS: "github" })).toThrow(/DEPLOYMENTS=github.*not wired yet/);
@@ -120,7 +135,7 @@ describe("wiringReport", () => {
     const report = wiringReport(loadConfig({}));
     // Only the local embedding model is live: it is real computation on this machine, not simulated data.
     expect(report.liveCount).toBe(1);
-    expect(report.ports).toHaveLength(14);
+    expect(report.ports).toHaveLength(15);
     expect(report.ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "sandbox", available: ["freshservice"], env: "ONCALL" });
     expect(report.ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "sandbox", available: ["vobiz"], planned: [], env: "TELEPHONY" });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });

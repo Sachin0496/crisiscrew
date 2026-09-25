@@ -36,6 +36,13 @@ export const ScenarioResponder = z.object({
   answers: z.enum(["acknowledges", "ignores", "no_answer", "busy"]).default("acknowledges"),
 });
 
+/** A service's infrastructure as Kubernetes and CloudWatch would report it. Missing means healthy: every pod ready, no alarms. */
+export const ScenarioInfra = z.object({
+  pods: z.object({ ready: z.number().int().min(0), total: z.number().int().min(0), restarts: z.number().int().min(0).default(0), crashLooping: z.number().int().min(0).default(0) }).optional(),
+  alarms: z.array(z.object({ name: z.string().min(1), at: z.string(), metric: z.string().optional() })).default([]),
+  cpuPercent: z.number().min(0).max(100).optional(),
+});
+
 /** An operational alert in the scenario's timeline, as Freshservice Alert Management would send it. */
 export const ScenarioAlert = z.object({
   id: z.string().min(1),
@@ -127,6 +134,7 @@ export const ScenarioSchema = z
       attempts: z.array(ScenarioAttempt),
       oncall: z.array(ScenarioResponder).default([]),
       alerts: z.array(ScenarioAlert).default([]),
+      infra: z.record(z.string(), ScenarioInfra).default({}),
       baselinePerHour: z.partialRecord(Surface, z.number().positive()).default({}),
     }),
     tickets: z.array(ScenarioTicket).min(1),

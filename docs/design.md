@@ -41,7 +41,7 @@ The system described here is built and runs in sandbox mode. Where the build dif
 Customers notice outages before dashboards do. During a payment incident, the first signal is often a few complaints in different words arriving within a minute: "checkout is spinning", "UPI failed", "card rejected", "debited but no order". CrisisCrew treats that stream as incident telemetry:
 
 1. **Detect.** Correlate incoming tickets by meaning, not keywords. Open one incident when a burst of similar failure reports is too unusual to be chance.
-2. **Investigate.** Check the payment gateway, recent deployments and service error rates, then rank root-cause hypotheses by the evidence.
+2. **Investigate.** Check the payment gateway, recent deployments, service error rates and infrastructure (pods and cloud alarms, over MCP), then rank root-cause hypotheses by the evidence.
 3. **Recover.** Link related tickets, find affected customers who haven't complained yet, send consistent updates, and send a voice update to high-impact customers who agreed to be called.
 4. **Hand off.** When a proposed action exceeds the configured authority, such as a goodwill credit above ₹5,000, stop and give a human the complete case.
 
@@ -273,7 +273,7 @@ The agents are split by permission scope, not by convenience. Each agent is a se
 |---|---|---|---|
 | Pattern Agent | score tickets and propose clusters | L0 read | `search_recent_tickets`, `get_incident` |
 | Incident Commander | open incidents, route work between agents | L1 limited write | `open_incident`, `get_incident`, `search_recent_tickets` |
-| Investigator | gather evidence and rank root causes | L0 read | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_incident` |
+| Investigator | gather evidence and rank root causes | L0 read | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_infra_health`, `get_incident` |
 | Recovery Agent | link tickets, find affected customers, update customers, propose credits | L2 customer contact | `identify_affected_customers`, `link_ticket_to_incident`, `draft_customer_update`, `send_customer_update`, `propose_recovery_credit`, `issue_recovery_credit` (only within authority), `get_incident` |
 | Handoff Agent | build the case and request approval; carry out approved actions | L3 with approval | `request_human_approval`, `issue_recovery_credit` (only with an approved approval), `get_incident` |
 | operator | external MCP clients: Claude Desktop, Agent Studio, MCP Inspector | L0 read | read tools only |
@@ -332,7 +332,7 @@ Every tool result becomes evidence with a likelihood ratio (LR). All LRs and pri
 | Provider status | provider | 0.1 if operational · 8 if degraded or in an incident · 1 if the check failed |
 | Payment-method spread in the complaints | provider | 2 if at least 80% name one method (such as UPI) · 0.7 if spread across methods |
 
-Priors: deploy 0.50 (split evenly across candidate releases), provider 0.25, unknown 0.25. Deploys get the largest share because most outages follow a change to a live system; Google's SRE book puts it at roughly 70%.
+Priors: deploy 0.50 (split evenly across candidate releases), provider 0.25, infrastructure 0.15 (split across the incident's services), unknown 0.25. Deploys get the largest share because most outages follow a change to a live system; Google's SRE book puts it at roughly 70%.
 
 ### 7.3 Confidence
 

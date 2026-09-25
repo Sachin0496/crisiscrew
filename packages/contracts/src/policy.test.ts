@@ -28,10 +28,11 @@ const base = {
   rca: {
     lookbackHours: 6,
     confidenceFloor: 0.6,
-    priors: { deploy: 0.5, provider: 0.25, unknown: 0.25 },
+    priors: { deploy: 0.5, provider: 0.25, infra: 0.15, unknown: 0.25 },
     deployGap: { withinMin: 30, withinLr: 6, nearMin: 120, nearLr: 3, farLr: 0.5, afterLr: 0.2 },
     errorRatio: { strongMin: 2, cap: 10, weakMin: 1.2, weakLr: 1, noneLr: 0.3 },
     provider: { operationalLr: 0.1, degradedLr: 8, uncheckedLr: 1 },
+    infra: { crashLoopLr: 8, unreadyLr: 4, restartsMin: 5, restartsLr: 2, healthyLr: 0.3, alarmLr: 4, noAlarmLr: 0.6, saturationPercent: 90, saturationLr: 3 },
     methodSpread: { concentratedShare: 0.8, concentratedLr: 2, spreadLr: 0.7 },
   },
   importance: {

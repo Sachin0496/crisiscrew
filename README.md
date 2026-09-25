@@ -39,7 +39,7 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 | Step | Who | What happens |
 |---|---|---|
 | **Detect** | Pattern Agent | Compares each new complaint with the last 15 minutes by meaning and product area. It opens an incident only when a group passes four gates, and shows the plain reason when a group fails one. Detection is the trigger, not the product |
-| **Verify** | Investigator | Checks the payment gateway, recent releases and service error rates, then ranks causes by prior × likelihood ratios, with every factor shown |
+| **Verify** | Investigator | Checks the payment gateway, recent releases, service error rates and infrastructure (Kubernetes pods and cloud alarms, over MCP), then ranks causes by prior × likelihood ratios, with every factor shown |
 | **Prove who was harmed** | Recovery Agent | Builds the **Customer Impact Graph**. A customer is affected when they have a failed or pending payment inside the incident window, whether or not they wrote in. A complaint with no such payment is kept as *not verified* |
 | **Find the silent** | Recovery Agent | The customers with failed payments who never contacted support: 15 of the 23 in the hero scenario |
 | **Plan each recovery** | Recovery Agent | A plan per customer from their own evidence: the channel they allow, a voice update for priority customers, and a credit sized by the harm, each with its reason and the authority it needs |
@@ -90,7 +90,7 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
          fires: 4 failures in 18s is about 1 in 4 million at normal volume
 
   Root-cause ranking
-     97.0%  checkout-service v4.21.7
+     96.8%  checkout-service v4.21.7
             LR  6.00  released 14 min before the first complaint (3f9c2e1 by vikram-s)
             LR  8.38  checkout-service error rate 0.40% → 3.34% after the release (8.4×)
 
@@ -212,6 +212,25 @@ Freshservice severity *critical* (201) is critical; *error* (151) and *warning* 
 
 In `alert-before-complaints`, the checkout-service 5xx alert opens the incident 20 seconds before the first failure report. The same 23 customers are found, the release is the cause (99%, with the alert as extra evidence), and all 8 complaints join the one incident. In `noisy-alert`, a latency warning and a critical alert on search-service open nothing.
 
+## Infrastructure checks
+
+The Investigator asks `get_infra_health` about every service behind the incident, alongside the gateway, releases and error rates. With `INFRA=mcp` it asks real MCP servers, configured in `INFRA_MCP_SERVERS`:
+
+```json
+[
+  { "name": "k8s-prod", "kind": "kubernetes", "url": "https://k8s-mcp.internal.example.com/mcp", "namespace": "shop", "labelSelector": "app={service}" },
+  { "name": "cloudwatch", "kind": "cloudwatch", "command": "uvx", "args": ["awslabs.cloudwatch-mcp-server@latest"] }
+]
+```
+
+- **Kubernetes** (for example [containers/kubernetes-mcp-server](https://github.com/containers/kubernetes-mcp-server)): `pods_list_in_namespace` with the service's label selector. CrisisCrew reads a JSON pod list or a `kubectl`-style table: pods ready, restarts, and CrashLoopBackOff.
+- **CloudWatch** (for example [awslabs/cloudwatch-mcp-server](https://github.com/awslabs/mcp/tree/main/src/cloudwatch-mcp-server)): `get_active_alarms`, keeping the alarms that name the service.
+- **Each result becomes an infrastructure hypothesis per service**, with its own prior and likelihood ratios (see the root-cause table). The Root cause panel names the MCP server behind each factor.
+- **Safe failure:** a server that's down, slow (3 s deadline) or answers in a shape CrisisCrew can't read shows as **not checked**, LR 1. The investigation never hangs and never makes up a value.
+- **Configuration:** a URL server must use https (plain http only for localhost), and its host must be in `INFRA_MCP_ALLOWED_HOSTS`. Command servers run as local processes.
+
+`get_infra_health` is L0, allowed for the Investigator and the read-only operator.
+
 ## Paging on-call
 
 When the importance says to page (P1 by default), the Incident Commander phones the on-call engineer:
@@ -285,7 +304,7 @@ It reads `GET /api/freshdesk/tickets/:id`. Its README says how to run it with `f
 
 ## Scenarios
 
-Eight hand-written worlds in [`scenarios/`](scenarios/). Five of them test restraint.
+Nine hand-written worlds in [`scenarios/`](scenarios/). Five of them test restraint.
 
 | Scenario | What happens | Outcome |
 |---|---|---|
@@ -297,6 +316,7 @@ Eight hand-written worlds in [`scenarios/`](scenarios/). Five of them test restr
 | `quiet-day` | Two hours of normal traffic | No incident |
 | `alert-before-complaints` | The hero's broken release, but a critical checkout-service alert fires before the first complaint | The alert opens the incident and pages on-call; 23 harmed; the 8 complaints join it; one incident, not two |
 | `noisy-alert` | A quiet day with a latency warning and a critical alert on a non-tier-1 service | No incident: both alerts recorded |
+| `pods-crashloop` | The same checkout failures, but no recent release: checkout-service's pods crash-loop and CloudWatch has a memory alarm | The infrastructure is the cause (93%), not the old release or the gateway; 23 harmed |
 
 ## What you'll see
 
@@ -376,8 +396,11 @@ Each hypothesis is scored as its prior multiplied by the likelihood ratios of it
 | The service's error-rate ratio after the release | the ratio itself, capped at 10, when it's at least 2 · 1 between 1.2 and 2 · 0.3 below 1.2 |
 | Payment provider status | 0.1 when operational · 8 when degraded · 1 when the check fails |
 | Payment methods named in the complaints | 2 when one method dominates (80% or more) · 0.7 when they're spread |
+| The service's pods (infrastructure hypothesis) | 8 when any are in CrashLoopBackOff · 4 when fewer are ready than wanted · 2 when every pod is ready but they've restarted 5 or more times · 0.3 when healthy |
+| A cloud alarm on the service (infrastructure) | 4 when one is active · 0.6 when none is |
+| The service's CPU (infrastructure) | 3 at 90% or more |
 
-The priors (deploy 0.5, provider 0.25, unknown 0.25) are stated assumptions in [`config/policy.json`](config/policy.json), and the UI says so.
+The priors (deploy 0.5, provider 0.25, infrastructure 0.15, unknown 0.25) are stated assumptions in [`config/policy.json`](config/policy.json), and the UI says so.
 
 ### Authority: the policy gate
 
@@ -401,10 +424,10 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 |---|---|---|
 | Pattern Agent | L0 | `search_recent_tickets`, `get_incident` |
 | Incident Commander | L1 | `open_incident`, `file_engineering_incident`, `update_engineering_incident`, `page_on_call`, `get_recovery_coverage`, `get_incident`, `search_recent_tickets` |
-| Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_incident` |
+| Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_infra_health`, `get_incident` |
 | Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `send_customer_update`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
 | Handoff Agent | L3 | `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |
-| External MCP client (operator) | L0 | the seven read tools, including `get_customer_impact` and `get_recovery_coverage` |
+| External MCP client (operator) | L0 | the eight read tools, including `get_customer_impact` and `get_recovery_coverage` |
 
 ## MCP server
 
@@ -413,7 +436,7 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 Tokens come from `MCP_TOKEN_*` in `.env`. Any that aren't set are generated at startup and printed in the console.
 
 ```bash
-# The read-only operator sees seven read tools
+# The read-only operator sees eight read tools
 curl -s http://localhost:8787/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
   -H "authorization: Bearer $MCP_TOKEN_OPERATOR" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
@@ -472,7 +495,8 @@ The `POST` routes need `ADMIN_TOKEN`, or `APPROVER_TOKEN` for approvals, when th
 | Orders (customers, consent, payment attempts) | sandbox: the scenario's world | none planned: in production this reads the commerce platform | none |
 | Deployments | sandbox: the scenario's releases | GitHub Deployments API (designed, not wired) | `GITHUB_*` |
 | Payment health | sandbox: the scenario's gateway status | Razorpay's public status API (designed, not wired) | `RAZORPAY_STATUS_URL` |
-| Metrics | sandbox: simulated from the scenario | none planned | none |
+| Metrics | sandbox: simulated from the scenario | not wired yet (a Prometheus or CloudWatch MCP server could serve it) | none |
+| Infrastructure | sandbox: the scenario's pods and alarms; a service it doesn't describe is healthy | `INFRA=mcp`: Kubernetes (`pods_list_in_namespace`) and CloudWatch (`get_active_alarms`) MCP servers. **Wired; tested against in-process MCP servers** | `INFRA_MCP_SERVERS`, `INFRA_MCP_ALLOWED_HOSTS` |
 | Alerts | sandbox: the scenario's alert timeline | `ALERTS=freshservice`: poll or webhook. **Wired; tested against a fake Freshservice** | `FRESHSERVICE_ALERTS_*`, `FRESHSERVICE_ALERT_SERVICES` |
 | On-call schedule | sandbox: the scenario's roster | `ONCALL=freshservice`, with `FRESHSERVICE_ONCALL_SCHEDULE_ID`. **Wired; tested against a fake Freshservice** | `FRESHSERVICE_ONCALL_*` |
 | Phone calls | sandbox: calls ring, then are answered, missed or busy, the same way on every replay | `TELEPHONY=vobiz`, with an https `PUBLIC_BASE_URL` and `ADMIN_TOKEN`. **Wired; tested against a fake Vobiz** | `VOBIZ_*` |

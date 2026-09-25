@@ -9,6 +9,7 @@ describe("loadScenarios", () => {
       "checkout-v4.21.7",
       "lookalike-checkout-questions",
       "noisy-alert",
+      "pods-crashloop",
       "quiet-day",
       "scattered-failures",
       "two-card-complaints",
