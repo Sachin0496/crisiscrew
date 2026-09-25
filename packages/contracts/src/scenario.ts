@@ -79,6 +79,9 @@ export const ScenarioExpected = z.object({
   /** Credits the agents issue on their own, in total. */
   autoCreditInr: z.number().optional(),
   refusedBy: z.enum(["size", "cohesion", "failure_share", "burst"]).optional(),
+  /** The Incident Commander's importance once the scenario has played, and whether it pages on-call. */
+  importance: z.enum(["P1", "P2", "P3"]).optional(),
+  pages: z.boolean().optional(),
 });
 
 export const ScenarioSchema = z

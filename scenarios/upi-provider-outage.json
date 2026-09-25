@@ -9,7 +9,9 @@
     "affected": 10,
     "silent": 4,
     "needsHuman": 1,
-    "autoCreditInr": 1800
+    "autoCreditInr": 1800,
+    "importance": "P2",
+    "pages": false
   },
   "world": {
     "baselinePerHour": { "checkout_payments": 3 },

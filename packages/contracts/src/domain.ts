@@ -287,12 +287,44 @@ export type RecoveryAction = {
 export type CustomerRecoveryState = "recovered" | "needs_human" | "in_progress" | "attention" | "unverified";
 
 /** The engineering incident record (Freshservice, or its sandbox) that the operational side works from. */
-export type EngineeringRecord = { id: string; url?: string; adapter: string };
+export type EngineeringRecord = {
+  id: string;
+  url?: string;
+  adapter: string;
+  /** The importance the record's priority was last set from. */
+  importance?: "P1" | "P2" | "P3";
+};
+
+/** How urgently engineering must act: P1 pages the on-call engineer, P3 can wait for working hours. */
+export type ImportanceLevel = "P1" | "P2" | "P3";
+
+/** One rule that raised an incident's importance, in plain words. */
+export type ImportanceReason = { rule: string; level: ImportanceLevel; text: string };
+
+/**
+ * The Incident Commander's decision on how important an incident is, from
+ * deterministic rules in policy.json. It only goes up on its own; a human
+ * can set it either way, and then the rules stop changing it.
+ */
+export type ImportanceAssessment = {
+  level: ImportanceLevel;
+  /** Whether the on-call engineer should be paged. */
+  page: boolean;
+  reasons: ImportanceReason[];
+  /** What the assessment knew: the incident opening, its customer impact, its root cause, or a human's decision. */
+  stage: "opened" | "impact" | "root_cause" | "human";
+  source: "rules" | "human";
+  by?: string;
+  note?: string;
+  assessedAt: number;
+};
 
 export type IncidentView = {
   id: string;
   status: IncidentStatus;
+  /** high for P1, medium otherwise; kept for readers that predate importance. */
   severity: Severity;
+  importance?: ImportanceAssessment;
   openedAt: number;
   surface: Surface;
   clusterId: string;

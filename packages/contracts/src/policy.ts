@@ -1,6 +1,14 @@
 import { z } from "zod";
+import { Surface } from "./domain";
 
 const LevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]);
+
+const ImportanceLevelSchema = z.enum(["P1", "P2", "P3"]);
+
+/** A count or amount that makes an incident P1 at `p1` and P2 at `p2`. */
+const Tiered = z
+  .object({ p1: z.number().positive(), p2: z.number().positive() })
+  .refine((t) => t.p2 <= t.p1, { message: "p2 must not be above p1" });
 
 const IdentityPolicy = z.object({
   name: z.string().min(1),
@@ -66,6 +74,20 @@ export const PolicySchema = z.object({
       spreadLr: z.number().positive(),
     }),
   }),
+  importance: z.object({
+    /** Product areas whose failure stops customers from paying or signing in: at least P2. */
+    tier1Surfaces: z.array(Surface),
+    /** Confirmed affected customers. */
+    affectedCustomers: Tiered,
+    /** The value of the failed or pending payments of confirmed affected customers. */
+    failedValueInr: Tiered,
+    /** Confirmed affected priority customers. */
+    priorityCustomers: Tiered,
+    /** A release ranked as the cause at least this confident is at least P2: rolling it back is an option. */
+    deployConfidence: z.number().min(0).max(1),
+    /** Page the on-call engineer at this level or above. */
+    pageAt: ImportanceLevelSchema,
+  }),
   recovery: z.object({
     /** Without a cause's start time, the incident window opens this long before the first complaint. */
     affectedLookbackMin: z.number().positive(),
@@ -80,6 +102,7 @@ export type Policy = z.infer<typeof PolicySchema>;
 export type CorrelationConfig = Policy["correlation"];
 export type RcaConfig = Policy["rca"];
 export type RecoveryConfig = Policy["recovery"];
+export type ImportanceConfig = Policy["importance"];
 
 /** Validates policy data and checks that every allow-listed tool exists. */
 export function parsePolicy(json: unknown, knownTools: readonly string[]): Policy {

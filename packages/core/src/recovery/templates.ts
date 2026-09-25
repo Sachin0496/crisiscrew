@@ -4,6 +4,7 @@ import {
   type AffectedCustomer,
   type Coverage,
   type Hypothesis,
+  type ImportanceAssessment,
   type IncidentView,
   type RecoveryAction,
   type Surface,
@@ -163,4 +164,11 @@ export function investigationNarrative(hypotheses: Hypothesis[]): string {
   if (top.kind === "unknown") return `${lead} No single cause stands out yet.`;
   const why = top.evidence.filter((e) => e.checked && e.lr > 1).map((e) => e.observation);
   return `${lead} Most likely cause: ${top.label} (${Math.round(top.confidence * 100)}%)${why.length ? `, because ${why.join("; ")}` : ""}.`;
+}
+
+/** The engineering note for a change of importance: the level, whether to page, and every reason. */
+export function importanceNote(importance: ImportanceAssessment): string {
+  const who = importance.source === "human" ? `Set by ${importance.by ?? "a human"}${importance.note ? `: “${importance.note}”` : ""}` : "Raised by the Incident Commander's rules";
+  const reasons = importance.reasons.map((r) => `- ${r.level}: ${r.text}`).join("\n");
+  return `Importance ${importance.level}${importance.page ? " (page on-call)" : ""}. ${who}.${reasons ? `\n${reasons}` : ""}`;
 }

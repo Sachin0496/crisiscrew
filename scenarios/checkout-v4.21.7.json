@@ -11,7 +11,9 @@
     "silent": 15,
     "voiceUpdates": 2,
     "needsHuman": 2,
-    "autoCreditInr": 4000
+    "autoCreditInr": 4000,
+    "importance": "P1",
+    "pages": true
   },
   "world": {
     "baselinePerHour": { "checkout_payments": 3 },

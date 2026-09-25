@@ -263,7 +263,7 @@ Two exits skip the normal path:
 
 `resolved` is set manually by the operator. As built, there's no operator action for `dismissed` or `resolved` yet; a session ends at `recovered`, `awaiting_approval`, or `recovering` when an action needs attention.
 
-Severity follows a documented rule, set when the incident opens: `high` when the surface is `checkout_payments`, and `medium` otherwise. (The planned "more than 20 affected" rule would need severity to change after opening, which isn't built.)
+Importance (P1 to P3) replaces the fixed severity rule. The Incident Commander assesses it from the rules in `policy.json` (`importance`) when the incident opens, once impact and the root cause are known, and after each recovery pass. It only rises on its own, and a human can set it either way. `severity` is kept as `high` for P1 and `medium` otherwise. See the README's Importance section.
 
 ### 6.2 Agents and trust boundaries
 

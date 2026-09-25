@@ -30,6 +30,8 @@ const FreshdeskWebhook = z.union([
   z.object({ freshdesk_webhook: z.object({ ticket_id: z.coerce.number().int().positive() }) }),
 ]);
 
+const ImportanceBody = z.object({ level: z.enum(["P1", "P2", "P3"]), note: z.string().trim().max(500).optional() }).strict();
+
 function sameSecret(given: string, expected: string): boolean {
   const a = Buffer.from(given);
   const b = Buffer.from(expected);
@@ -136,6 +138,16 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     // Answer at once; Freshdesk's webhook times out quickly, and ingest reads the ticket back from the API.
     void runtime.ingestFreshdesk(ticketId).catch((error) => onError?.(error));
     return c.json({ accepted: true, ticketId }, 202);
+  });
+
+  // A human sets an incident's importance, up or down; the Commander's rules leave it alone from then on.
+  app.post("/api/incidents/:id/importance", admin, async (c) => {
+    const parsed = await body(c, ImportanceBody);
+    if (!parsed.ok) return parsed.response;
+    const id = c.req.param("id");
+    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
+    const by = c.req.header("x-operator-name")?.slice(0, 60) || "an operator";
+    return c.json(await runtime.setImportance(id, parsed.data.level, by, parsed.data.note || undefined));
   });
 
   app.post("/api/approvals/:id", approver, async (c) => {

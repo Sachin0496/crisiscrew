@@ -1,7 +1,7 @@
 import { recoveryCoverage, recoveryMetrics, type CrisisState, type IncidentView } from "@crisiscrew/contracts";
 import { Check, CirclePlay, Clock, ExternalLink, GitCommitHorizontal, Inbox, Users, Wrench } from "lucide-react";
 import type { ScenarioSummary } from "../../api";
-import { ADAPTER_LABELS, clock, inr, pct, plural, SEVERITY, since, STATUS_LABELS, STATUS_TONE } from "../../format";
+import { ADAPTER_LABELS, clock, IMPORTANCE, inr, pct, plural, SEVERITY, since, STATUS_LABELS, STATUS_TONE } from "../../format";
 import { expectedOutcome, incidentTitle, progressSteps } from "../../view";
 import { Badge, Stat } from "../ui";
 
@@ -39,6 +39,7 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
   }
   const tickets = new Set([...incident.ticketIds, ...incident.linkedTicketIds]).size;
   const severity = SEVERITY[incident.severity];
+  const importance = incident.importance;
   const coverage = recoveryCoverage(incident);
   const record = incident.engineering;
   return (
@@ -48,7 +49,14 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
         <Badge tone={STATUS_TONE[incident.status]} dot>
           {STATUS_LABELS[incident.status]}
         </Badge>
-        <Badge tone={severity.tone}>{severity.label}</Badge>
+        {importance ? (
+          <Badge tone={IMPORTANCE[importance.level].tone}>
+            {importance.level}
+            {importance.page ? " · page on-call" : ""}
+          </Badge>
+        ) : (
+          <Badge tone={severity.tone}>{severity.label}</Badge>
+        )}
       </div>
       <div className="page-meta">
         <span className="mono">{incident.id}</span>
@@ -83,6 +91,15 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
           </span>
         )}
       </div>
+      {importance && importance.reasons.length > 0 && (
+        <p className="page-lede importance-why">
+          <strong>
+            {importance.level}, {IMPORTANCE[importance.level].meaning}
+          </strong>
+          {" — "}
+          {importance.reasons.map((r) => r.text).join("; ")}.
+        </p>
+      )}
     </div>
   );
 }
