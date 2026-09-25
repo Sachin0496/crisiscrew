@@ -1,6 +1,7 @@
 import type {
   AgentId,
   AgentView,
+  Alert,
   Approval,
   AuditEntry,
   CallView,
@@ -37,6 +38,8 @@ export type CrisisState = {
   toolCalls: AuditEntry[];
   approvals: Record<string, Approval>;
   credits: CreditRecord[];
+  alerts: Record<string, Alert>;
+  alertOrder: string[];
   /** Outbound phone calls, by id. */
   calls: Record<string, CallView>;
   replayFinished: boolean;
@@ -64,6 +67,8 @@ export function initialState(): CrisisState {
     approvals: {},
     credits: [],
     calls: {},
+    alerts: {},
+    alertOrder: [],
     replayFinished: false,
   };
 }
@@ -129,6 +134,25 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
         incidentOrder: [...state.incidentOrder, incident.id],
         tickets: markTickets(state, incident.ticketIds, incident.id),
       };
+    }
+
+    case "alert.received": {
+      const { alert } = event.payload;
+      return { ...state, alerts: { ...state.alerts, [alert.id]: alert }, alertOrder: state.alertOrder.includes(alert.id) ? state.alertOrder : [...state.alertOrder, alert.id] };
+    }
+
+    case "alert.resolved": {
+      const alert = state.alerts[event.payload.alertId];
+      return alert ? { ...state, alerts: { ...state.alerts, [alert.id]: { ...alert, resolvedAt: event.payload.at } } } : state;
+    }
+
+    case "alert.linked": {
+      const { alertId, incidentId } = event.payload;
+      const alert = state.alerts[alertId];
+      const next = alert ? { ...state, alerts: { ...state.alerts, [alertId]: { ...alert, incidentId } } } : state;
+      return updateIncident(next, incidentId, (incident) =>
+        incident.alertIds?.includes(alertId) ? incident : { ...incident, alertIds: [...(incident.alertIds ?? []), alertId] },
+      );
     }
 
     case "incident.importance": {

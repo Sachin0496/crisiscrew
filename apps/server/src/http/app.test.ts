@@ -49,7 +49,7 @@ describe("HTTP API", () => {
   it("reports wiring: every port, the live adapters it can switch to, and the planned ones", async () => {
     const { app } = await setup();
     const report = (await (await app.request("/api/wiring")).json()) as WiringReport;
-    expect(report.ports).toHaveLength(13);
+    expect(report.ports).toHaveLength(14);
     expect(report.ports.find((p) => p.port === "tickets")?.available).toEqual(["freshdesk"]);
     expect(report.ports.find((p) => p.port === "deployments")?.planned).toEqual(["github"]);
   });

@@ -2,6 +2,7 @@ import {
   incidentTitle,
   SURFACE_LABELS,
   type AffectedCustomer,
+  type Alert,
   type Coverage,
   type Hypothesis,
   type ImportanceAssessment,
@@ -131,7 +132,15 @@ export function outcomeNote(incident: IncidentView, customer: AffectedCustomer, 
 }
 
 /** The engineering incident's title and first description, from the detection. */
-export function engineeringSummary(incident: IncidentView): { title: string; description: string } {
+export function engineeringSummary(incident: IncidentView, alert?: Pick<Alert, "service" | "label">): { title: string; description: string } {
+  if (alert) {
+    return {
+      title: `${incidentTitle(incident.surface)} (${incident.id})`,
+      description:
+        `CrisisCrew opened ${incident.id} from a critical alert on ${alert.service}: ${alert.label}. ` +
+        "It is finding the customers whose payments failed, whether or not they write in. Customer impact and recovery are tracked in CrisisCrew, and notes follow here.",
+    };
+  }
   return {
     title: `${incidentTitle(incident.surface)} (${incident.id})`,
     description:

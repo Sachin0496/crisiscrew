@@ -31,12 +31,20 @@ export async function investigate(kit: AgentKit, incidentId: string): Promise<vo
       : null;
 
   const view = kit.state();
-  const tickets = [...incident.ticketIds, ...view.incidents[incidentId]!.linkedTicketIds].map((id) => view.tickets[id]);
-  const firstComplaintAt = Math.min(...tickets.map((t) => t?.ticket.receivedAt ?? Number.POSITIVE_INFINITY));
+  const current = view.incidents[incidentId]!;
+  const tickets = [...current.ticketIds, ...current.linkedTicketIds].map((id) => view.tickets[id]);
+  const alerts = (current.alertIds ?? []).map((id) => view.alerts[id]).filter((a) => a !== undefined);
+  const firstTicketAt = Math.min(...tickets.map((t) => t?.ticket.receivedAt ?? Number.POSITIVE_INFINITY));
+  const firstAlertAt = Math.min(...alerts.map((a) => a.firedAt));
+  const firstSignal = firstAlertAt < firstTicketAt ? "alert" : "complaint";
+  const firstComplaintAt = Math.min(firstTicketAt, firstAlertAt);
 
   const hypotheses = scoreHypotheses(
     {
       firstComplaintAt,
+      firstSignal,
+      alerts: alerts.map((a) => ({ service: a.service, severity: a.severity, label: a.label, firedAt: a.firedAt })),
+      alertLr: kit.policy.alerts,
       deployments,
       errorSeries,
       providers: health.ok ? (health.result as ProviderHealth[]) : null,
@@ -57,7 +65,9 @@ export async function investigate(kit: AgentKit, incidentId: string): Promise<vo
       : undefined;
   kit.emit({ type: "rootcause.ranked", payload: { incidentId, hypotheses, narrative: investigationNarrative(hypotheses), ...(rootCause ? { rootCause } : {}) } });
 
-  if (rootCause) {
+  // A later re-ranking (an alert joined) updates the cause without moving the incident back.
+  const status = kit.state().incidents[incidentId]!.status;
+  if (rootCause && (status === "detected" || status === "investigating")) {
     kit.setStatus(incidentId, "root_cause_identified", `${rootCause.label} (${Math.round(rootCause.confidence * 100)}% confidence)`);
   }
   kit.setAgent("investigator", "done", rootCause ? `Root cause: ${rootCause.label}` : "No single cause stands out yet");

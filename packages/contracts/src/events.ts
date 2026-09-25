@@ -1,6 +1,7 @@
 import type {
   AgentId,
   AgentStatus,
+  Alert,
   Approval,
   AuditEntry,
   CallView,
@@ -36,6 +37,11 @@ export type CrisisEvent =
       }
     >
   | E<"ticket.received", { ticket: Ticket }>
+  /** An operational alert, whether or not it opens or joins an incident. */
+  | E<"alert.received", { alert: Alert }>
+  | E<"alert.resolved", { alertId: string; at: number }>
+  /** An alert tied to an incident: the one that opened it, or one on a service behind it. */
+  | E<"alert.linked", { alertId: string; incidentId: string }>
   | E<"signal.scored", { signal: SignalView; nearest: { ticketId: string; similarity: number }[] }>
   | E<"cluster.updated", { cluster: ClusterView }>
   | E<"incident.opened", { incident: IncidentView }>

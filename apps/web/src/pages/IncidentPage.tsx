@@ -1,5 +1,6 @@
 import type { CrisisState } from "@crisiscrew/contracts";
 import type { ScenarioSummary } from "../api";
+import { Alerts } from "../components/incident/Alerts";
 import { Coverage } from "../components/incident/Coverage";
 import { Decisions } from "../components/incident/Decision";
 import { Detection } from "../components/incident/Detection";
@@ -35,6 +36,7 @@ export function IncidentPage({ state, scenario, customerNames }: { state: Crisis
         </div>
         <div className="col">
           {incident && <Paging incident={incident} />}
+          <Alerts state={state} />
           <Decisions state={state} incident={incident} />
           <RecentTickets state={state} customerNames={customerNames} />
           {incident && <IncidentTimeline incident={incident} start={start} />}

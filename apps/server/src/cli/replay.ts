@@ -56,6 +56,8 @@ const clock = (at: number) => {
 const announced = new Set<string>();
 /** The last paging line printed for each incident. */
 const pagingPrinted = new Map<string, string>();
+/** The last importance heading printed for each incident. */
+const importancePrinted = new Map<string, string>();
 
 function print(e: CrisisEvent): void {
   switch (e.type) {
@@ -92,6 +94,14 @@ function print(e: CrisisEvent): void {
     case "incident.opened":
       console.log(red(bold(`\n  ${e.payload.incident.id} opened: ${e.payload.incident.ticketIds.length} tickets, ${SURFACE_LABELS[e.payload.incident.surface]}\n`)));
       break;
+    case "alert.received": {
+      const a = e.payload.alert;
+      console.log(yellow(`${clock(a.firedAt).padStart(6)}  ALERT   ${a.severity.padEnd(8)} ${a.service}: ${a.label}`));
+      break;
+    }
+    case "alert.linked":
+      console.log(dim(`         alert ${e.payload.alertId} linked to ${e.payload.incidentId}`));
+      break;
     case "paging.updated": {
       const p = e.payload.paging;
       const last = p.attempts.at(-1);
@@ -108,7 +118,10 @@ function print(e: CrisisEvent): void {
     }
     case "incident.importance": {
       const imp = e.payload.importance;
-      console.log(bold(`  ${e.payload.incidentId}: importance ${imp.level}${imp.page ? ", page on-call" : ""}`) + dim(`  ${imp.reasons[0]?.text ?? "no rule raised it"}`));
+      const heading = `  ${e.payload.incidentId}: importance ${imp.level}${imp.page ? ", page on-call" : ""}`;
+      // Refreshed reasons at the same level aren't news.
+      if (importancePrinted.get(e.payload.incidentId) !== heading) console.log(bold(heading) + dim(`  ${imp.reasons[0]?.text ?? "no rule raised it"}`));
+      importancePrinted.set(e.payload.incidentId, heading);
       break;
     }
     case "incident.status_changed":

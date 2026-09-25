@@ -59,8 +59,11 @@ function ticketsOf(ctx: ToolCtx, incident: IncidentView): Ticket[] {
   return [...ids].map((id) => ctx.state().tickets[id]?.ticket).filter((t): t is Ticket => Boolean(t));
 }
 
+/** When the first sign of the incident arrived: its first complaint, or its first alert. */
 function firstComplaintAt(ctx: ToolCtx, incident: IncidentView): number {
-  return Math.min(...ticketsOf(ctx, incident).map((t) => t.receivedAt));
+  const alerts = (incident.alertIds ?? []).map((id) => ctx.state().alerts[id]?.firedAt ?? Number.POSITIVE_INFINITY);
+  const first = Math.min(...ticketsOf(ctx, incident).map((t) => t.receivedAt), ...alerts);
+  return Number.isFinite(first) ? first : incident.openedAt;
 }
 
 function rootOf(incident: IncidentView) {
@@ -298,17 +301,27 @@ export function createTools(): Tool[] {
     {
       name: "open_incident",
       description: "Open an incident for a cluster that passed every detection gate.",
-      input: z.object({
-        incidentId: z.string().min(1),
-        clusterId: z.string().min(1),
-        ticketIds: z.array(z.string()).min(1),
-        surface: Surface,
-        importance: z.enum(["P1", "P2", "P3"]),
-      }),
+      input: z
+        .object({
+          incidentId: z.string().min(1),
+          clusterId: z.string().min(1),
+          ticketIds: z.array(z.string()),
+          surface: Surface,
+          importance: z.enum(["P1", "P2", "P3"]),
+          /** An alert-triggered incident starts from its alert, with no tickets yet. */
+          alertId: z.string().optional(),
+        })
+        .refine((a) => a.ticketIds.length > 0 || a.alertId !== undefined, { message: "an incident needs failure reports or an alert", path: ["ticketIds"] }),
       level: fixed(1),
-      condition: (args, ctx) => (ctx.state().incidents[(args as { incidentId: string }).incidentId] ? "incident is already open" : null),
+      condition: (args, ctx) => {
+        const { incidentId, alertId } = args as { incidentId: string; alertId?: string };
+        if (ctx.state().incidents[incidentId]) return "incident is already open";
+        if (alertId && !ctx.state().alerts[alertId]) return `no alert ${alertId}`;
+        return null;
+      },
       async run(args, ctx) {
-        const a = args as { incidentId: string; clusterId: string; ticketIds: string[]; surface: Surface; importance: ImportanceLevel };
+        const a = args as { incidentId: string; clusterId: string; ticketIds: string[]; surface: Surface; importance: ImportanceLevel; alertId?: string };
+        const alert = a.alertId ? ctx.state().alerts[a.alertId] : undefined;
         const now = ctx.now();
         const incident: IncidentView = {
           id: a.incidentId,
@@ -322,9 +335,17 @@ export function createTools(): Tool[] {
           hypotheses: [],
           actions: [],
           updates: [],
-          timeline: [{ at: now, status: "detected", note: `${a.ticketIds.length} similar failure reports passed every detection gate` }],
+          trigger: alert ? "alert" : "complaints",
+          timeline: [
+            {
+              at: now,
+              status: "detected",
+              note: alert ? `Critical alert on ${alert.service}: ${alert.label}` : `${a.ticketIds.length} similar failure reports passed every detection gate`,
+            },
+          ],
         };
         ctx.emit({ type: "incident.opened", payload: { incident } });
+        if (alert) ctx.emit({ type: "alert.linked", payload: { alertId: alert.id, incidentId: a.incidentId } });
         return { incidentId: a.incidentId };
       },
       summarize: (r) => `opened ${(r as { incidentId: string }).incidentId}`,
@@ -344,7 +365,8 @@ export function createTools(): Tool[] {
         const { incidentId } = args as { incidentId: string };
         const incident = incidentOf(ctx, incidentId);
         const importance = incident.importance?.level ?? (incident.severity === "high" ? "P1" : "P2");
-        const record = await ctx.ports.incidents.open({ incidentId, importance, ...engineeringSummary(incident) });
+        const alert = incident.trigger === "alert" ? ctx.state().alerts[incident.alertIds?.[0] ?? ""] : undefined;
+        const record = await ctx.ports.incidents.open({ incidentId, importance, ...engineeringSummary(incident, alert) });
         ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, adapter: ctx.ports.incidents.adapter, importance } } });
         return record;
       },

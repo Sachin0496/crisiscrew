@@ -146,6 +146,7 @@ export const PORT_LABELS: Record<PortName, string> = {
   voice: "Voice",
   telephony: "Phone calls",
   oncall: "On-call schedule",
+  alerts: "Alerts",
   llm: "Language model",
   embeddings: "Embeddings",
   credits: "Credits",

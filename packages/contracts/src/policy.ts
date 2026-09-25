@@ -88,6 +88,15 @@ export const PolicySchema = z.object({
     /** Page the on-call engineer at this level or above. */
     pageAt: ImportanceLevelSchema,
   }),
+  alerts: z.object({
+    /** A critical alert on a service behind a tier-1 area opens an incident by itself. */
+    openOnCritical: z.boolean(),
+    /** An alert joins an open incident on the same service's area opened up to this long before it. */
+    joinWindowMin: z.number().positive(),
+    /** Likelihood ratio for a release when its service alerted after it shipped. */
+    criticalLr: z.number().positive(),
+    warningLr: z.number().positive(),
+  }),
   oncall: z.object({
     /** After a page call ends unacknowledged, wait this long (for an acknowledgement another way) before paging the next responder. */
     ackTimeoutMin: z.number().nonnegative(),
@@ -109,6 +118,7 @@ export type CorrelationConfig = Policy["correlation"];
 export type RcaConfig = Policy["rca"];
 export type RecoveryConfig = Policy["recovery"];
 export type ImportanceConfig = Policy["importance"];
+export type AlertsConfig = Policy["alerts"];
 
 /** Validates policy data and checks that every allow-listed tool exists. */
 export function parsePolicy(json: unknown, knownTools: readonly string[]): Policy {

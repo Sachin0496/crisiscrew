@@ -31,6 +31,21 @@ const FreshdeskWebhook = z.union([
   z.object({ freshdesk_webhook: z.object({ ticket_id: z.coerce.number().int().positive() }) }),
 ]);
 
+/** An alert posted by hand (a demo, or a monitoring tool CrisisCrew doesn't read directly). */
+const ManualAlert = z
+  .object({
+    service: z.string().trim().min(1).max(80),
+    metric: z.string().trim().min(1).max(80),
+    severity: z.enum(["critical", "warning"]),
+    label: z.string().trim().min(1).max(200),
+    value: z.string().trim().max(40).optional(),
+    threshold: z.string().trim().max(40).optional(),
+  })
+  .strict();
+
+/** A Freshservice workflow names the alert; CrisisCrew reads it back from the API. */
+const FreshserviceAlertHook = z.object({ alert_id: z.coerce.number().int().positive() });
+
 const AcknowledgeBody = z.object({ by: z.string().trim().min(1).max(60).optional() }).strict();
 
 /** A Freshservice workflow's webhook: the incident ticket's id, and who acknowledged. */
@@ -148,6 +163,25 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     // Answer at once; Freshdesk's webhook times out quickly, and ingest reads the ticket back from the API.
     void runtime.ingestFreshdesk(ticketId).catch((error) => onError?.(error));
     return c.json({ accepted: true, ticketId }, 202);
+  });
+
+  app.post("/api/alerts", admin, async (c) => {
+    const parsed = await body(c, ManualAlert);
+    if (!parsed.ok) return parsed.response;
+    const alert = await runtime.ingestAlert({ ...parsed.data, source: "manual", firedAt: Date.now() });
+    return c.json(alert, 202);
+  });
+
+  app.post("/api/webhooks/freshservice/alerts", async (c) => {
+    if (!runtime.freshserviceAlertsEnabled || !config.freshserviceWebhookSecret) {
+      return c.json({ error: "Freshservice alert webhooks are off: set ALERTS=freshservice and FRESHSERVICE_WEBHOOK_SECRET" }, 404);
+    }
+    if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshserviceWebhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
+    const parsed = await body(c, FreshserviceAlertHook);
+    if (!parsed.ok) return parsed.response;
+    // Answer at once; the alert is read back from the API.
+    void runtime.ingestFreshserviceAlert(parsed.data.alert_id).catch((error) => onError?.(error));
+    return c.json({ accepted: true, alertId: parsed.data.alert_id }, 202);
   });
 
   // An operator takes the page, so no one else is called.

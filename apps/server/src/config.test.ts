@@ -15,6 +15,7 @@ describe("loadConfig", () => {
       voice: "off",
       telephony: "sandbox",
       oncall: "sandbox",
+      alerts: "sandbox",
       llm: "template",
       embeddings: "local",
       credits: "sandbox",
@@ -72,6 +73,24 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULES: "checkout-service" })).toThrow(/service=scheduleId/);
   });
 
+  it("reads Freshservice Alert Management: poll by default, webhook only with its secret, and service rules", () => {
+    const keys = { ALERTS: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs" };
+    expect(loadConfig({ ...keys, FRESHSERVICE_ALERT_SERVICES: "checkout-5xx=checkout-service, auth=auth-service" }).alerts).toEqual({
+      domain: "acme.freshservice.com",
+      apiKey: "fs",
+      ingest: "poll",
+      pollSeconds: 30,
+      rules: [
+        { match: "checkout-5xx", service: "checkout-service" },
+        { match: "auth", service: "auth-service" },
+      ],
+    });
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ALERTS_INGEST: "webhook" })).toThrow(/needs FRESHSERVICE_WEBHOOK_SECRET/);
+    expect(loadConfig({ ...keys, FRESHSERVICE_ALERTS_INGEST: "webhook", FRESHSERVICE_WEBHOOK_SECRET: "s" }).alerts?.ingest).toBe("webhook");
+    expect(() => loadConfig({ ALERTS: "freshservice" })).toThrow("ALERTS=freshservice needs FRESHSERVICE_DOMAIN, FRESHSERVICE_API_KEY; see .env.example");
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ALERT_SERVICES: "checkout" })).toThrow(/text=service pairs/);
+  });
+
   it("refuses to start with a live adapter that isn't wired yet, naming it", () => {
     expect(() => loadConfig({ DEPLOYMENTS: "github" })).toThrow(ConfigError);
     expect(() => loadConfig({ DEPLOYMENTS: "github" })).toThrow(/DEPLOYMENTS=github.*not wired yet/);
@@ -101,7 +120,7 @@ describe("wiringReport", () => {
     const report = wiringReport(loadConfig({}));
     // Only the local embedding model is live: it is real computation on this machine, not simulated data.
     expect(report.liveCount).toBe(1);
-    expect(report.ports).toHaveLength(13);
+    expect(report.ports).toHaveLength(14);
     expect(report.ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "sandbox", available: ["freshservice"], env: "ONCALL" });
     expect(report.ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "sandbox", available: ["vobiz"], planned: [], env: "TELEPHONY" });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });

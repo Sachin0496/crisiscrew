@@ -71,6 +71,16 @@ const PORTS: Record<PortName, PortSpec> = {
         ? `Freshservice on-call (${c.oncall.domain}): schedule ${c.oncall.defaultScheduleId}${Object.keys(c.oncall.schedules).length ? ` and ${Object.keys(c.oncall.schedules).length} per service` : ""}`
         : "The scenario's on-call roster",
   },
+  alerts: {
+    env: "ALERTS",
+    options: ["sandbox", "freshservice"],
+    wired: ["sandbox", "freshservice"],
+    mode: (v) => (v === "freshservice" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "freshservice" && c.alerts
+        ? `Freshservice Alert Management (${c.alerts.domain}): ${c.alerts.ingest === "poll" ? `polled every ${c.alerts.pollSeconds} s` : "webhook"}; ${c.alerts.rules.length} service ${c.alerts.rules.length === 1 ? "rule" : "rules"}`
+        : "The scenario's alert timeline, and alerts posted to /api/alerts",
+  },
   voice: { env: "VOICE", options: ["off", "elevenlabs"], wired: ["off"], mode: () => "off", detail: () => "Voice scripts are prepared; no audio is generated" },
   llm: { env: "LLM", options: ["template", "anthropic"], wired: ["template"], mode: () => "off", detail: () => "Fixed templates; no language model is called" },
   embeddings: {
@@ -101,6 +111,14 @@ export type VobizConfig = { authId: string; authToken: string; from: string; rin
 
 export type OnCallConfig = { domain: string; apiKey: string; defaultScheduleId: number; schedules: Record<string, number> };
 
+export type AlertsConfig = {
+  domain: string;
+  apiKey: string;
+  ingest: "poll" | "webhook";
+  pollSeconds: number;
+  rules: { match: string; service: string }[];
+};
+
 export type Config = {
   port: number;
   publicBaseUrl: string | null;
@@ -117,6 +135,7 @@ export type Config = {
   freshservice: FreshserviceConfig | null;
   vobiz: VobizConfig | null;
   oncall: OnCallConfig | null;
+  alerts: AlertsConfig | null;
   /** Lets a Freshservice workflow acknowledge a page: POST /api/webhooks/freshservice/acknowledge with X-CrisisCrew-Secret. */
   freshserviceWebhookSecret: string | null;
 };
@@ -223,6 +242,31 @@ function oncallConfig(env: Env): OnCallConfig {
   };
 }
 
+function alertsConfig(env: Env): AlertsConfig {
+  const missing = ["FRESHSERVICE_DOMAIN", "FRESHSERVICE_API_KEY"].filter((k) => !text(env, k));
+  if (missing.length > 0) throw new ConfigError(`ALERTS=freshservice needs ${missing.join(", ")}; see .env.example`);
+  const ingest = oneOf(env, "FRESHSERVICE_ALERTS_INGEST", ["poll", "webhook"] as const);
+  if (ingest === "webhook" && !text(env, "FRESHSERVICE_WEBHOOK_SECRET")) {
+    throw new ConfigError("FRESHSERVICE_ALERTS_INGEST=webhook needs FRESHSERVICE_WEBHOOK_SECRET, so only your workflow can post alerts; see .env.example");
+  }
+  const rules = (text(env, "FRESHSERVICE_ALERT_SERVICES") ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const [match, service] = pair.split("=").map((p) => p.trim());
+      if (!match || !service) throw new ConfigError(`FRESHSERVICE_ALERT_SERVICES takes text=service pairs, got "${pair}"`);
+      return { match, service };
+    });
+  return {
+    domain: domain(env, "FRESHSERVICE_DOMAIN", "freshservice.com"),
+    apiKey: text(env, "FRESHSERVICE_API_KEY")!,
+    ingest,
+    pollSeconds: Math.max(10, int(env, "FRESHSERVICE_ALERTS_POLL_SECONDS", 30)),
+    rules,
+  };
+}
+
 /** Reads and validates configuration from environment variables. See .env.example. */
 export function loadConfig(env: Env): Config {
   const switches = {} as Record<PortName, string>;
@@ -259,6 +303,7 @@ export function loadConfig(env: Env): Config {
     freshservice: switches.incidents === "freshservice" ? freshserviceConfig(env) : null,
     vobiz: switches.telephony === "vobiz" ? vobizConfig(env) : null,
     oncall: switches.oncall === "freshservice" ? oncallConfig(env) : null,
+    alerts: switches.alerts === "freshservice" ? alertsConfig(env) : null,
     freshserviceWebhookSecret: text(env, "FRESHSERVICE_WEBHOOK_SECRET"),
   };
 }

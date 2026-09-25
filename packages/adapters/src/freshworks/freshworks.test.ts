@@ -7,6 +7,7 @@ import { z } from "zod";
 import { FreshdeskClient, freshdeskIdOf, freshdeskTicketActions, freshdeskToTicketInput, restWriter, type FreshdeskTicket } from "./freshdesk";
 import { freshdeskMcpWriter, shapeTool } from "./freshdesk-mcp";
 import { freshserviceIncidents, freshserviceOnCall } from "./freshservice";
+import { freshserviceAlertToInput, FreshserviceAlertsClient, type FreshserviceAlert } from "./freshservice-alerts";
 import { FreshworksError, htmlToText, normalizeDomain, textToHtml } from "./http";
 
 type Call = { method: string; url: string; auth: string | null; body: unknown };
@@ -227,5 +228,60 @@ describe("Freshservice on-call", () => {
       "https://acme.freshservice.com/api/v2/oncall/shift-events/current?schedule_id=8569",
     ]);
     expect(port).toMatchObject({ mode: "live", adapter: "freshservice" });
+  });
+});
+
+describe("Freshservice alerts", () => {
+  const base: FreshserviceAlert = {
+    id: 9101,
+    subject: "Threshold Crossed: 5xx rate   3.4% for 5 minutes",
+    metric_name: "http_5xx_rate",
+    metric_value: "3.4",
+    node: "ip-10-0-1-7",
+    resource: "arn:aws:cloudwatch:ap-south-1:1:alarm:checkout-5xx",
+    severity: 201,
+    state: 1,
+    tags: ["AWS/ApplicationELB"],
+    occurrence_time: "2026-09-25T08:30:00Z",
+    updated_at: "2026-09-25T08:30:05Z",
+    additional_info: { Threshold: "2.0" },
+  };
+  const rules = [{ match: "checkout-5xx", service: "checkout-service" }];
+
+  it("maps a critical alert to its service by rule, and a service tag wins over the rules", () => {
+    expect(freshserviceAlertToInput(base, rules)).toEqual({
+      source: "freshservice",
+      externalId: "9101",
+      service: "checkout-service",
+      metric: "http_5xx_rate",
+      value: "3.4",
+      threshold: "2.0",
+      severity: "critical",
+      label: "Threshold Crossed: 5xx rate 3.4% for 5 minutes",
+      firedAt: Date.parse("2026-09-25T08:30:00Z"),
+    });
+    expect(freshserviceAlertToInput({ ...base, tags: ["service:auth-service"] }, rules)?.service).toBe("auth-service");
+  });
+
+  it("treats error and warning as warnings, carries a resolution, and drops what it can't place or doesn't need", () => {
+    expect(freshserviceAlertToInput({ ...base, severity: 151 }, rules)?.severity).toBe("warning");
+    expect(freshserviceAlertToInput({ ...base, severity: 101 }, rules)?.severity).toBe("warning");
+    expect(freshserviceAlertToInput({ ...base, state: 2 }, rules)?.resolvedAt).toBe(Date.parse("2026-09-25T08:30:05Z"));
+    expect(freshserviceAlertToInput({ ...base, severity: 51 }, rules)).toBeNull();
+    expect(freshserviceAlertToInput(base, [])).toBeNull();
+  });
+
+  it("reads one alert by id, and every alert updated since a time, oldest first", async () => {
+    const api = fakeApi({
+      "GET /api/v2/ams/alerts/9101": { body: { alert: base } },
+      "GET /api/v2/ams/alerts": { body: { alerts: [base] } },
+    });
+    const client = new FreshserviceAlertsClient({ domain: "acme.freshservice.com", apiKey: "fs-key", fetch: api.fetch });
+    expect((await client.alert(9101)).id).toBe(9101);
+    expect(await client.updatedSince(new Date("2026-09-25T08:00:00.123Z"))).toHaveLength(1);
+    const url = new URL(api.calls[1]!.url);
+    expect(url.searchParams.get("query")).toBe("updated_at:>'2026-09-25T08:00:00Z'");
+    expect(url.searchParams.get("order_by")).toBe("updated_at");
+    expect(url.searchParams.get("order_type")).toBe("asc");
   });
 });

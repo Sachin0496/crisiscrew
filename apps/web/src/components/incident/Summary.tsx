@@ -1,5 +1,5 @@
 import { recoveryCoverage, recoveryMetrics, type CrisisState, type IncidentView } from "@crisiscrew/contracts";
-import { Check, CirclePlay, Clock, ExternalLink, GitCommitHorizontal, Inbox, Users, Wrench } from "lucide-react";
+import { Check, CirclePlay, Clock, ExternalLink, GitCommitHorizontal, Inbox, Users, Wrench, Siren } from "lucide-react";
 import type { ScenarioSummary } from "../../api";
 import { ADAPTER_LABELS, clock, IMPORTANCE, inr, pct, plural, SEVERITY, since, STATUS_LABELS, STATUS_TONE } from "../../format";
 import { expectedOutcome, incidentTitle, progressSteps } from "../../view";
@@ -60,6 +60,11 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
       </div>
       <div className="page-meta">
         <span className="mono">{incident.id}</span>
+        {incident.trigger === "alert" && (
+          <span>
+            <Siren size={14} aria-hidden /> Opened by a critical alert
+          </span>
+        )}
         <span>
           <Clock size={14} aria-hidden /> Opened {clock(incident.openedAt)}
         </span>

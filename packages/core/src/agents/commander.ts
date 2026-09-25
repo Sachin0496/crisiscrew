@@ -1,5 +1,5 @@
-import { recoveryCoverage, type Approval, type ClusterView, type ImportanceAssessment, type IncidentStatus } from "@crisiscrew/contracts";
-import { assessImportance, higher, nextImportance } from "../importance/assess";
+import { recoveryCoverage, type Alert, type Approval, type ClusterView, type ImportanceAssessment, type IncidentStatus, type Surface } from "@crisiscrew/contracts";
+import { assessImportance, higher, nextImportance, type ImportanceAlert } from "../importance/assess";
 import { coverageNote, importanceNote } from "../recovery/templates";
 import { carryOutDecision, requestApprovals } from "./handoff";
 import { investigate } from "./investigator";
@@ -63,6 +63,15 @@ async function syncEngineering(kit: AgentKit, incidentId: string): Promise<void>
   await kit.gate.call("commander", "update_engineering_incident", { incidentId, importance: importance.level, note: importanceNote(importance) });
 }
 
+/** The incident's alerts that are still firing, as the importance rules read them. */
+function linkedAlerts(kit: AgentKit, incidentId: string): ImportanceAlert[] {
+  const view = kit.state();
+  return (view.incidents[incidentId]?.alertIds ?? [])
+    .map((id) => view.alerts[id])
+    .filter((a) => a !== undefined && a.resolvedAt === undefined)
+    .map((a) => ({ severity: a!.severity, service: a!.service, label: a!.label }));
+}
+
 /**
  * Re-applies the importance rules to what's now known about the incident.
  * The level only rises on its own (nextImportance), and the engineering
@@ -71,7 +80,7 @@ async function syncEngineering(kit: AgentKit, incidentId: string): Promise<void>
 export async function reassess(kit: AgentKit, incidentId: string, stage: ImportanceAssessment["stage"]): Promise<void> {
   const incident = kit.state().incidents[incidentId];
   if (!incident) return;
-  const assessed: ImportanceAssessment = { ...assessImportance(incident, [], kit.policy.importance), stage, source: "rules", assessedAt: kit.now() };
+  const assessed: ImportanceAssessment = { ...assessImportance(incident, linkedAlerts(kit, incidentId), kit.policy.importance), stage, source: "rules", assessedAt: kit.now() };
   const next = nextImportance(incident.importance, assessed);
   if (next) {
     kit.emit({ type: "incident.importance", payload: { incidentId, importance: next } });
@@ -106,23 +115,36 @@ async function recover(kit: AgentKit, incidentId: string): Promise<void> {
  * runs the Investigator and the Recovery Agent in parallel, then drives
  * recovery until every affected customer is covered or waiting for a human.
  */
-export async function runIncident(kit: AgentKit, cluster: ClusterView, incidentId: string, onOpened: () => void): Promise<void> {
+export function runIncident(kit: AgentKit, cluster: ClusterView, incidentId: string, onOpened: () => void): Promise<void> {
+  return openAndRun(kit, { incidentId, clusterId: cluster.id, ticketIds: cluster.reportTicketIds, surface: cluster.dominantSurface }, onOpened);
+}
+
+/**
+ * An incident opened by a critical alert, before anyone complains. It runs
+ * the same way: the impact graph comes from payment evidence, so the
+ * customers whose payments failed are found even with no ticket at all.
+ */
+export function runAlertIncident(kit: AgentKit, alert: Alert, surface: Surface, incidentId: string, onOpened: () => void): Promise<void> {
+  return openAndRun(kit, { incidentId, clusterId: `alert:${alert.id}`, ticketIds: [], surface, alertId: alert.id }, onOpened);
+}
+
+type Opening = { incidentId: string; clusterId: string; ticketIds: string[]; surface: Surface; alertId?: string };
+
+async function openAndRun(kit: AgentKit, opening: Opening, onOpened: () => void): Promise<void> {
+  const { incidentId, alertId } = opening;
   kit.setAgent("commander", "working", `Opening ${incidentId}`);
-  // Before the investigation, only the product area is known.
-  const initial = assessImportance({ surface: cluster.dominantSurface, hypotheses: [] }, [], kit.policy.importance);
-  const opened = await kit.gate.call("commander", "open_incident", {
-    incidentId,
-    clusterId: cluster.id,
-    ticketIds: cluster.reportTicketIds,
-    surface: cluster.dominantSurface,
-    importance: initial.level,
-  });
+  // Before the investigation, only the product area and the triggering alert are known.
+  const alert = alertId ? kit.state().alerts[alertId] : undefined;
+  const initial = assessImportance({ surface: opening.surface, hypotheses: [] }, alert ? [alert] : [], kit.policy.importance);
+  const opened = await kit.gate.call("commander", "open_incident", { ...opening, importance: initial.level });
   if (opened.ok) kit.emit({ type: "incident.importance", payload: { incidentId, importance: { ...initial, stage: "opened", source: "rules", assessedAt: kit.now() } } });
   onOpened();
   if (!opened.ok) {
     kit.setAgent("commander", "done", `Could not open ${incidentId}: ${opened.reason}`);
     return;
   }
+  // A critical alert is P1 from the start: page now, not after the investigation.
+  await pageIfNeeded(kit, incidentId);
 
   kit.setStatus(incidentId, "investigating", "Investigator and Recovery Agent started in parallel");
   kit.setAgent("commander", "working", `Coordinating ${incidentId}`);
@@ -167,5 +189,17 @@ export async function settleDecision(kit: AgentKit, approval: Approval): Promise
     await carryOutDecision(kit, approval);
     await noteOutcomes(kit, approval.incidentId, "handoff");
     await settle(kit, approval.incidentId);
+  });
+}
+
+/**
+ * An alert on a service behind an open incident: it's already linked. The
+ * Investigator weighs it (re-ranking without moving the incident back), and
+ * the importance rules see it.
+ */
+export async function onAlertLinked(kit: AgentKit, incidentId: string): Promise<void> {
+  await kit.serial(incidentId, async () => {
+    if (kit.state().incidents[incidentId]!.hypotheses.length > 0) await investigate(kit, incidentId);
+    await reassess(kit, incidentId, kit.state().incidents[incidentId]?.rootCause ? "root_cause" : "impact");
   });
 }
