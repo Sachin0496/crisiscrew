@@ -25,7 +25,7 @@ import type { ToolDef } from "../policy/gate";
 import type { InfraHealth, Ports } from "../ports";
 import { assessImpact } from "../recovery/impact";
 import { planRecovery } from "../recovery/plan";
-import { customerCase, draftUpdate, engineeringSummary, inr, pageScript, type Draft } from "../recovery/templates";
+import { customerCase, draftUpdate, engineeringSummary, engineeringTicket, inr, pageScript, problemRecord, rollbackChange, type Draft } from "../recovery/templates";
 
 export type ToolCtx = {
   now(): number;
@@ -37,6 +37,8 @@ export type ToolCtx = {
   nextId(kind: "update" | "approval" | "action"): string;
   /** Approvals already used for a credit, so one approval can't pay twice. */
   spentApprovals: Set<string>;
+  /** This server's public URL, for links back from engineering records. */
+  publicBaseUrl?: string;
 };
 
 type Tool = ToolDef<ToolCtx> & { name: ToolName };
@@ -384,11 +386,76 @@ export function createTools(): Tool[] {
         const incident = incidentOf(ctx, incidentId);
         const importance = incident.importance?.level ?? (incident.severity === "high" ? "P1" : "P2");
         const alert = incident.trigger === "alert" ? ctx.state().alerts[incident.alertIds?.[0] ?? ""] : undefined;
-        const record = await ctx.ports.incidents.open({ incidentId, importance, ...engineeringSummary(incident, alert) });
+        const base = ctx.publicBaseUrl?.replace(/\/+$/, "");
+        const record = await ctx.ports.incidents.open({
+          incidentId,
+          importance,
+          service: ctx.ports.catalog.servicesFor(incident.surface)[0]?.name,
+          tags: ["crisiscrew", incident.surface],
+          ...engineeringTicket(incident, { ...(alert ? { alert } : {}), ...(incident.paging ? { paging: incident.paging } : {}), ...(base ? { links: { incident: `${base}/#/incident`, audit: `${base}/api/audit` } } : {}) }),
+        });
         ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, adapter: ctx.ports.incidents.adapter, importance } } });
         return record;
       },
       summarize: (r) => `filed ${(r as { id: string }).id}`,
+    },
+    {
+      name: "request_rollback_change",
+      description:
+        "Request a rollback of the release blamed for the incident, as a change record linked to the engineering incident, for engineering to plan and approve. Only when a release is the likely cause with high confidence.",
+      input: idOnly,
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.incidents.adapter,
+      condition(args, ctx) {
+        const incident = ctx.state().incidents[(args as { incidentId: string }).incidentId];
+        if (!incident) return "no such incident";
+        if (!incident.engineering) return "no engineering incident has been filed";
+        if (incident.engineering.change) return `already requested as ${incident.engineering.change.id}`;
+        const top = incident.hypotheses[0];
+        if (top?.kind !== "deploy" || incident.rootCause?.hypothesisId !== top.id) return "no release is the likely cause";
+        return top.confidence >= ctx.policy.issues.rollbackConfidence ? null : `${top.label} is only ${Math.round(top.confidence * 100)}% likely; a rollback needs ${Math.round(ctx.policy.issues.rollbackConfidence * 100)}%`;
+      },
+      async run(args, ctx) {
+        const { incidentId } = args as { incidentId: string };
+        const incident = incidentOf(ctx, incidentId);
+        const record = incident.engineering!;
+        const top = incident.hypotheses[0]!;
+        const change = await ctx.ports.incidents.requestChange(record.id, {
+          ...rollbackChange(incident),
+          importance: incident.importance?.level ?? "P2",
+          service: top.subject.split("@")[0],
+        });
+        ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, change } } });
+        return change;
+      },
+      summarize: (r) => `rollback change ${(r as { id: string }).id} requested`,
+    },
+    {
+      name: "open_problem_record",
+      description: "Open a problem record for the post-incident review once the incident is recovered, linked to the engineering incident.",
+      input: idOnly,
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.incidents.adapter,
+      condition(args, ctx) {
+        const incident = ctx.state().incidents[(args as { incidentId: string }).incidentId];
+        if (!incident) return "no such incident";
+        if (!incident.engineering) return "no engineering incident has been filed";
+        if (incident.engineering.problem) return `already opened as ${incident.engineering.problem.id}`;
+        return incident.status === "recovered" ? null : "the incident isn't recovered yet";
+      },
+      async run(args, ctx) {
+        const { incidentId } = args as { incidentId: string };
+        const incident = incidentOf(ctx, incidentId);
+        const record = incident.engineering!;
+        const problem = await ctx.ports.incidents.openProblem(record.id, {
+          ...problemRecord(incident, recoveryCoverage(incident)),
+          importance: incident.importance?.level ?? "P2",
+          service: ctx.ports.catalog.servicesFor(incident.surface)[0]?.name,
+        });
+        ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, problem } } });
+        return problem;
+      },
+      summarize: (r) => `problem ${(r as { id: string }).id} opened for the post-incident review`,
     },
     {
       name: "update_engineering_incident",

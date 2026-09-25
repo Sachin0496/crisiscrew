@@ -30,7 +30,18 @@ export type SandboxRecord = {
   proactive: { customerRef: string; text: string }[];
   accountNotes: { id: string; customerRef: string; text: string }[];
   credits: { id: string; customerRefs: string[]; amountInr: number; reference: string }[];
-  incidents: { id: string; incidentId: string; title: string; description: string; importance: ImportanceLevel; notes: string[] }[];
+  incidents: {
+    id: string;
+    incidentId: string;
+    title: string;
+    description: string;
+    importance: ImportanceLevel;
+    service?: string;
+    tags: string[];
+    notes: string[];
+    change?: { id: string; title: string; description: string };
+    problem?: { id: string; title: string; description: string };
+  }[];
   calls: SandboxCall[];
 };
 
@@ -220,11 +231,25 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
 
     incidents: {
       ...SANDBOX,
-      async open({ incidentId, title, description, importance }) {
+      async open({ incidentId, title, description, importance, service, tags }) {
         await pause();
         const id = `ENG-${String(record.incidents.length + 1).padStart(3, "0")}`;
-        record.incidents.push({ id, incidentId, title, description, importance, notes: [] });
+        record.incidents.push({ id, incidentId, title, description, importance, ...(service ? { service } : {}), tags: tags ?? [], notes: [] });
         return { id };
+      },
+      async requestChange(recordId, { title, description }) {
+        await pause();
+        const found = record.incidents.find((i) => i.id === recordId);
+        if (!found) throw new Error(`no engineering incident ${recordId}`);
+        found.change = { id: `CHG-${recordId.slice(4)}`, title, description };
+        return { id: found.change.id };
+      },
+      async openProblem(recordId, { title, description }) {
+        await pause();
+        const found = record.incidents.find((i) => i.id === recordId);
+        if (!found) throw new Error(`no engineering incident ${recordId}`);
+        found.problem = { id: `PRB-${recordId.slice(4)}`, title, description };
+        return { id: found.problem.id };
       },
       async setImportance(recordId, importance) {
         await pause();

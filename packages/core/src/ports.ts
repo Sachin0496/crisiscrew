@@ -138,10 +138,15 @@ export interface CreditsPort extends AdapterMode {
 
 /** The engineering incident record (Freshservice, or its sandbox) the operational side works from. */
 export interface IncidentsPort extends AdapterMode {
-  open(input: { incidentId: string; title: string; description: string; importance: ImportanceLevel }): Promise<{ id: string; url?: string }>;
+  /** Files the record. The service routes it to its group; tags mark it as CrisisCrew's. */
+  open(input: { incidentId: string; title: string; description: string; importance: ImportanceLevel; service?: string; tags?: string[] }): Promise<{ id: string; url?: string }>;
   note(recordId: string, text: string): Promise<void>;
   /** Raises (or lowers) the record's priority when the incident's importance changes after it was filed. */
   setImportance(recordId: string, importance: ImportanceLevel): Promise<void>;
+  /** Requests a rollback as a change record, linked to this record. It's a request for a human to plan and approve, never an action. */
+  requestChange(recordId: string, input: { title: string; description: string; importance: ImportanceLevel; service?: string }): Promise<{ id: string; url?: string }>;
+  /** Opens a problem record for the post-incident review, linked to this record. */
+  openProblem(recordId: string, input: { title: string; description: string; importance: ImportanceLevel; service?: string }): Promise<{ id: string; url?: string }>;
 }
 
 export type ServiceInfo = { name: string; surfaces: string[] };

@@ -21,6 +21,7 @@ export const PolicySchema = z.object({
     pattern: IdentityPolicy,
     commander: IdentityPolicy,
     investigator: IdentityPolicy,
+    issue_creator: IdentityPolicy,
     recovery: IdentityPolicy,
     handoff: IdentityPolicy,
     operator: IdentityPolicy,
@@ -105,6 +106,12 @@ export const PolicySchema = z.object({
     deployConfidence: z.number().min(0).max(1),
     /** Page the on-call engineer at this level or above. */
     pageAt: ImportanceLevelSchema,
+  }),
+  issues: z.object({
+    /** Request a rollback change when a release is the likely cause at least this confident. */
+    rollbackConfidence: z.number().min(0).max(1),
+    /** Open a problem record for the post-incident review once the incident is recovered. */
+    problemOnRecovered: z.boolean(),
   }),
   alerts: z.object({
     /** A critical alert on a service behind a tier-1 area opens an incident by itself. */

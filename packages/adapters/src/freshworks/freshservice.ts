@@ -7,6 +7,8 @@ export type FreshserviceOptions = FreshworksAuth & {
   requesterEmail: string;
   /** Only for accounts with several workspaces. */
   workspaceId?: number;
+  /** service name → Freshservice group id; "*" for every other service. */
+  groups?: Record<string, number>;
 };
 
 type CreatedTicket = { ticket?: { id: number }; id?: number };
@@ -30,17 +32,24 @@ export function freshserviceIncidents(options: FreshserviceOptions): IncidentsPo
     if (!Number.isInteger(id) || id <= 0) throw new Error(`not a Freshservice ticket id: ${recordId}`);
     return id;
   };
+  const workspace = options.workspaceId !== undefined ? { workspace_id: options.workspaceId } : {};
+  const group = (service?: string) => {
+    const id = (service ? options.groups?.[service] : undefined) ?? options.groups?.["*"];
+    return id !== undefined ? { group_id: id } : {};
+  };
   return {
     mode: "live",
     adapter: "freshservice",
-    async open({ title, description, importance }) {
+    async open({ title, description, importance, service, tags }) {
       const created = await freshworksRequest<CreatedTicket>(options, "POST", "/api/v2/tickets", {
         subject: title,
         description: textToHtml(description),
         email: options.requesterEmail,
         ...FRESHSERVICE_PRIORITY[importance],
         status: 2,
-        ...(options.workspaceId !== undefined ? { workspace_id: options.workspaceId } : {}),
+        ...group(service),
+        ...(tags?.length ? { tags } : {}),
+        ...workspace,
       });
       const id = created?.ticket?.id ?? created?.id;
       if (!id) throw new Error("Freshservice created the incident but returned no id");
@@ -51,6 +60,45 @@ export function freshserviceIncidents(options: FreshserviceOptions): IncidentsPo
     },
     async note(recordId, text) {
       await freshworksRequest(options, "POST", `/api/v2/tickets/${numeric(recordId)}/notes`, { body: textToHtml(text), private: true });
+    },
+    // An emergency change (type 4), open (status 1), medium risk: a request for a human to plan and approve.
+    async requestChange(recordId, { title, description, importance, service }) {
+      const now = Date.now();
+      const created = await freshworksRequest<{ change?: { id: number } }>(options, "POST", "/api/v2/changes", {
+        subject: title,
+        description: textToHtml(description),
+        email: options.requesterEmail,
+        priority: FRESHSERVICE_PRIORITY[importance].priority,
+        impact: FRESHSERVICE_PRIORITY[importance].impact,
+        status: 1,
+        risk: 2,
+        change_type: 4,
+        planned_start_date: new Date(now).toISOString(),
+        planned_end_date: new Date(now + 3_600_000).toISOString(),
+        ...group(service),
+        ...workspace,
+      });
+      const id = created?.change?.id;
+      if (!id) throw new Error("Freshservice created the change but returned no id");
+      await freshworksRequest(options, "PUT", `/api/v2/tickets/${numeric(recordId)}`, { change_initiated_by_ticket: { display_id: id } });
+      return { id: `CHN-${id}`, url: `https://${options.domain}/a/changes/${id}` };
+    },
+    async openProblem(recordId, { title, description, importance, service }) {
+      const created = await freshworksRequest<{ problem?: { id: number } }>(options, "POST", "/api/v2/problems", {
+        subject: title,
+        description: textToHtml(description),
+        email: options.requesterEmail,
+        priority: FRESHSERVICE_PRIORITY[importance].priority,
+        impact: FRESHSERVICE_PRIORITY[importance].impact,
+        status: 1,
+        due_by: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
+        ...group(service),
+        ...workspace,
+      });
+      const id = created?.problem?.id;
+      if (!id) throw new Error("Freshservice created the problem but returned no id");
+      await freshworksRequest(options, "PUT", `/api/v2/tickets/${numeric(recordId)}`, { problem: { display_id: id } });
+      return { id: `PRB-${id}`, url: `https://${options.domain}/a/problems/${id}` };
     },
   };
 }

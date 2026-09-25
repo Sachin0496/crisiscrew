@@ -59,7 +59,8 @@ describe("paging on-call", () => {
     expect(ports.record.calls[0]?.script).toBe(
       "This is CrisisCrew with a P1 incident, INC 2026 001. Checkout and payments is failing. 23 customers are affected. The likely cause is checkout-service v4.21.7, at 97 percent confidence.",
     );
-    expect(ports.record.incidents[0]?.notes).toContain("On-call page 1: Neha Kapoor (primary), acknowledged by pressing 1.");
+    // The page came before the ticket was filed, so its outcome is in the ticket's description.
+    expect(ports.record.incidents[0]?.description).toContain("On-call: acknowledged by Neha Kapoor.\n  - On-call page 1: Neha Kapoor (primary), acknowledged by pressing 1.");
     // The page was placed after the incident opened, and after the P1 decision it rests on.
     expect(pages[0]!.at).toBeGreaterThanOrEqual(incident!.openedAt);
     expect(incident!.importance!.assessedAt).toBeLessThanOrEqual(pages[0]!.at);
@@ -71,10 +72,9 @@ describe("paging on-call", () => {
     expect(pages.map((p) => p.decision)).toEqual(["allowed", "allowed"]);
     expect(incident?.paging?.attempts.map((a) => `${a.role}:${a.state}`)).toEqual(["primary:no_answer", "secondary:acknowledged"]);
     expect(incident?.paging).toMatchObject({ status: "acknowledged", acknowledgedBy: "Responder 2" });
-    expect(ports.record.incidents[0]?.notes.filter((n) => n.startsWith("On-call page"))).toEqual([
-      "On-call page 1: Responder 1 (primary), no answer.",
-      "On-call page 2: Responder 2 (secondary), acknowledged by pressing 1.",
-    ]);
+    const record = ports.record.incidents[0]!;
+    const outcomes = [...record.description.split("\n").map((l) => l.trim().replace(/^- /, "")), ...record.notes].filter((n) => n.startsWith("On-call page"));
+    expect(outcomes).toEqual(["On-call page 1: Responder 1 (primary), no answer.", "On-call page 2: Responder 2 (secondary), acknowledged by pressing 1."]);
   });
 
   it("treats an answered call without a key press as unacknowledged, and stops after maxEscalations", async () => {
@@ -83,13 +83,18 @@ describe("paging on-call", () => {
       ...policy,
       oncall: { ...policy.oncall, maxEscalations: 1 },
     });
-    // Two responders allowed; the third attempt is refused by the gate, and audited.
-    expect(pages.map((p) => p.decision)).toEqual(["allowed", "allowed", "denied"]);
-    expect(pages[2]?.reason).toBe("no escalations left: 2 responders were already paged");
+    // Two responders allowed; the third attempt is refused by the gate, and audited. (An allowed call is logged when it
+    // finishes, a refusal at once, so the log's order can differ from the attempts'.)
+    const byAttempt = [...pages].sort((a, b) => a.argsSummary.localeCompare(b.argsSummary));
+    expect(byAttempt.map((p) => p.decision)).toEqual(["allowed", "allowed", "denied"]);
+    expect(byAttempt[2]?.reason).toBe("no escalations left: 2 responders were already paged");
     expect(incident?.paging).toMatchObject({ status: "exhausted" });
     expect(incident?.paging?.attempts.map((a) => a.state)).toEqual(["not_acknowledged", "busy"]);
-    expect(ports.record.incidents[0]?.notes.at(-1)).not.toMatch(/acknowledged by pressing/);
-    expect(ports.record.incidents[0]?.notes).toContain("On-call paging stopped: no escalations left: 2 responders were already paged. Nobody acknowledged.");
+    // Whether the ticket was filed before or after paging ran out, the record says so: in its description or in a note.
+    const record = ports.record.incidents[0]!;
+    const all = [record.description, ...record.notes].join("\n");
+    expect(all).not.toMatch(/acknowledged by pressing/);
+    expect(all).toMatch(/no escalations left: 2 responders were already paged/);
   });
 
   it("stops when the schedule runs out of people before the escalations do", async () => {

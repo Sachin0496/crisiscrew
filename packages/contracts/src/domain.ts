@@ -89,10 +89,10 @@ export type ClusterView = {
   incidentId?: string;
 };
 
-export const Identity = z.enum(["pattern", "commander", "investigator", "recovery", "handoff", "operator"]);
+export const Identity = z.enum(["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff", "operator"]);
 export type Identity = z.infer<typeof Identity>;
 export type AgentId = Exclude<Identity, "operator">;
-export const AGENT_IDS: readonly AgentId[] = ["pattern", "commander", "investigator", "recovery", "handoff"];
+export const AGENT_IDS: readonly AgentId[] = ["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff"];
 
 export type Level = 0 | 1 | 2 | 3;
 export const LEVEL_NAMES: Record<Level, string> = {
@@ -320,6 +320,10 @@ export type EngineeringRecord = {
   adapter: string;
   /** The importance the record's priority was last set from. */
   importance?: "P1" | "P2" | "P3";
+  /** A rollback change requested for a release blamed with high confidence, linked to the record. */
+  change?: { id: string; url?: string };
+  /** The problem record opened for the post-incident review once the incident is recovered. */
+  problem?: { id: string; url?: string };
 };
 
 /** How urgently engineering must act: P1 pages the on-call engineer, P3 can wait for working hours. */

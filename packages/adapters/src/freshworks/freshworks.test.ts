@@ -285,3 +285,30 @@ describe("Freshservice alerts", () => {
     expect(url.searchParams.get("order_type")).toBe("asc");
   });
 });
+
+describe("Freshservice changes and problems", () => {
+  it("routes the incident to its service's group with tags, then files a linked rollback change and problem", async () => {
+    const api = fakeApi({
+      "POST /api/v2/tickets": { status: 201, body: { ticket: { id: 314 } } },
+      "POST /api/v2/changes": { status: 201, body: { change: { id: 27 } } },
+      "POST /api/v2/problems": { status: 201, body: { problem: { id: 9 } } },
+      "PUT /api/v2/tickets/314": { status: 200, body: { ticket: { id: 314 } } },
+    });
+    const port = freshserviceIncidents({ domain: "acme.freshservice.com", apiKey: "fs-key", requesterEmail: "ops@acme.test", groups: { "checkout-service": 12, "*": 34 }, fetch: api.fetch });
+    await port.open({ incidentId: "INC-1", title: "t", description: "d", importance: "P1", service: "checkout-service", tags: ["crisiscrew", "checkout_payments"] });
+    expect(api.calls[0]?.body).toMatchObject({ group_id: 12, tags: ["crisiscrew", "checkout_payments"], priority: 4 });
+    await port.open({ incidentId: "INC-2", title: "t", description: "d", importance: "P3", service: "search-service" });
+    expect(api.calls[1]?.body).toMatchObject({ group_id: 34, priority: 2 });
+
+    expect(await port.requestChange("#314", { title: "Roll back x", description: "why", importance: "P1", service: "checkout-service" })).toEqual({
+      id: "CHN-27",
+      url: "https://acme.freshservice.com/a/changes/27",
+    });
+    expect(api.calls[2]).toMatchObject({ method: "POST", body: { subject: "Roll back x", status: 1, change_type: 4, risk: 2, priority: 4, group_id: 12, email: "ops@acme.test" } });
+    expect(api.calls[3]).toMatchObject({ method: "PUT", body: { change_initiated_by_ticket: { display_id: 27 } } });
+
+    expect(await port.openProblem("#314", { title: "Review", description: "what happened", importance: "P2" })).toEqual({ id: "PRB-9", url: "https://acme.freshservice.com/a/problems/9" });
+    expect(api.calls[4]).toMatchObject({ method: "POST", body: { subject: "Review", status: 1, priority: 3, group_id: 34 } });
+    expect(api.calls[5]).toMatchObject({ method: "PUT", body: { problem: { display_id: 9 } } });
+  });
+});

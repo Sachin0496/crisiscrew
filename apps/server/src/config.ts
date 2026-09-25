@@ -105,7 +105,7 @@ const PORTS: Record<PortName, PortSpec> = {
   translate: { env: "TRANSLATE", options: ["off", "sarvam"], wired: ["off"], mode: () => "off", detail: () => "Tickets are embedded as written" },
 };
 
-const MCP_IDENTITIES: Identity[] = ["pattern", "commander", "investigator", "recovery", "handoff", "operator"];
+const MCP_IDENTITIES: Identity[] = ["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff", "operator"];
 
 export type FreshdeskConfig = {
   domain: string;
@@ -116,7 +116,7 @@ export type FreshdeskConfig = {
   actions: "rest" | "mcp";
 };
 
-export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null };
+export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null; groups: Record<string, number> };
 
 export type VobizConfig = { authId: string; authToken: string; from: string; ringTimeoutSec: number; timeLimitSec: number };
 
@@ -218,6 +218,18 @@ function freshdeskConfig(env: Env): FreshdeskConfig {
   };
 }
 
+/** FRESHSERVICE_GROUPS: service=groupId pairs, and "*" for every other service. */
+function groupsOf(value: string | null): Record<string, number> {
+  const groups: Record<string, number> = {};
+  for (const pair of (value ?? "").split(",").map((p) => p.trim()).filter(Boolean)) {
+    const [service, id] = pair.split("=").map((p) => p.trim());
+    const n = Number(id);
+    if (!service || !Number.isInteger(n) || n <= 0) throw new ConfigError(`FRESHSERVICE_GROUPS takes service=groupId pairs, got "${pair}"`);
+    groups[service] = n;
+  }
+  return groups;
+}
+
 function freshserviceConfig(env: Env): FreshserviceConfig {
   const missing = ["FRESHSERVICE_DOMAIN", "FRESHSERVICE_API_KEY", "FRESHSERVICE_REQUESTER_EMAIL"].filter((k) => !text(env, k));
   if (missing.length > 0) throw new ConfigError(`INCIDENTS=freshservice needs ${missing.join(", ")}; see .env.example`);
@@ -227,6 +239,7 @@ function freshserviceConfig(env: Env): FreshserviceConfig {
     apiKey: text(env, "FRESHSERVICE_API_KEY")!,
     requesterEmail: text(env, "FRESHSERVICE_REQUESTER_EMAIL")!,
     workspaceId: workspace === null ? null : int(env, "FRESHSERVICE_WORKSPACE_ID", 0),
+    groups: groupsOf(text(env, "FRESHSERVICE_GROUPS")),
   };
 }
 

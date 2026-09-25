@@ -47,6 +47,8 @@ export type EngineDeps = {
   prototypes?: Prototypes;
   onAudit?: (entry: AuditEntry) => void;
   onError?: (error: unknown) => void;
+  /** This server's public URL, for links back from engineering records. */
+  publicBaseUrl?: string;
 };
 
 const pad = (n: number) => String(n).padStart(3, "0");
@@ -88,6 +90,7 @@ export class CrisisEngine {
       nextId: (kind) =>
         kind === "update" ? `UPD-${pad(++this.counters.update)}` : kind === "approval" ? `APR-${pad(++this.counters.approval)}` : `RA-${pad(++this.counters.action)}`,
       spentApprovals: this.spentApprovals,
+      ...(deps.publicBaseUrl ? { publicBaseUrl: deps.publicBaseUrl } : {}),
     };
     this.gate = new PolicyGate(deps.policy, createTools(), this.audit, deps.clock, () => ctx);
     this.pattern = new PatternEngine(deps.embedder, deps.policy.correlation, {

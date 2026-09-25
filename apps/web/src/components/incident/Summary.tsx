@@ -1,5 +1,5 @@
 import { recoveryCoverage, recoveryMetrics, type CrisisState, type IncidentView } from "@crisiscrew/contracts";
-import { Check, CirclePlay, Clock, ExternalLink, GitCommitHorizontal, Inbox, Users, Wrench, Siren } from "lucide-react";
+import { Check, CirclePlay, Clock, ExternalLink, GitCommitHorizontal, Inbox, Users, Wrench, Siren, ClipboardList, RotateCcw } from "lucide-react";
 import type { ScenarioSummary } from "../../api";
 import { ADAPTER_LABELS, clock, IMPORTANCE, inr, pct, plural, SEVERITY, since, STATUS_LABELS, STATUS_TONE } from "../../format";
 import { expectedOutcome, incidentTitle, progressSteps } from "../../view";
@@ -91,6 +91,35 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
             ) : (
               <>
                 Engineering incident <strong className="mono">{record.id}</strong> ({(ADAPTER_LABELS[record.adapter] ?? record.adapter).toLowerCase()})
+              </>
+            )}
+            {record.importance && <span className="muted">· filed at {record.importance}</span>}
+          </span>
+        )}
+        {record?.change && (
+          <span title="A rollback requested for engineering to plan and approve">
+            <RotateCcw size={14} aria-hidden />
+            {record.change.url ? (
+              <a href={record.change.url} target="_blank" rel="noreferrer">
+                Rollback change {record.change.id} <ExternalLink size={12} aria-hidden />
+              </a>
+            ) : (
+              <>
+                Rollback change <strong className="mono">{record.change.id}</strong>
+              </>
+            )}
+          </span>
+        )}
+        {record?.problem && (
+          <span title="Opened for the post-incident review">
+            <ClipboardList size={14} aria-hidden />
+            {record.problem.url ? (
+              <a href={record.problem.url} target="_blank" rel="noreferrer">
+                Problem {record.problem.id} <ExternalLink size={12} aria-hidden />
+              </a>
+            ) : (
+              <>
+                Problem <strong className="mono">{record.problem.id}</strong> for the review
               </>
             )}
           </span>
