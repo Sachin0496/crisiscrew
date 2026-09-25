@@ -345,12 +345,51 @@ export type ImportanceAssessment = {
   assessedAt: number;
 };
 
+/** Where a responder sits in the on-call schedule, in the order they're paged. */
+export type OnCallRole = "primary" | "secondary" | "tertiary";
+
+/**
+ * One call to one on-call responder. calling: the phone is ringing or the
+ * call is in progress; acknowledged: they pressed 1; not_acknowledged: they
+ * answered but didn't press 1; the rest say why the call didn't connect.
+ */
+export type PageAttemptState = "calling" | "acknowledged" | "not_acknowledged" | "no_answer" | "busy" | "failed";
+
+export type PageAttempt = {
+  attempt: number;
+  responder: string;
+  role: OnCallRole;
+  /** Masked to the last four digits. */
+  phone: string;
+  callId?: string;
+  state: PageAttemptState;
+  startedAt: number;
+  updatedAt: number;
+  reason?: string;
+};
+
+/**
+ * Paging the on-call engineer for an incident. paging: a call is out or the
+ * next one is due; acknowledged: someone took it; exhausted: every allowed
+ * attempt went unacknowledged; no_responder: nobody on call could be called.
+ */
+export type PagingView = {
+  status: "paging" | "acknowledged" | "exhausted" | "no_responder";
+  attempts: PageAttempt[];
+  acknowledgedBy?: string;
+  acknowledgedAt?: number;
+  /** How it was acknowledged: a key press on the call, or an operator (in CrisisCrew or Freshservice). */
+  via?: "call" | "operator";
+  note?: string;
+};
+
 export type IncidentView = {
   id: string;
   status: IncidentStatus;
   /** high for P1, medium otherwise; kept for readers that predate importance. */
   severity: Severity;
   importance?: ImportanceAssessment;
+  paging?: PagingView;
   openedAt: number;
   surface: Surface;
   clusterId: string;

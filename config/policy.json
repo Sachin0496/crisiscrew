@@ -9,7 +9,7 @@
     "commander": {
       "name": "Incident Commander",
       "maxLevel": 1,
-      "tools": ["open_incident", "get_incident", "search_recent_tickets", "file_engineering_incident", "update_engineering_incident", "get_recovery_coverage"]
+      "tools": ["open_incident", "get_incident", "search_recent_tickets", "file_engineering_incident", "update_engineering_incident", "get_recovery_coverage", "page_on_call"]
     },
     "investigator": {
       "name": "Investigator",
@@ -82,6 +82,10 @@
     "priorityCustomers": { "p1": 3, "p2": 1 },
     "deployConfidence": 0.8,
     "pageAt": "P1"
+  },
+  "oncall": {
+    "ackTimeoutMin": 5,
+    "maxEscalations": 2
   },
   "recovery": {
     "affectedLookbackMin": 30,

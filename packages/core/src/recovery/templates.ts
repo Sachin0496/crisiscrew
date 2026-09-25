@@ -172,3 +172,30 @@ export function importanceNote(importance: ImportanceAssessment): string {
   const reasons = importance.reasons.map((r) => `- ${r.level}: ${r.text}`).join("\n");
   return `Importance ${importance.level}${importance.page ? " (page on-call)" : ""}. ${who}.${reasons ? `\n${reasons}` : ""}`;
 }
+
+/** What the on-call engineer hears: which incident, how bad, and the likely cause. Short, because it's read aloud. */
+export function pageScript(incident: IncidentView): string {
+  const confirmed = incident.impact?.customers.filter((c) => c.confidence === "confirmed").length ?? 0;
+  const id = incident.id.replace(/-/g, " ");
+  return [
+    `This is CrisisCrew with a ${incident.importance?.level ?? ""} incident, ${id}.`,
+    `${SURFACE_LABELS[incident.surface].replace("&", "and")} is failing.`,
+    confirmed > 0 ? `${confirmed} ${confirmed === 1 ? "customer is" : "customers are"} affected.` : "",
+    incident.rootCause ? `The likely cause is ${incident.rootCause.label}, at ${Math.round(incident.rootCause.confidence * 100)} percent confidence.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** The engineering note for one page: who was called, and how it ended. */
+export function pageNote(attempt: { attempt: number; responder: string; role: string; state: string; reason?: string }, via?: string): string {
+  const outcome: Record<string, string> = {
+    calling: "calling now",
+    acknowledged: `acknowledged${via === "operator" ? "" : " by pressing 1"}`,
+    not_acknowledged: "answered but didn't acknowledge",
+    no_answer: "no answer",
+    busy: "line busy",
+    failed: `call failed${attempt.reason ? `: ${attempt.reason}` : ""}`,
+  };
+  return `On-call page ${attempt.attempt}: ${attempt.responder} (${attempt.role}), ${outcome[attempt.state] ?? attempt.state}.`;
+}

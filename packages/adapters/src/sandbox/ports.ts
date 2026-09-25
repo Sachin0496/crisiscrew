@@ -10,7 +10,8 @@ import {
   type ProviderHealth,
   type ServiceInfo,
 } from "@crisiscrew/core";
-import { sandboxTelephony, type SandboxCall } from "../telephony/sandbox";
+import { e164 } from "../telephony/calls";
+import { sandboxTelephony, type SandboxCall, type ScriptedCall } from "../telephony/sandbox";
 
 const MINUTE = 60_000;
 const SANDBOX = { mode: "sandbox" as const, adapter: "sandbox" };
@@ -169,7 +170,17 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
       },
     },
 
-    telephony: sandboxTelephony({ seed: scenario.id, clock, record: record.calls }),
+    telephony: sandboxTelephony({ seed: scenario.id, clock, record: record.calls, scripted: rosterOutcomes(world.oncall) }),
+
+    // The scenario's roster is on call for every service.
+    oncall: {
+      ...SANDBOX,
+      async whoIsOnCall() {
+        await pause();
+        const order = { primary: 0, secondary: 1, tertiary: 2 };
+        return [...world.oncall].sort((a, b) => order[a.role] - order[b.role]).map((r) => ({ name: r.name, role: r.role, phone: r.phone, ...(r.email ? { email: r.email } : {}) }));
+      },
+    },
 
     credits: {
       ...SANDBOX,
@@ -210,4 +221,15 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
       },
     },
   };
+}
+
+/** What each responder on the roster does when called, as the sandbox telephone plays it. */
+function rosterOutcomes(roster: Scenario["world"]["oncall"]): Map<string, ScriptedCall> {
+  const outcomes: Record<(typeof roster)[number]["answers"], ScriptedCall> = {
+    acknowledges: { outcome: "completed", digits: "1" },
+    ignores: { outcome: "completed" },
+    no_answer: { outcome: "no_answer" },
+    busy: { outcome: "busy" },
+  };
+  return new Map(roster.map((r) => [e164(r.phone), outcomes[r.answers]]));
 }

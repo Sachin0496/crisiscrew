@@ -116,7 +116,7 @@ describe("hero scenario: checkout release v4.21.7", () => {
     expect(outcomes).toHaveLength(8);
     expect(outcomes[0]?.text).toMatch(/Confirmed affected: .*failed at/);
     expect(incident?.engineering).toEqual({ id: "ENG-001", adapter: "sandbox", importance: "P1" });
-    expect(ports.record.incidents[0]?.notes.map((n) => n.split(/[:.]/)[0])).toEqual(["Importance P1 (page on-call)", "Investigation", "Customer impact"]);
+    expect(ports.record.incidents[0]?.notes.map((n) => n.split(/[:.]/)[0])).toEqual(["Importance P1 (page on-call)", "On-call page 1", "Investigation", "Customer impact"]);
   });
 
   it("opens at P2 for a tier-1 area, then raises it to P1 and pages on-call once 23 customers are proved affected", async () => {

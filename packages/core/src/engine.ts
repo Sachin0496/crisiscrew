@@ -20,6 +20,7 @@ import {
   type TicketSource,
 } from "@crisiscrew/contracts";
 import { handleLateTicket, runIncident, setImportanceByHuman, settleDecision } from "./agents/commander";
+import { acknowledgeByOperator, onPageCall } from "./agents/paging";
 import type { AgentKit } from "./agents/kit";
 import type { EventBus } from "./bus";
 import { PatternEngine } from "./correlation/pattern";
@@ -98,6 +99,8 @@ export class CrisisEngine {
       policy: deps.policy,
       ports: deps.ports,
       now: () => deps.clock.now(),
+      sleep: (ms) => deps.clock.sleep(ms),
+      alive: () => !this.stopped,
       emit: (e) => this.emit(e),
       setAgent: (agent, status, task) => this.setAgent(agent, status, task),
       setStatus: (id, to, note) => this.setStatus(id, to, note),
@@ -108,7 +111,10 @@ export class CrisisEngine {
       },
       noted: new Set(),
     };
-    this.unsubscribe = deps.ports.telephony.onUpdate((call) => this.emit({ type: "call.updated", payload: { call } }));
+    this.unsubscribe = deps.ports.telephony.onUpdate((call) => {
+      this.emit({ type: "call.updated", payload: { call } });
+      if (call.purpose === "oncall" && call.metadata?.incidentId) this.track(onPageCall(this.kit, call).catch((error) => this.fail("commander", error)));
+    });
   }
 
   async init(): Promise<void> {
@@ -176,6 +182,14 @@ export class CrisisEngine {
     this.track(run);
     await run;
     return importance;
+  }
+
+  /** An operator acknowledges an incident's page, here or in Freshservice; no one else is called. */
+  async acknowledgePage(incidentId: string, by: string): Promise<void> {
+    if (!this.view.incidents[incidentId]) throw new Error(`no incident ${incidentId}`);
+    const run = acknowledgeByOperator(this.kit, incidentId, by);
+    this.track(run);
+    await run;
   }
 
   /** Marks the end of a scenario replay (every ticket ingested and all agent work settled). */

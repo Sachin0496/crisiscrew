@@ -13,6 +13,8 @@ import {
   type EventInput,
   type ImportanceLevel,
   type IncidentView,
+  type PageAttempt,
+  type PagingView,
   type Level,
   type Policy,
   type Ticket,
@@ -23,7 +25,7 @@ import type { ToolDef } from "../policy/gate";
 import type { Ports } from "../ports";
 import { assessImpact } from "../recovery/impact";
 import { planRecovery } from "../recovery/plan";
-import { customerCase, draftUpdate, engineeringSummary, inr, type Draft } from "../recovery/templates";
+import { customerCase, draftUpdate, engineeringSummary, inr, pageScript, type Draft } from "../recovery/templates";
 
 export type ToolCtx = {
   now(): number;
@@ -163,6 +165,9 @@ export function createTools(): Tool[] {
           recoveryCoverage: coverage.confirmed ? { recovered: coverage.recovered, of: coverage.confirmed, needsHuman: coverage.needsHuman } : null,
           pendingDecisions: pending.map((a) => ({ id: a.id, customer: a.customerName, amountInr: a.amountInr })),
           engineeringIncident: i.engineering ?? null,
+          onCall: i.paging
+            ? { status: i.paging.status, acknowledgedBy: i.paging.acknowledgedBy ?? null, attempts: i.paging.attempts.map((a) => ({ responder: a.responder, role: a.role, state: a.state })) }
+            : null,
         };
       },
     },
@@ -654,5 +659,73 @@ export function createTools(): Tool[] {
         return `${inr(amountInr)} credit issued to ${customerRef} (${creditId})`;
       },
     },
+    {
+      name: "page_on_call",
+      description:
+        "Phone the on-call engineer for an important incident and ask them to press 1 to acknowledge. Attempt 1 calls the primary responder; each later attempt escalates to the next one on the schedule.",
+      input: z.object({ incidentId: z.string().min(1), attempt: z.number().int().min(1) }),
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.telephony.adapter,
+      condition(args, ctx) {
+        const { incidentId, attempt } = args as { incidentId: string; attempt: number };
+        const incident = ctx.state().incidents[incidentId];
+        if (!incident) return `no incident ${incidentId}`;
+        if (!incident.importance?.page) return `${incidentId} is ${incident.importance?.level ?? "not assessed"}, below the level that pages on-call`;
+        const paging = incident.paging;
+        if (paging?.status === "acknowledged") return `already acknowledged by ${paging.acknowledgedBy}`;
+        const made = paging?.attempts.length ?? 0;
+        if (attempt !== made + 1) return attempt <= made ? `attempt ${attempt} was already made` : `attempt ${made + 1} comes first`;
+        if (paging?.attempts.at(-1)?.state === "calling") return `attempt ${made} is still in progress`;
+        const max = ctx.policy.oncall.maxEscalations + 1;
+        return attempt > max ? `no escalations left: ${max} ${max === 1 ? "responder was" : "responders were"} already paged` : null;
+      },
+      async run(args, ctx) {
+        const { incidentId, attempt } = args as { incidentId: string; attempt: number };
+        const incident = incidentOf(ctx, incidentId);
+        const service = ctx.ports.catalog.servicesFor(incident.surface)[0]?.name ?? incident.surface;
+        const responders = (await ctx.ports.oncall.whoIsOnCall(service)).filter((r) => r.phone);
+        const responder = responders[attempt - 1];
+        const attempts = incident.paging?.attempts ?? [];
+        if (!responder) {
+          const status = attempt === 1 ? "no_responder" : "exhausted";
+          const note = attempt === 1 ? `Nobody on call for ${service} has a phone number` : `Nobody left on call for ${service} to escalate to`;
+          ctx.emit({ type: "paging.updated", payload: { incidentId, paging: { status, attempts, note } } });
+          return { paged: false, reason: note };
+        }
+        const now = ctx.now();
+        const masked = `••••${responder.phone!.replace(/\D/g, "").slice(-4)}`;
+        const entry: PageAttempt = { attempt, responder: responder.name, role: responder.role, phone: masked, state: "calling", startedAt: now, updatedAt: now };
+        // Recorded before dialling, so the call's first updates always find their attempt.
+        ctx.emit({ type: "paging.updated", payload: { incidentId, paging: { status: "paging", attempts: [...attempts, entry] } } });
+        let callId: string;
+        try {
+          ({ callId } = await ctx.ports.telephony.call({
+            to: responder.phone!,
+            script: pageScript(incident),
+            purpose: "oncall",
+            gather: { prompt: "Press 1 to acknowledge this incident." },
+            metadata: { incidentId, attempt: String(attempt) },
+          }));
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          patchAttempt(ctx, incidentId, attempt, { state: "failed", reason });
+          throw error;
+        }
+        patchAttempt(ctx, incidentId, attempt, { callId });
+        return { callId, responder: responder.name, role: responder.role };
+      },
+      summarize: (r) => {
+        const res = r as { paged?: false; reason?: string; responder?: string; role?: string; callId?: string };
+        return res.paged === false ? `not paged: ${res.reason}` : `calling ${res.responder} (${res.role}), ${res.callId}`;
+      },
+    },
   ];
+}
+
+/** Changes one page attempt, leaving whatever else has happened to the paging since. */
+export function patchAttempt(ctx: Pick<ToolCtx, "state" | "emit" | "now">, incidentId: string, attempt: number, change: Partial<PageAttempt>, paging?: Partial<PagingView>): void {
+  const current = ctx.state().incidents[incidentId]?.paging;
+  if (!current) return;
+  const attempts = current.attempts.map((a) => (a.attempt === attempt ? { ...a, ...change, updatedAt: ctx.now() } : a));
+  ctx.emit({ type: "paging.updated", payload: { incidentId, paging: { ...current, ...paging, attempts } } });
 }

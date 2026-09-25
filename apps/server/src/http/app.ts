@@ -31,10 +31,16 @@ const FreshdeskWebhook = z.union([
   z.object({ freshdesk_webhook: z.object({ ticket_id: z.coerce.number().int().positive() }) }),
 ]);
 
+const AcknowledgeBody = z.object({ by: z.string().trim().min(1).max(60).optional() }).strict();
+
+/** A Freshservice workflow's webhook: the incident ticket's id, and who acknowledged. */
+const FreshserviceAck = z.object({ ticket_id: z.coerce.number().int().positive(), agent_name: z.string().trim().max(60).optional() });
+
+const ImportanceBody = z.object({ level: z.enum(["P1", "P2", "P3"]), note: z.string().trim().max(500).optional() }).strict();
+
 const TestCall = z.object({ to: z.string().trim().min(8).max(20) }).strict();
 
 const TEST_CALL_SCRIPT = "This is a test call from CrisisCrew. Your phone line is set up to receive incident calls.";
-const ImportanceBody = z.object({ level: z.enum(["P1", "P2", "P3"]), note: z.string().trim().max(500).optional() }).strict();
 
 function sameSecret(given: string, expected: string): boolean {
   const a = Buffer.from(given);
@@ -144,6 +150,46 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json({ accepted: true, ticketId }, 202);
   });
 
+  // An operator takes the page, so no one else is called.
+  app.post("/api/incidents/:id/page/acknowledge", admin, async (c) => {
+    const parsed = await body(c, AcknowledgeBody);
+    if (!parsed.ok) return parsed.response;
+    const id = c.req.param("id");
+    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
+    try {
+      await runtime.acknowledgePage(id, parsed.data.by ?? (c.req.header("x-operator-name")?.slice(0, 60) || "an operator"));
+      return c.json(runtime.state().incidents[id]!.paging);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
+    }
+  });
+
+  // Acknowledging in Freshservice: a workflow on the incident ticket posts its id here with the shared secret.
+  app.post("/api/webhooks/freshservice/acknowledge", async (c) => {
+    if (!config.freshserviceWebhookSecret) return c.json({ error: "Freshservice acknowledgements are off: set FRESHSERVICE_WEBHOOK_SECRET" }, 404);
+    if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshserviceWebhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
+    const parsed = await body(c, FreshserviceAck);
+    if (!parsed.ok) return parsed.response;
+    const incidentId = runtime.incidentForEngineering(parsed.data.ticket_id);
+    if (!incidentId) return c.json({ error: `no incident is filed as Freshservice ticket #${parsed.data.ticket_id}` }, 404);
+    try {
+      await runtime.acknowledgePage(incidentId, parsed.data.agent_name || "Freshservice");
+      return c.json({ incidentId, paging: runtime.state().incidents[incidentId]!.paging });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
+    }
+  });
+
+  // A human sets an incident's importance, up or down; the Commander's rules leave it alone from then on.
+  app.post("/api/incidents/:id/importance", admin, async (c) => {
+    const parsed = await body(c, ImportanceBody);
+    if (!parsed.ok) return parsed.response;
+    const id = c.req.param("id");
+    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
+    const by = c.req.header("x-operator-name")?.slice(0, 60) || "an operator";
+    return c.json(await runtime.setImportance(id, parsed.data.level, by, parsed.data.note || undefined));
+  });
+
   // Vobiz fetches what a call says and reports its progress here. Each callback is signed with the account's auth token.
   app.post("/api/webhooks/vobiz/:callId/:kind", async (c) => {
     const vobiz = runtime.vobiz;
@@ -181,16 +227,6 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   app.get("/api/calls/:id", (c) => {
     const call = runtime.state().calls[c.req.param("id")];
     return call ? c.json(call) : c.json({ error: `no call ${c.req.param("id")}` }, 404);
-  });
-
-  // A human sets an incident's importance, up or down; the Commander's rules leave it alone from then on.
-  app.post("/api/incidents/:id/importance", admin, async (c) => {
-    const parsed = await body(c, ImportanceBody);
-    if (!parsed.ok) return parsed.response;
-    const id = c.req.param("id");
-    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
-    const by = c.req.header("x-operator-name")?.slice(0, 60) || "an operator";
-    return c.json(await runtime.setImportance(id, parsed.data.level, by, parsed.data.note || undefined));
   });
 
   app.post("/api/approvals/:id", approver, async (c) => {

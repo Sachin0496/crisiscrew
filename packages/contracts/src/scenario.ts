@@ -26,6 +26,16 @@ export const ScenarioCustomer = z.object({
     .default({ voice: false, proactive: false }),
 });
 
+/** Someone on the on-call schedule, and what they do when paged in the sandbox. */
+export const ScenarioResponder = z.object({
+  name: z.string().min(1),
+  role: z.enum(["primary", "secondary", "tertiary"]),
+  phone: z.string().min(8),
+  email: z.string().optional(),
+  /** acknowledges: answers and presses 1; ignores: answers but doesn't press 1. */
+  answers: z.enum(["acknowledges", "ignores", "no_answer", "busy"]).default("acknowledges"),
+});
+
 export const ScenarioService = z.object({
   name: z.string().min(1),
   surfaces: z.array(Surface).min(1),
@@ -82,6 +92,8 @@ export const ScenarioExpected = z.object({
   /** The Incident Commander's importance once the scenario has played, and whether it pages on-call. */
   importance: z.enum(["P1", "P2", "P3"]).optional(),
   pages: z.boolean().optional(),
+  /** Who acknowledges the page, when one is expected. */
+  acknowledgedBy: z.string().optional(),
 });
 
 export const ScenarioSchema = z
@@ -97,6 +109,7 @@ export const ScenarioSchema = z
       providers: z.array(ScenarioProvider),
       customers: z.array(ScenarioCustomer),
       attempts: z.array(ScenarioAttempt),
+      oncall: z.array(ScenarioResponder).default([]),
       baselinePerHour: z.partialRecord(Surface, z.number().positive()).default({}),
     }),
     tickets: z.array(ScenarioTicket).min(1),
@@ -128,3 +141,4 @@ export type ScenarioDeployment = z.infer<typeof ScenarioDeployment>;
 export type ScenarioProvider = z.infer<typeof ScenarioProvider>;
 export type ScenarioAttempt = z.infer<typeof ScenarioAttempt>;
 export type ScenarioService = z.infer<typeof ScenarioService>;
+export type ScenarioResponder = z.infer<typeof ScenarioResponder>;

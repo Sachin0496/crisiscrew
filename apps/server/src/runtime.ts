@@ -18,6 +18,7 @@ import {
   type Embedder,
   type CallRequest,
   type IncidentsPort,
+  type OnCallPort,
   type Ports,
 } from "@crisiscrew/core";
 import { scenarioTickets } from "./scenarios";
@@ -30,6 +31,8 @@ export type LiveAdapters = {
   incidents?: IncidentsPort;
   /** TELEPHONY=vobiz: places real phone calls. */
   telephony?: VobizTelephony;
+  /** ONCALL=freshservice: who's on call, from Freshservice on-call schedules. */
+  oncall?: OnCallPort;
 };
 
 export type RuntimeOptions = {
@@ -154,6 +157,10 @@ export class Runtime {
     return ingested;
   }
 
+  setImportance(incidentId: string, level: ImportanceLevel, by: string, note?: string): Promise<ImportanceAssessment> {
+    return this.current().setImportance(incidentId, level, by, note);
+  }
+
   /** The live Vobiz adapter, for its callbacks; null when calls are simulated. */
   get vobiz(): VobizTelephony | null {
     return this.options.live?.telephony ?? null;
@@ -164,8 +171,15 @@ export class Runtime {
     return this.currentPorts().telephony.call(request);
   }
 
-  setImportance(incidentId: string, level: ImportanceLevel, by: string, note?: string): Promise<ImportanceAssessment> {
-    return this.current().setImportance(incidentId, level, by, note);
+  acknowledgePage(incidentId: string, by: string): Promise<void> {
+    return this.current().acknowledgePage(incidentId, by);
+  }
+
+  /** The incident whose engineering record is this Freshservice ticket ("#314" or 314). */
+  incidentForEngineering(recordId: string | number): string | null {
+    const id = `#${String(recordId).replace(/^#/, "")}`;
+    const state = this.state();
+    return state.incidentOrder.find((i) => state.incidents[i]?.engineering?.id === id) ?? null;
   }
 
   decide(approvalId: string, body: DecisionBody, by: string): Promise<Approval> {
@@ -231,6 +245,7 @@ export class Runtime {
       ...(live?.freshdesk ? { ticketActions: freshdeskTicketActions(live.freshdesk.writer, sandbox.ticketActions) } : {}),
       ...(live?.incidents ? { incidents: live.incidents } : {}),
       ...(live?.telephony ? { telephony: live.telephony } : {}),
+      ...(live?.oncall ? { oncall: live.oncall } : {}),
     };
   }
 

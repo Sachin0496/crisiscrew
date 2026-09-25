@@ -88,6 +88,12 @@ export const PolicySchema = z.object({
     /** Page the on-call engineer at this level or above. */
     pageAt: ImportanceLevelSchema,
   }),
+  oncall: z.object({
+    /** After a page call ends unacknowledged, wait this long (for an acknowledgement another way) before paging the next responder. */
+    ackTimeoutMin: z.number().nonnegative(),
+    /** How many responders after the first may be paged for one incident. */
+    maxEscalations: z.number().int().min(0).max(5),
+  }),
   recovery: z.object({
     /** Without a cause's start time, the incident window opens this long before the first complaint. */
     affectedLookbackMin: z.number().positive(),

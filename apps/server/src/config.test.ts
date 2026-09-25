@@ -14,6 +14,7 @@ describe("loadConfig", () => {
       orders: "sandbox",
       voice: "off",
       telephony: "sandbox",
+      oncall: "sandbox",
       llm: "template",
       embeddings: "local",
       credits: "sandbox",
@@ -57,6 +58,20 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...keys, VOBIZ_FROM_NUMBER: "reception" })).toThrow(/E\.164/);
   });
 
+  it("reads Freshservice on-call schedules, per service or by default, and names what's missing", () => {
+    const keys = { ONCALL: "freshservice", FRESHSERVICE_DOMAIN: "acme", FRESHSERVICE_API_KEY: "fs", FRESHSERVICE_ONCALL_SCHEDULE_ID: "8569" };
+    expect(loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULES: "checkout-service=8570, auth-service=8571" }).oncall).toEqual({
+      domain: "acme.freshservice.com",
+      apiKey: "fs",
+      defaultScheduleId: 8569,
+      schedules: { "checkout-service": 8570, "auth-service": 8571 },
+    });
+    expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "live", adapter: "freshservice" });
+    expect(() => loadConfig({ ONCALL: "freshservice", FRESHSERVICE_DOMAIN: "acme" })).toThrow("ONCALL=freshservice needs FRESHSERVICE_API_KEY, FRESHSERVICE_ONCALL_SCHEDULE_ID; see .env.example");
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULE_ID: "weekly" })).toThrow(/schedule id/);
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULES: "checkout-service" })).toThrow(/service=scheduleId/);
+  });
+
   it("refuses to start with a live adapter that isn't wired yet, naming it", () => {
     expect(() => loadConfig({ DEPLOYMENTS: "github" })).toThrow(ConfigError);
     expect(() => loadConfig({ DEPLOYMENTS: "github" })).toThrow(/DEPLOYMENTS=github.*not wired yet/);
@@ -86,7 +101,8 @@ describe("wiringReport", () => {
     const report = wiringReport(loadConfig({}));
     // Only the local embedding model is live: it is real computation on this machine, not simulated data.
     expect(report.liveCount).toBe(1);
-    expect(report.ports).toHaveLength(12);
+    expect(report.ports).toHaveLength(13);
+    expect(report.ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "sandbox", available: ["freshservice"], env: "ONCALL" });
     expect(report.ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "sandbox", available: ["vobiz"], planned: [], env: "TELEPHONY" });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });
     expect(report.ports.find((p) => p.port === "incidents")).toMatchObject({ mode: "sandbox", available: ["freshservice"], planned: [] });
