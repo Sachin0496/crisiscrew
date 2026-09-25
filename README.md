@@ -18,15 +18,20 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 > **Status: it runs fully offline, in sandbox mode, and the Freshworks adapters are wired.**
 > - **Real and running:**
 >   - the detection engine, the Customer Impact Graph, the recovery policy and Recovery Coverage;
->   - the five agents, the policy gate and the audit log;
+>   - the five agents, orchestrated as **LangGraph** workflows, with the policy gate and the audit log;
+>   - **traces** of every workflow run, node and tool call on the Traces page, with the first problem pinpointed;
+>   - **guardrails:** a prompt-injection guard on tickets and tool outputs, an output guard on customer messages, strict schemas, rate limits and an egress allow-list;
 >   - the MCP server and the UI.
 >
 >   Every number on screen is computed from ticket text and data.
 > - **Sandbox:** the world the agents act on (releases, gateway status, error rates, customers, consent and payment attempts) comes from replayable scenarios.
+> - **Wired and run against the real thing:** **Laya**, the ticket classifier (`CLASSIFIER=laya`), against a local `laya-serve`.
 > - **Wired, not yet run against a real account:**
 >   - Freshdesk: webhook or poll ingest, and private notes and replies through REST or Freshdesk's MCP server;
 >   - Freshservice: engineering incidents;
->   - the Freshdesk ticket-sidebar app.
+>   - the Freshdesk ticket-sidebar app;
+>   - **LangSmith** (`TRACING=langsmith`): exercised with the LangSmith SDK against a local recorder; it needs a key to reach a real project;
+>   - **Lakera Guard** (`PROMPT_GUARD=lakera`): tested against a fake.
 >
 >   They switch on with keys in `.env`, and each is tested against a fake of its API. The team runs them against a trial account at the event.
 > - **Designed, not wired:** GitHub deployments, Razorpay status, ElevenLabs, Claude and the sponsor APIs.
@@ -70,8 +75,12 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
 | `pnpm start` | Builds the UI and starts the server on port 8787: the UI, the API, the event stream, MCP and the Freshdesk webhook |
 | `pnpm dev` | The server and the Vite dev server, both reloading on change, for UI work |
 | `pnpm replay <scenario>` | Replays a scenario in the terminal and prints what each agent does. Add `--decide approve`, `reject` or `modify:500` to settle every approval |
-| `pnpm eval` | Runs the evaluation and rewrites [docs/eval.md](docs/eval.md) |
-| `pnpm test` | 256 tests with Vitest. They never load the model or call an external API |
+| `pnpm eval` | Detection, linking and root cause; rewrites [docs/eval.md](docs/eval.md) |
+| `pnpm eval:safety` | The prompt guard's precision and recall, and the engine under attack; rewrites [docs/eval-safety.md](docs/eval-safety.md) |
+| `pnpm eval:impact` | Affected-customer and silent-customer precision and recall, and credits; rewrites [docs/eval-impact.md](docs/eval-impact.md) |
+| `pnpm eval:classifier` | The built-in classifier against Laya (when `pnpm laya` is running); rewrites [docs/eval-classifier.md](docs/eval-classifier.md) |
+| `pnpm laya` | Runs Laya on this machine at http://localhost:8000, for `CLASSIFIER=laya` |
+| `pnpm test` | 310 tests with Vitest. They never load the model or call an external API |
 | `pnpm typecheck` | Strict TypeScript across the workspace |
 | `pnpm calibrate <model>` | The model comparison behind [docs/calibration.md](docs/calibration.md) |
 | `pnpm embeddings:warm` | Embeds every scenario, prototype and eval sentence into the committed cache |
@@ -245,18 +254,18 @@ Six hand-written worlds in [`scenarios/`](scenarios/). Half of them test restrai
 The web UI is a production-style console, light by default with a dark mode. A sidebar leads to five pages:
 - **Incident:**
   - the header, a progress stepper that ends at *Recovered*, and four numbers: customers harmed, recovery coverage, root cause and recovery spend;
-  - the main column, customer impact first: the silent-customer callout and a row per customer, then recovery coverage, root cause and detection;
-  - the side column: the per-customer decisions, tickets, the timeline and agent activity.
+  - the main column, customer impact first: the silent-customer callout and a row per customer, then the root cause and, folded, how it was detected;
+  - the side column, what needs a person: the per-customer decisions, recovery, and incoming tickets.
 - **Customers:** the Customer Impact Graph, filterable by complained, silent, needs a human and not verified, with each customer's evidence chain, their recovery plan and the decision controls.
 - **Tickets:** every ticket, tagged as a failure report or a question, with where its customer stands.
-- **Agents:** what each agent is doing, and every tool call with the adapter that served it.
-- **Governance:** the hash-chained audit log and the permissions table.
+- **Traces:** every agent workflow as a LangGraph map, every run as a step-by-step trace, and the first problem of any run pinpointed. See [docs/observability.md](docs/observability.md).
+- **Governance:** the guardrails (what the prompt guard flagged and why, refused calls, write access), the hash-chained audit log and the permissions table.
 
 | Restraint: similar words, but not an incident | Tickets and customer impact |
 |---|---|
 | ![The look-alike burst is refused: 4 of 5 are questions, not failures](docs/screenshots/restraint.png) | ![Every ticket with its product area, type, incident and the customer's recovery state](docs/screenshots/tickets.png) |
-| **Governance** | |
-| ![The audit log, chain verified, and the permissions generated from policy](docs/screenshots/governance.png) | |
+| **Governance** | **Traces: where it went wrong** |
+| ![The audit log, chain verified, and the permissions generated from policy](docs/screenshots/governance.png) | ![The ticket workflow's LangGraph map with the prompt-guard step ringed amber, and the trace opened at the flagged step](docs/screenshots/traces.png) |
 
 ## How it works
 
@@ -277,6 +286,15 @@ flowchart LR
   PA & IC & G -. events .-> UI[Web UI over SSE]
   A -. notes and replies .-> FD
 ```
+
+**Agents as LangGraph workflows:** the incident lifecycle runs as five compiled LangGraph graphs:
+- ticket intake;
+- incident response, with the investigation, the impact assessment and the engineering filing in parallel;
+- the recovery pass;
+- a late complaint;
+- a human decision.
+
+Every run is traced span by span: graph → node → policy-gate call, guard check or classifier call. It shows on the Traces page, and in LangSmith with a key. See [docs/observability.md](docs/observability.md).
 
 **One process:** `apps/server` holds the engine. It serves the JSON API, the event stream (SSE), the MCP endpoint, the Freshdesk webhook and the built UI. So MCP calls, Freshdesk tickets, typed tickets and approvals all act on the same incident.
 
@@ -411,6 +429,9 @@ The `POST` routes need `ADMIN_TOKEN`, or `APPROVER_TOKEN` for approvals, when th
 | LLM | off: fixed templates | Claude for narratives and drafts (designed, not wired). It would never compute the numbers | `ANTHROPIC_*` |
 | Credits | sandbox: an in-memory ledger | Dodo Payments test mode (designed, not wired) | `DODO_PAYMENTS_*` |
 | Translation | off | Sarvam, for Hindi and Hinglish tickets (designed, not wired) | `SARVAM_API_KEY` |
+| Ticket classifier | **live**: built in, against the embedding prototypes | `CLASSIFIER=laya`: **wired, and run against a local Laya server** | `LAYA_*` |
+| Prompt guard | **live**: built-in rules | `PROMPT_GUARD=lakera`: Lakera Guard layered over the rules. **Wired; tested against a fake** | `LAKERA_*` |
+| Tracing | **live**: the Traces page | `TRACING=langsmith`: **wired; exercised with the LangSmith SDK against a local recorder** | `LANGSMITH_*` |
 
 Selecting an adapter that isn't wired, or a wired one without its keys, stops the server at startup with a clear message:
 
@@ -430,11 +451,26 @@ The full reports are [docs/calibration.md](docs/calibration.md) and [docs/eval.m
 | Median detection | at the 4th complaint, 55 seconds after the first |
 | Root cause correct | 100% of caught incidents |
 
+**Safety** ([docs/eval-safety.md](docs/eval-safety.md)):
+- 44 prompt-injection attacks went through the hero incident, and 51 direct attacks hit the gate. The result: **0** unauthorized tool executions, **0** wrong-customer credits, **0** policy bypasses, **0** successful injections and **0** duplicate payments.
+- The guard caught 98% of the attacks (95% on the held-out half), with no false alarms on 221 genuine tickets.
+
+**Impact** ([docs/eval-impact.md](docs/eval-impact.md)):
+- 30 generated worlds with distractors: failures before the release, successful payments only, and walk-ins with no payment on record.
+- Affected-customer precision, recall and **silent-customer recall are all 100%**, and every harmed customer got exactly the policy's credit.
+
+**Classifier** ([docs/eval-classifier.md](docs/eval-classifier.md)):
+- Zero-shot Laya scores a failure F1 of 0.95; the built-in classifier, tuned on similar sentences, scores 0.99.
+- With Laya above its thresholds and the built-in classifier as the fallback, detection stays at 100%.
+
 The known weak spot is several *different* delivery problems arriving within ten minutes: an incident opens in 10 of 20 stress runs. The data is hand-written and synthetic, and the reports say so. The recovery numbers (who is harmed, coverage, spend) come from the scenarios' worlds and are checked by the lifecycle tests.
 
 ## Tests
 
-256 tests with Vitest run on every push in CI (GitHub Actions: install, typecheck, test, build). None loads the embedding model or calls an external API. They cover:
+310 tests with Vitest run on every push in CI (GitHub Actions: install, typecheck, test, build). None loads the embedding model or calls an external API. They cover:
+- the LangGraph workflows and their traces: span nesting, first problems, redaction, the graphs' structure, and refused MCP calls as traces;
+- the security scenarios from issue #3, the prompt guard on every attack and every genuine ticket, the output guard, strict schemas, rate limits and the egress allow-list;
+- Laya and Lakera against fakes of their APIs, and the LangSmith exporter's run trees;
 - the maths, each detection gate, and root-cause scoring;
 - the impact assessment (confirmed, not verified, paid on retry, severity, every evidence edge), the recovery planner (every rule, budget escalation), and coverage and its metrics;
 - every agent × tool permission, per-customer credit authority, exact approved amounts, and audit-chain tampering;
@@ -466,15 +502,16 @@ It was built before the event, as the organizers allowed by email: they told fin
 crisiscrew/
 ├── packages/
 │   ├── contracts/   zod schemas and types shared by server and UI; the event reducer; coverage, metrics and the impact graph
-│   ├── core/        the engine, with no I/O: correlation, agents, root cause, impact assessment, recovery planning, policy gate, audit
-│   └── adapters/    sandbox ports, the Freshdesk and Freshservice adapters, and the embedders (local model, cache, hash)
+│   ├── core/        the engine, with no I/O: LangGraph workflows, tracing, guards, correlation, agents, root cause, impact, recovery, policy gate, audit
+│   └── adapters/    sandbox ports, Freshdesk and Freshservice, Laya, Lakera, the LangSmith exporter, the egress allow-list, and the embedders
 ├── apps/
 │   ├── server/      the one process: Hono API, SSE, MCP, Freshdesk webhook, runtime, replay CLI, eval
 │   └── web/         React console, driven by the event stream
 ├── integrations/
 │   └── freshdesk-sidebar/  the Freshdesk ticket-sidebar app (Freshworks platform 3.0)
 ├── config/policy.json   levels, allow-lists, limits, thresholds, priors, recovery policy: data, not code
-├── scenarios/       six scenarios, the eval's paraphrase pools, the committed embedding cache
+├── scenarios/       six scenarios, the eval's paraphrase pools, the security corpus, the committed embedding cache
+├── scripts/laya.sh  runs Laya locally (pnpm laya)
 ├── prototype/       the Stage 1 page, archived unchanged
 └── docs/            design, the pivot's design, calibration, eval, compliance, demo script and more
 ```
@@ -483,6 +520,10 @@ crisiscrew/
 
 | Document | What's in it |
 |---|---|
+| [pitch.md](docs/pitch.md) | The business case: the problem in numbers, the gap, the market and competitors, the moat, the model, and the pitch |
+| [observability.md](docs/observability.md) | The LangGraph workflows, what a trace records, the Traces page, LangSmith, and finding where a run went wrong |
+| [guardrails.md](docs/guardrails.md) | Laya and the classifiers, the prompt-injection guard, every production guardrail with its test, and the security scenarios |
+| [eval-safety.md](docs/eval-safety.md), [eval-impact.md](docs/eval-impact.md), [eval-classifier.md](docs/eval-classifier.md) | The safety, impact and classifier evaluations |
 | [customer-harm-response.md](docs/customer-harm-response.md) | The pivot: the Customer Impact Graph, the recovery policy, Recovery Coverage, and the Freshworks workflow |
 | [design.md](docs/design.md) | The Stage 2 spec: architecture, detection and root-cause formulas, interfaces, risks |
 | [calibration.md](docs/calibration.md) | How the model and the hybrid similarity were chosen |

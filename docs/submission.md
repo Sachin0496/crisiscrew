@@ -55,9 +55,27 @@ CrisisCrew is a **customer harm response** layer for Freshworks. Incident tools 
   - Freshservice incidents;
   - a Freshdesk ticket-sidebar app (platform 3.0).
 - **MCP:** CrisisCrew's own MCP server at `/mcp`. Each bearer token is one identity and sees only its own tools. A read-only operator can call `get_customer_impact` and `get_recovery_coverage`, so an Agent Studio agent sees the same incident customer by customer.
+- **Agent workflows (LangGraph):**
+  - The lifecycle runs as five compiled LangGraph graphs: ticket intake; incident response, with the investigation, the impact assessment and the engineering filing in parallel; the recovery pass; a late complaint; a human decision.
+  - The graphs decide the order. The agents' steps do the work, and every action still goes through the gate.
+- **Traces (LangSmith):**
+  - Every workflow run is recorded span by span: graph → node → gate call, guard check or classifier call. Inputs and outputs are redacted.
+  - The Traces page draws each workflow, marks the path a run took, and opens at the first refused, flagged or failed step.
+  - With a key, the same run trees go to LangSmith, one thread per incident.
+- **Guardrails:**
+  - A prompt-injection guard screens tickets and the text in tool outputs; Lakera Guard can be layered over it.
+  - An output guard checks every customer message: no unapproved amount, no link, nobody else's details.
+  - Tool calls with unknown fields are refused, and request bodies are strict.
+  - An exposed server won't start without tokens.
+  - There are rate limits, and an egress allow-list for model and tracing calls.
+- **Classifier (Laya):** a non-generative decision model labels each ticket (failure, question or request, and its product area) with probabilities. It's used above the policy's thresholds, with the built-in classifier as the fallback. It was run against a real local `laya-serve`.
 - **UI:** a production-style console driven by a live event stream. It has five pages (incident, customers, tickets, agents, governance), with evidence chains and per-customer decisions, in light and dark themes.
 - **Evaluation:** 60 seeded runs over six kinds, with the paraphrase pools split so that no tuning sentence appears in the test. On the held-out split: incident precision and recall 100% (15 of 15), linking 100% and 99%, median detection at the 4th complaint, and the root cause correct every time. A stress test of mixed delivery complaints opens an incident in 10 of 20 runs, and we report that as a limit.
-- **Testing:** 256 tests and CI on every push. The Freshdesk, Freshservice and Freshdesk-MCP adapters are tested against fakes of their APIs.
+- **Safety and impact evals:**
+  - 44 prompt-injection attacks went through the hero incident, and 51 direct attacks hit the gate. The result: 0 unauthorized actions, 0 wrong-customer credits, 0 policy bypasses, 0 successful injections and 0 duplicate payments.
+  - The guard's recall is 98%, with no false alarms on 221 genuine tickets.
+  - Across 30 generated worlds with distractors, affected-customer precision and recall and silent-customer recall are all 100%.
+- **Testing:** 310 tests and CI on every push. The Freshdesk, Freshservice, Freshdesk-MCP, Laya and Lakera adapters are tested against fakes of their APIs, and the LangSmith exporter against a fake client.
 
 ## How it evolved
 
@@ -77,6 +95,8 @@ CrisisCrew is a **customer harm response** layer for Freshworks. Incident tools 
 - **Real:** the engine, the Customer Impact Graph, the recovery policy, the agents, the gate, the audit log, MCP and the UI.
 - **Sandbox:** the world they act on: customers, consent, payment attempts, releases, gateway status and error rates.
 - **Wired, not yet run against a live account:** Freshdesk, Freshservice and the sidebar app. We switch them on with a trial account at the event.
+- **Wired and run against the real thing:** Laya (a local `laya-serve`).
+- **Wired, tested with the SDK against a local recorder, not yet a real project:** LangSmith. It needs a key.
 - **Designed, not wired:** GitHub deployments, Razorpay status, ElevenLabs voice, Claude, and the sponsor APIs.
 
 The environment box in the UI's sidebar says exactly which parts are live.
@@ -107,7 +127,7 @@ A good incident response isn't measured when the alert fires. It's measured when
 
 ## Built With
 
-`typescript` · `node.js` · `react` · `vite` · `hono` · `zod` · `model-context-protocol` · `transformers.js` · `vitest` · `multi-agent-systems` · `agentic-ai`
+`typescript` · `node.js` · `react` · `vite` · `hono` · `zod` · `langgraph` · `langsmith` · `laya` · `model-context-protocol` · `transformers.js` · `vitest` · `multi-agent-systems` · `agentic-ai`
 
 - Remove `fastapi`, `python` and `tailwindcss`: none of them is used anywhere in the project.
 - Add `freshdesk` and `freshservice` **only if** they were switched on and shown working at the event.

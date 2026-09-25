@@ -6,7 +6,7 @@
  *   pnpm eval
  */
 import { CachedEmbedder, createSandboxPorts } from "@crisiscrew/adapters";
-import type { CorrelationConfig, Policy, Ticket } from "@crisiscrew/contracts";
+import type { CorrelationConfig, Policy } from "@crisiscrew/contracts";
 import { CrisisEngine, EventBus, ManualClock, PatternEngine } from "@crisiscrew/core";
 import { writeFileSync } from "node:fs";
 import { DEFAULT_EMBEDDING_MODEL } from "../config";
@@ -14,7 +14,7 @@ import { loadPools } from "../corpus";
 import { EMBEDDING_CACHE_DIR, EVAL_DOC } from "../paths";
 import { loadPolicy, scenarioTickets } from "../scenarios";
 import { generateRuns, generateStressRuns, RUN_KINDS, type EvalRun, type RunKind } from "./generate";
-import { score, type Outcome, type Score } from "./metrics";
+import { score, toOutcome, type Opened, type Outcome, type Score } from "./metrics";
 
 const T0 = Date.UTC(2026, 8, 25, 14, 0, 0);
 const THRESHOLDS = [0.45, 0.5, 0.55, 0.6, 0.65, 0.7];
@@ -22,30 +22,6 @@ const RUN_COUNT = 60;
 const STRESS_COUNT = 20;
 
 const embedder = new CachedEmbedder({ modelId: DEFAULT_EMBEDDING_MODEL, dir: EMBEDDING_CACHE_DIR, inner: null });
-
-type Opened = { members: Set<string>; openedAt: number; rootCorrect?: boolean };
-
-function toOutcome(run: EvalRun, tickets: Ticket[], labeledIds: Set<string>, opened: Opened[]): Outcome {
-  const overlap = (o: Opened) => [...o.members].filter((id) => labeledIds.has(id)).length;
-  const best = [...opened].sort((a, b) => overlap(b) - overlap(a))[0];
-  const labeledTimes = tickets.filter((t) => labeledIds.has(t.id)).map((t) => t.receivedAt);
-  return {
-    kind: run.kind,
-    expectedIncident: run.scenario.expected.incident,
-    fired: Boolean(best),
-    linkedLabeled: best ? overlap(best) : 0,
-    linkedTotal: best ? best.members.size : 0,
-    labeledTotal: labeledIds.size,
-    ...(best && labeledTimes.length
-      ? {
-          latencyTickets: labeledTimes.filter((at) => at <= best.openedAt).length,
-          latencySec: (best.openedAt - Math.min(...labeledTimes)) / 1000,
-        }
-      : {}),
-    ...(best?.rootCorrect !== undefined ? { rootCorrect: best.rootCorrect } : {}),
-    extraIncidents: Math.max(0, opened.length - 1),
-  };
-}
 
 /** Detection only (the Pattern Agent), for sweeping thresholds quickly. */
 async function detect(run: EvalRun, cfg: CorrelationConfig): Promise<Outcome> {
