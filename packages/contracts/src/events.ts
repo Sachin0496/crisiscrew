@@ -1,3 +1,4 @@
+import type { AlertView } from "./alerts";
 import type {
   AgentId,
   AgentStatus,
@@ -60,6 +61,12 @@ export type CrisisEvent =
   | E<"approval.decided", { approval: Approval }>
   | E<"credit.issued", { incidentId: string; customerRef: string; amountInr: number; approvalId?: string; adapter: string; creditId: string }>
   | E<"engineering.recorded", { incidentId: string; record: EngineeringRecord }>
+  /** The incident was raised as an alert in Freshservice Alert Management. */
+  | E<"alert.raised", { incidentId: string; severity: string; message: string; adapter: string }>
+  /** An alert arrived from a monitoring tool on CrisisCrew's inbound webhook. */
+  | E<"alert.received", { alert: AlertView }>
+  /** The incident's alert was resolved because every affected customer recovered. */
+  | E<"alert.resolved", { incidentId: string; adapter: string }>
   | E<"replay.finished", { scenarioId: string }>;
 
 export type CrisisEventType = CrisisEvent["type"];

@@ -1,3 +1,4 @@
+import type { AlertView } from "./alerts";
 import type {
   AgentId,
   AgentView,
@@ -36,8 +37,13 @@ export type CrisisState = {
   toolCalls: AuditEntry[];
   approvals: Record<string, Approval>;
   credits: CreditRecord[];
+  /** Alerts that arrived from monitoring tools, newest first; capped so a long session stays small. */
+  alerts: AlertView[];
   replayFinished: boolean;
 };
+
+/** How many inbound alerts the state keeps for the console. */
+export const ALERT_FEED_CAP = 100;
 
 const DEFAULT_AGENTS: Record<AgentId, AgentView> = {
   pattern: { id: "pattern", name: "Pattern Agent", level: 0, status: "idle" },
@@ -60,6 +66,7 @@ export function initialState(): CrisisState {
     toolCalls: [],
     approvals: {},
     credits: [],
+    alerts: [],
     replayFinished: false,
   };
 }
@@ -212,6 +219,24 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
       const { incidentId, record } = event.payload;
       return updateIncident(state, incidentId, (incident) => ({ ...incident, engineering: record }));
     }
+
+    case "alert.received": {
+      // A resolved notification closes the matching open alert, the way Freshservice does.
+      const { alert } = event.payload;
+      const closed =
+        alert.severity === "ok"
+          ? state.alerts.map((a) => (a.resource === alert.resource && a.severity !== "ok" ? { ...a, severity: "ok" as const } : a))
+          : state.alerts;
+      // Only the most recent notification per alert is kept, as Freshservice shows it.
+      const rest = closed.filter((a) => a.id !== alert.id);
+      return { ...state, alerts: [alert, ...rest].slice(0, ALERT_FEED_CAP) };
+    }
+
+    // alert.raised and alert.resolved only narrate the push to Alert Management;
+    // the feed holds what came in, so neither changes the state.
+    case "alert.raised":
+    case "alert.resolved":
+      return state;
 
     case "replay.finished":
       return { ...state, replayFinished: true };

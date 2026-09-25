@@ -1,4 +1,4 @@
-import { parseOffset, type Customer, type Scenario, type Ticket } from "@crisiscrew/contracts";
+import { parseOffset, type AlertView, type Customer, type Scenario, type Ticket } from "@crisiscrew/contracts";
 import {
   hashSeed,
   mulberry32,
@@ -29,6 +29,8 @@ export type SandboxRecord = {
   accountNotes: { id: string; customerRef: string; text: string }[];
   credits: { id: string; customerRefs: string[]; amountInr: number; reference: string }[];
   incidents: { id: string; incidentId: string; title: string; description: string; notes: string[] }[];
+  /** Alerts pushed out to a monitoring tool's integration endpoint. */
+  alerts: { resource: string; severity: string; message: string; description?: string; additional_info?: Record<string, string> }[];
 };
 
 /**
@@ -41,7 +43,7 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
   const world = scenario.world;
   const pause = () => (latencyMs > 0 ? clock.sleep(latencyMs) : Promise.resolve());
   const at = (offset: string) => t0 + parseOffset(offset);
-  const record: SandboxRecord = { notes: [], replies: [], proactive: [], accountNotes: [], credits: [], incidents: [] };
+  const record: SandboxRecord = { notes: [], replies: [], proactive: [], accountNotes: [], credits: [], incidents: [], alerts: [] };
 
   const deployments = world.deployments
     .map((d) => ({ ...d, atMs: at(d.at) }))
@@ -191,6 +193,49 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
         const found = record.incidents.find((i) => i.id === recordId);
         if (!found) throw new Error(`no engineering incident ${recordId}`);
         found.notes.push(text);
+      },
+    },
+
+    /**
+     * The monitoring tool's view of the same world: a service whose live
+     * release is faulty raises a critical alert, exactly as a real monitoring
+     * tool would after the same deploy. This is what the investigator reads.
+     */
+    alerts: {
+      ...SANDBOX,
+      async active(sinceMs, options): Promise<AlertView[]> {
+        await pause();
+        const now = clock.now();
+        if (sinceMs > now) return [];
+        const fired = deployments.filter((d) => d.atMs >= sinceMs && d.atMs <= now && d.faulty);
+        const stillFaulty = deployments.filter((d) => d.atMs <= now).at(-1);
+        const out: AlertView[] = [];
+        for (const d of fired) {
+          const info = world.services.find((s) => s.name === d.service);
+          const rate = info?.faultyErrorRate ?? 0;
+          const open = stillFaulty?.service !== d.service || stillFaulty.faulty;
+          if (!open && !options?.includeResolved) continue;
+          out.push({
+            id: `AMS-${d.service}-${d.sha.slice(0, 7)}`,
+            source: "sandbox",
+            severity: open ? "critical" : "ok",
+            resource: d.service,
+            hostname: d.service,
+            metric: "error_rate",
+            message: open
+              ? `${d.service} error rate ${(rate * 100).toFixed(2)}% after ${d.version}`
+              : `${d.service} recovered`,
+            description: `${d.service} ${d.version} (${d.sha.slice(0, 7)} by ${d.author}) deployed ${new Date(d.atMs).toISOString()}: ${d.message}`,
+            at: d.atMs,
+            attributes: { service: d.service, version: d.version, error_rate: String(rate), environment: d.environment },
+          });
+        }
+        return out;
+      },
+      async push(alert) {
+        await pause();
+        record.alerts.push({ ...alert });
+        return { ok: true };
       },
     },
 

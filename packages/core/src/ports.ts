@@ -1,4 +1,4 @@
-import type { Customer, PaymentMethod, Ticket } from "@crisiscrew/contracts";
+import type { AlertView, Customer, PaymentMethod, Ticket } from "@crisiscrew/contracts";
 
 /**
  * Ports: the only way core reaches the outside world. Sandbox adapters
@@ -57,6 +57,29 @@ export interface MetricsPort extends AdapterMode {
   errorRates(service: string, fromMs: number, toMs: number): Promise<ErrorRatePoint[]>;
 }
 
+/**
+ * Freshservice Alert Management, and the monitoring tools behind it. The
+ * investigator reads live alerts as operational evidence; the incident
+ * commander pushes the incident back out so ITOps sees the customer harm.
+ */
+export interface AlertsPort extends AdapterMode {
+  /** Alerts raised since `sinceMs`; open alerts only unless resolved ones are asked for too. */
+  active(sinceMs: number, options?: { includeResolved?: boolean }): Promise<AlertView[]>;
+  /**
+   * Sends one alert to the monitoring tool's integration endpoint. Answers with
+   * a reason instead of throwing when the push fails: a monitoring outage must
+   * not take the incident response down with it.
+   */
+  push(alert: {
+    hostname: string;
+    resource: string;
+    severity: "critical" | "warning" | "ok";
+    message: string;
+    description?: string;
+    additional_info?: Record<string, string>;
+  }): Promise<{ ok: boolean; reason?: string }>;
+}
+
 export interface OrdersPort extends AdapterMode {
   attemptsSince(sinceMs: number): Promise<PaymentAttempt[]>;
   customer(ref: string): Promise<Customer | null>;
@@ -102,6 +125,7 @@ export type Ports = {
   deployments: DeploymentsPort;
   payments: PaymentsPort;
   metrics: MetricsPort;
+  alerts: AlertsPort;
   orders: OrdersPort;
   ticketActions: TicketActionsPort;
   notifier: NotifierPort;

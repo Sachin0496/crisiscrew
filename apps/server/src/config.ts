@@ -1,4 +1,4 @@
-import { normalizeDomain } from "@crisiscrew/adapters";
+import { integrationIdOf, normalizeDomain, redactEndpoint } from "@crisiscrew/adapters";
 import type { Identity, PortMode, PortName, WiringReport } from "@crisiscrew/contracts";
 import { randomBytes } from "node:crypto";
 import { MODELS_DIR } from "./paths";
@@ -50,6 +50,16 @@ const PORTS: Record<PortName, PortSpec> = {
   deployments: { env: "DEPLOYMENTS", options: ["sandbox", "github"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's release history" },
   payments: { env: "PAYMENTS", options: ["sandbox", "razorpay-status"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's gateway status" },
   metrics: { env: "METRICS", options: ["sandbox"], wired: ["sandbox"], mode: sandboxMode, detail: () => "Error rates simulated from the scenario's releases" },
+  alerts: {
+    env: "ALERTS",
+    options: ["sandbox", "freshservice-ams"],
+    wired: ["sandbox", "freshservice-ams"],
+    mode: (v) => (v === "freshservice-ams" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "freshservice-ams" && c.alerts
+        ? `Freshservice Alert Management (integration ${c.alerts.integrationId ?? "?"}): incidents are pushed to ${c.alerts.redactedEndpoint}; alerts post in on ${c.alerts.webhookPath}`
+        : "Alerts simulated from the scenario's releases",
+  },
   orders: { env: "ORDERS", options: ["sandbox"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's customers and payment attempts" },
   voice: { env: "VOICE", options: ["off", "elevenlabs"], wired: ["off"], mode: () => "off", detail: () => "Voice scripts are prepared; no audio is generated" },
   llm: { env: "LLM", options: ["template", "anthropic"], wired: ["template"], mode: () => "off", detail: () => "Fixed templates; no language model is called" },
@@ -77,6 +87,18 @@ export type FreshdeskConfig = {
 
 export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null };
 
+/** Freshservice Alert Management: the integration endpoint CrisisCrew pushes to, and the secrets guarding its inbound webhook. */
+export type AlertsConfig = {
+  endpoint: string;
+  /** The endpoint with its auth-key masked, for logs and the wiring report. */
+  redactedEndpoint: string;
+  integrationId: string | null;
+  /** The path monitoring tools post alerts to, e.g. "/api/webhooks/alerts". */
+  webhookPath: string;
+  /** Shared secret required on the inbound webhook; null leaves it open (local demo). */
+  webhookSecret: string | null;
+};
+
 export type Config = {
   port: number;
   publicBaseUrl: string | null;
@@ -91,6 +113,7 @@ export type Config = {
   generatedTokens: Identity[];
   freshdesk: FreshdeskConfig | null;
   freshservice: FreshserviceConfig | null;
+  alerts: AlertsConfig | null;
 };
 
 type Env = Record<string, string | undefined>;
@@ -153,6 +176,32 @@ function freshserviceConfig(env: Env): FreshserviceConfig {
   };
 }
 
+function alertsConfig(env: Env): AlertsConfig {
+  const endpoint = text(env, "FRESHSERVICE_ALERT_ENDPOINT");
+  if (!endpoint) {
+    throw new ConfigError("ALERTS=freshservice-ams needs FRESHSERVICE_ALERT_ENDPOINT (the integration URL with its auth-key); see .env.example");
+  }
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new ConfigError(`FRESHSERVICE_ALERT_ENDPOINT is not a URL: "${endpoint}"`);
+  }
+  if (!url.searchParams.get("auth-key")) {
+    throw new ConfigError("FRESHSERVICE_ALERT_ENDPOINT must include its ?auth-key=..., or Freshservice answers 401 not_authorized");
+  }
+  if (!/^https:$/.test(url.protocol)) throw new ConfigError("FRESHSERVICE_ALERT_ENDPOINT must be https");
+  const webhookPath = text(env, "ALERTS_WEBHOOK_PATH") ?? "/api/webhooks/alerts";
+  if (!webhookPath.startsWith("/")) throw new ConfigError(`ALERTS_WEBHOOK_PATH must start with "/"; got "${webhookPath}"`);
+  return {
+    endpoint,
+    redactedEndpoint: redactEndpoint(endpoint),
+    integrationId: integrationIdOf(endpoint),
+    webhookPath,
+    webhookSecret: text(env, "ALERTS_WEBHOOK_SECRET"),
+  };
+}
+
 /** Reads and validates configuration from environment variables. See .env.example. */
 export function loadConfig(env: Env): Config {
   const switches = {} as Record<PortName, string>;
@@ -187,6 +236,7 @@ export function loadConfig(env: Env): Config {
     generatedTokens,
     freshdesk: switches.tickets === "freshdesk" ? freshdeskConfig(env) : null,
     freshservice: switches.incidents === "freshservice" ? freshserviceConfig(env) : null,
+    alerts: switches.alerts === "freshservice-ams" ? alertsConfig(env) : null,
   };
 }
 

@@ -6,6 +6,7 @@ export type PortName =
   | "deployments"
   | "payments"
   | "metrics"
+  | "alerts"
   | "orders"
   | "voice"
   | "llm"

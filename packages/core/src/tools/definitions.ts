@@ -1,6 +1,8 @@
 import {
   actionsFor,
+  alertMentionsService,
   customerState,
+  incidentAlert,
   recoveryCoverage,
   recoveryMetrics,
   Surface,
@@ -14,6 +16,7 @@ import {
   type IncidentView,
   type Level,
   type Policy,
+  recoveryAlert,
   type Ticket,
   type ToolName,
 } from "@crisiscrew/contracts";
@@ -244,6 +247,103 @@ export function createTools(): Tool[] {
         const { service, points, latestRate } = r as { service: string; points: unknown[]; latestRate: number | null };
         return `${service}: ${points.length} points, latest ${latestRate === null ? "n/a" : `${(latestRate * 100).toFixed(2)}%`}`;
       },
+    },
+    {
+      name: "get_active_alerts",
+      description:
+        "Open alerts from the monitoring tools (Freshservice Alert Management), most recent first: what fired, on which service, how bad, and since when. This is operational evidence that a service is actually failing, independent of what customers wrote in.",
+      input: z.object({
+        service: z.string().optional(),
+        minutes: z.number().int().min(1).max(1440).default(360),
+      }),
+      level: fixed(0),
+      adapter: (ctx) => ctx.ports.alerts.adapter,
+      async run(args, ctx) {
+        const { service, minutes } = args as { service?: string; minutes: number };
+        const alerts = await ctx.ports.alerts.active(ctx.now() - minutes * 60_000);
+        const shown = service ? alerts.filter((a) => alertMentionsService(a, service)) : alerts;
+        return {
+          alerts: shown.map((a) => ({
+            id: a.id,
+            source: a.source,
+            severity: a.severity,
+            resource: a.resource,
+            hostname: a.hostname,
+            metric: a.metric,
+            message: a.message,
+            description: a.description,
+            at: new Date(a.at).toISOString(),
+            attributes: a.attributes,
+          })),
+          count: shown.length,
+          critical: shown.filter((a) => a.severity === "critical").length,
+        };
+      },
+      summarize: (r) => {
+        const { count, critical } = r as { count: number; critical: number };
+        return count === 0 ? "no open alerts" : `${count} open alert${count === 1 ? "" : "s"}${critical ? ` (${critical} critical)` : ""}`;
+      },
+    },
+    {
+      name: "raise_alert",
+      description:
+        "Raise the incident as an alert in Freshservice Alert Management, so ITOps sees the customer harm next to the service that caused it. Alerts group by resource, so this keeps one alert per service rather than one per incident.",
+      input: z.object({
+        incidentId: z.string().min(1),
+        service: z.string().min(1).optional(),
+      }),
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.alerts.adapter,
+      async run(args, ctx) {
+        const { incidentId, service } = args as { incidentId: string; service?: string };
+        const incident = incidentOf(ctx, incidentId);
+        const coverage = recoveryCoverage(incident);
+        const resource = service ?? ctx.ports.catalog.servicesFor(incident.surface)[0]?.name ?? incident.surface;
+        const notification = incidentAlert({
+          service: resource,
+          title: engineeringSummary(incident).title,
+          summary: engineeringSummary(incident).description,
+          severity: incident.severity,
+          incidentId,
+          affected: coverage.confirmed,
+          silent: coverage.silent,
+          recovered: coverage.recovered,
+          confirmed: coverage.confirmed,
+          status: incident.status,
+        });
+        const result = await ctx.ports.alerts.push(notification);
+        if (!result.ok) throw new Error(result.reason ?? "the alert push failed");
+        ctx.emit({ type: "alert.raised", payload: { incidentId, severity: notification.severity, message: notification.message, adapter: ctx.ports.alerts.adapter } });
+        return { incidentId, resource, severity: notification.severity };
+      },
+      summarize: (r) => {
+        const { resource, severity } = r as { resource: string; severity: string };
+        return `${severity} alert raised for ${resource}`;
+      },
+    },
+    {
+      name: "resolve_alert",
+      description: "Resolve an incident's Freshservice alert (severity ok) once every affected customer has been recovered, so ITOps does not keep chasing it.",
+      input: idOnly,
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.alerts.adapter,
+      async run(args, ctx) {
+        const { incidentId } = args as { incidentId: string };
+        const incident = incidentOf(ctx, incidentId);
+        const coverage = recoveryCoverage(incident);
+        const resource = ctx.ports.catalog.servicesFor(incident.surface)[0]?.name ?? incident.surface;
+        const notification = recoveryAlert({
+          service: resource,
+          incidentId,
+          summary: engineeringSummary(incident).description,
+          confirmed: coverage.confirmed,
+        });
+        const result = await ctx.ports.alerts.push(notification);
+        if (!result.ok) throw new Error(result.reason ?? "the alert push failed");
+        ctx.emit({ type: "alert.resolved", payload: { incidentId, adapter: ctx.ports.alerts.adapter } });
+        return { incidentId, resource };
+      },
+      summarize: (r) => `alert resolved for ${(r as { resource: string }).resource}`,
     },
     {
       name: "identify_affected_customers",

@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import {
   CachedEmbedder,
+  createLiveAlerts,
   FreshdeskClient,
   freshdeskMcpWriter,
   freshserviceIncidents,
@@ -61,6 +62,9 @@ function liveAdapters(): LiveAdapters {
     const { domain, apiKey, requesterEmail, workspaceId } = config.freshservice;
     live.incidents = freshserviceIncidents({ domain, apiKey, requesterEmail, ...(workspaceId !== null ? { workspaceId } : {}) });
   }
+  if (config.alerts) {
+    live.alerts = createLiveAlerts({ endpoint: config.alerts.endpoint });
+  }
   return live;
 }
 
@@ -97,6 +101,10 @@ const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
     `  Tokens       admin ${config.adminToken ? "set" : "not set (open, local demo)"}, approver ${config.approverToken ? "set" : "not set (open, local demo)"}`,
   ];
   if (config.freshdesk?.ingest === "webhook") lines.push(`  Freshdesk    webhook: POST ${base}/api/webhooks/freshdesk with header X-CrisisCrew-Secret`);
+  if (config.alerts) {
+    lines.push(`  Alerts       push ${config.alerts.redactedEndpoint}`);
+    lines.push(`               ingest: POST ${base}${config.alerts.webhookPath} (Freshservice Alert Management payload)`);
+  }
   if (config.generatedTokens.length > 0) {
     lines.push("  MCP tokens generated for this run (set MCP_TOKEN_* in .env to keep them):");
     for (const identity of config.generatedTokens) lines.push(`    ${identity.padEnd(13)} ${config.mcpTokens[identity]}`);
