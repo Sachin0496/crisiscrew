@@ -90,6 +90,14 @@ describe("Vobiz calls", () => {
     expect(await vobiz.status(callId)).toMatchObject({ state: "completed", digits: "1", durationSec: 24 });
   });
 
+  it("answers each key with the call's own reply", async () => {
+    const { vobiz } = adapter();
+    const { callId } = await vobiz.call({ to: "+919876543210", script: "Hi", purpose: "customer", gather: { prompt: "Press 1 or 2", replies: { "1": "Your refund is on its way & safe." } } });
+    vobiz.handleCallback(callId, "answer", {});
+    expect(vobiz.handleCallback(callId, "digits", { Digits: "1" })).toContain("<Speak>Your refund is on its way &amp; safe.</Speak><Hangup/>");
+    expect(vobiz.handleCallback(callId, "digits", { Digits: "9" })).toContain("<Speak>Thank you. Goodbye.</Speak>");
+  });
+
   it("reports calls nobody answered, busy lines and failures with the provider's reason", async () => {
     const { vobiz } = adapter();
     const end = async (params: Record<string, string>) => {

@@ -122,6 +122,14 @@ export const PolicySchema = z.object({
     criticalLr: z.number().positive(),
     warningLr: z.number().positive(),
   }),
+  voice: z.object({
+    /** Calls to one customer about one incident, counting the first. */
+    maxAttempts: z.number().int().min(1).max(5),
+    /** Wait between an unanswered call and the next. */
+    retryAfterMin: z.number().nonnegative(),
+    /** Customers are called only between these hours, in this time zone. */
+    callingHours: z.object({ start: z.number().int().min(0).max(23), end: z.number().int().min(1).max(24), timeZone: z.string().min(1) }),
+  }),
   oncall: z.object({
     /** After a page call ends unacknowledged, wait this long (for an acknowledgement another way) before paging the next responder. */
     ackTimeoutMin: z.number().nonnegative(),

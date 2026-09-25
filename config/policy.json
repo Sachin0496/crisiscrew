@@ -39,7 +39,7 @@
     "handoff": {
       "name": "Handoff Agent",
       "maxLevel": 3,
-      "tools": ["send_customer_update", "request_human_approval", "issue_recovery_credit", "add_ticket_note", "get_incident", "get_customer_impact"]
+      "tools": ["send_customer_update", "record_contact_preference", "request_human_approval", "issue_recovery_credit", "add_ticket_note", "add_account_note", "get_incident", "get_customer_impact"]
     },
     "operator": {
       "name": "External MCP client",
@@ -98,6 +98,11 @@
     "joinWindowMin": 60,
     "criticalLr": 4,
     "warningLr": 1.5
+  },
+  "voice": {
+    "maxAttempts": 3,
+    "retryAfterMin": 10,
+    "callingHours": { "start": 9, "end": 21, "timeZone": "Asia/Kolkata" }
   },
   "oncall": {
     "ackTimeoutMin": 5,

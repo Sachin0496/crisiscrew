@@ -75,8 +75,10 @@ describe("hero scenario: checkout release v4.21.7", () => {
     expect(plan("s05")).toEqual(["account_note:done", "credit:done"]);
     // Nisha's payment went through on a retry: the update, and a recorded decision not to credit.
     expect(plan("s07")).toEqual(["proactive_message:done", "no_credit:done"]);
-    // Ananya is a priority customer: a voice update (prepared, voice is off) and a ₹1,000 credit for a human to decide.
-    expect(plan("s03")).toEqual(["proactive_message:done", "voice:prepared", "credit:awaiting_approval"]);
+    // Ananya is a priority customer: a call (she answers) and a ₹1,000 credit for a human to decide.
+    expect(plan("s03")).toEqual(["proactive_message:done", "voice:done", "credit:awaiting_approval"]);
+    // Farhan doesn't pick up: three calls, then "not reached"; his written update stands.
+    expect(plan("s09")).toEqual(["proactive_message:done", "voice:unreached", "credit:awaiting_approval"]);
     // Ritika was silent when the plan was made; her later ticket adds a reply to it.
     expect(plan("c-ritika")).toEqual(["proactive_message:done", "credit:done", "ticket_reply:done"]);
   });
@@ -104,8 +106,9 @@ describe("hero scenario: checkout release v4.21.7", () => {
     const { incident } = await replay("checkout-v4.21.7");
     const updates = incident?.updates ?? [];
     const by = (channel: string) => updates.filter((u) => u.channel === channel).map((u) => u.customerRef);
-    expect(by("voice").sort()).toEqual(["s03", "s09"]);
-    expect(updates.filter((u) => u.channel === "voice").every((u) => u.status === "prepared" && u.audioId === null)).toBe(true);
+    // Voice is a phone call now: Ananya answers the first; Farhan is called three times.
+    expect(by("voice").sort()).toEqual(["s03", "s09", "s09", "s09"]);
+    expect(updates.filter((u) => u.channel === "voice").every((u) => u.status === "calling" && u.callId)).toBe(true);
     expect(by("ticket_reply")).toHaveLength(8);
     for (const noConsent of ["s05", "s11", "s14"]) expect(by("proactive_message")).not.toContain(noConsent);
   });

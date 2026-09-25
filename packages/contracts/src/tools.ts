@@ -21,6 +21,7 @@ export const TOOL_NAMES = [
   "add_account_note",
   "request_human_approval",
   "send_customer_update",
+  "record_contact_preference",
   "issue_recovery_credit",
   "page_on_call",
 ] as const;

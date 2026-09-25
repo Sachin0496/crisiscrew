@@ -22,6 +22,7 @@ import {
   type TicketSource,
 } from "@crisiscrew/contracts";
 import { handleLateTicket, onAlertLinked, runAlertIncident, runIncident, setImportanceByHuman, settleDecision } from "./agents/commander";
+import { onCustomerCall } from "./agents/calls";
 import { acknowledgeByOperator, onPageCall } from "./agents/paging";
 import type { AgentKit } from "./agents/kit";
 import type { EventBus } from "./bus";
@@ -119,6 +120,7 @@ export class CrisisEngine {
     this.unsubscribe = deps.ports.telephony.onUpdate((call) => {
       this.emit({ type: "call.updated", payload: { call } });
       if (call.purpose === "oncall" && call.metadata?.incidentId) this.track(onPageCall(this.kit, call).catch((error) => this.fail("commander", error)));
+      if (call.purpose === "customer" && call.metadata?.actionId) this.track(onCustomerCall(this.kit, call).catch((error) => this.fail("handoff", error)));
     });
   }
 

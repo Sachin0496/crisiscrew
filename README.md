@@ -105,7 +105,7 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
   Approval APR-001 requested for Ananya Iyer: ₹1,000
     Ananya Iyer, a priority customer, never contacted support. Evidence: Card payment of ₹12,999 failed at 07:53:08.
     Likely cause: checkout-service v4.21.7 (97% confidence).
-    Done so far: proactive update sent; voice update prepared (voice is off).
+    Done so far: proactive update sent; phone call in progress.
     Proposed: ₹1,000 goodwill credit, above the ₹500 the agents may give one customer on their own.
 
   INC-2026-001: awaiting approval  2 credits are above the agents' authority and waiting for a human; recovery coverage 21/23
@@ -259,6 +259,28 @@ When the importance says to page (P1 by default), the Incident Commander phones 
    - a Freshservice workflow on the incident ticket: `POST /api/webhooks/freshservice/acknowledge` with `{"ticket_id": 314, "agent_name": "..."}` and `X-CrisisCrew-Secret`.
 
 Every call is a gated, audited `page_on_call` (L1, Incident Commander only). Its outcome is a private note on the Freshservice incident, and the Incident page's **On-call** card shows each attempt. In the hero, Neha Kapoor (primary) presses 1 on the first call; a P2 incident, like the UPI outage, pages no one.
+
+## Calling customers
+
+A voice action is a **phone call** through the telephony port (Vobiz, or the sandbox telephone), placed by the Handoff Agent with the customer's track script. After the script comes a bounded menu, with no free-form conversation:
+
+| Key | The call says | CrisisCrew does |
+|---|---|---|
+| 1 | the status of *their* payment (it failed, the bank reverses it), and their credit: named with its amount once issued, "being reviewed" without an amount before that | notes it |
+| 2 | someone will call them back | notes "please call them back" on their ticket or account |
+| 3 | they won't be called about this again | withdraws their voice consent (`record_contact_preference`) |
+
+- **Not answered or busy:** it's called again after `voice.retryAfterMin` (10 min), up to `voice.maxAttempts` (3). After that it's **not reached**: the written update stands, and the customer still counts as covered.
+- **Write-back:** every call's outcome is a private note on their ticket if they wrote in, or on their account otherwise.
+- **Guardrails, checked by the gate before every dial:**
+  - voice consent and confirmed impact;
+  - calling hours (`voice.callingHours`, 09:00 to 21:00 Asia/Kolkata). Outside them, no call, and the customer is marked not reached, not "needs attention";
+  - no second call while one is out, and none after the customer answered;
+  - at most `maxAttempts` calls;
+  - a script may name a credit amount only if that credit was issued.
+- **No phone number:** with voice consent but no number, the script is prepared for voice synthesis instead (ElevenLabs, not wired yet).
+
+In the hero, Ananya answers and presses 1; Farhan doesn't pick up, and after three calls he's marked not reached.
 
 ## Recovery Coverage
 
@@ -455,7 +477,7 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 | Issue Creator | L1 | `file_engineering_incident`, `update_engineering_incident`, `request_rollback_change`, `open_problem_record`, `get_incident`, `get_infra_health` |
 | Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_infra_health`, `get_incident` |
 | Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
-| Handoff Agent | L3 | `send_customer_update`, `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |
+| Handoff Agent | L3 | `send_customer_update`, `record_contact_preference`, `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `add_account_note`, `get_incident`, `get_customer_impact` |
 | External MCP client (operator) | L0 | the eight read tools, including `get_customer_impact` and `get_recovery_coverage` |
 
 ## MCP server

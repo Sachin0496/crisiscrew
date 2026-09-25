@@ -26,7 +26,7 @@ import type { ToolDef } from "../policy/gate";
 import type { InfraHealth, Ports } from "../ports";
 import { assessImpact } from "../recovery/impact";
 import { planRecovery } from "../recovery/plan";
-import { customerCase, draftUpdate, engineeringSummary, engineeringTicket, inr, pageScript, problemRecord, rollbackChange, type Draft } from "../recovery/templates";
+import { callMenu, customerCase, draftUpdate, engineeringSummary, engineeringTicket, inr, pageScript, problemRecord, rollbackChange, type Draft } from "../recovery/templates";
 
 export type ToolCtx = {
   now(): number;
@@ -590,7 +590,7 @@ export function createTools(): Tool[] {
       level: fixed(2),
       adapter: (ctx, args) => {
         const { incidentId, customerRef, channel } = (args ?? {}) as { incidentId?: string; customerRef?: string; channel?: string };
-        if (channel === "voice") return ctx.ports.voice.adapter;
+        if (channel === "voice") return ctx.ports.telephony.adapter;
         if (channel !== "ticket_reply") return ctx.ports.notifier.adapter;
         const incident = incidentId ? ctx.state().incidents[incidentId] : undefined;
         const ticket = incident ? ticketsOf(ctx, incident).filter((t) => t.customerRef === customerRef).at(-1) : undefined;
@@ -608,6 +608,7 @@ export function createTools(): Tool[] {
         if (!customer) return `unknown customer ${customerRef}`;
         if (channel === "proactive_message" && !customer.consent.proactive) return "customer has not agreed to proactive messages";
         if (channel === "voice" && !customer.consent.voice) return "customer has not agreed to voice contact";
+        if (channel === "voice") return callGuardrails(ctx, incident, customerRef, (args as { text: string }).text);
         return null;
       },
       async run(args, ctx) {
@@ -625,12 +626,25 @@ export function createTools(): Tool[] {
         let adapter: string;
         let status: CustomerUpdate["status"] = "sent";
         let audioId: string | null | undefined;
+        let callId: string | undefined;
         if (channel === "ticket_reply") {
           await ctx.ports.ticketActions.reply(ticket!, text);
           adapter = ticketAdapter(ctx, ticket!.id);
         } else if (channel === "proactive_message") {
           await ctx.ports.notifier.proactive(customer!, text);
           adapter = ctx.ports.notifier.adapter;
+        } else if (customer?.phone) {
+          // A real call: the script, then a bounded menu whose replies come from what CrisisCrew knows.
+          const credit = incident.actions.find((a) => a.customerRef === customerRef && a.kind === "credit");
+          ({ callId } = await ctx.ports.telephony.call({
+            to: customer.phone,
+            script: text,
+            purpose: "customer",
+            gather: callMenu(affectedCustomer(incident, customerRef)!, credit),
+            metadata: { incidentId, customerRef, ...(actionId ? { actionId } : {}) },
+          }));
+          adapter = ctx.ports.telephony.adapter;
+          status = "calling";
         } else {
           ({ audioId } = await ctx.ports.voice.synthesize(text));
           adapter = ctx.ports.voice.adapter;
@@ -646,17 +660,36 @@ export function createTools(): Tool[] {
           source: ctx.drafts.get(incidentId)?.draft.source ?? "template",
           status,
           adapter,
-          ...(channel === "voice" ? { audioId: audioId ?? null } : {}),
+          ...(channel === "voice" && !callId ? { audioId: audioId ?? null } : {}),
+          ...(callId ? { callId } : {}),
           ...(actionId ? { actionId } : {}),
         };
         ctx.emit({ type: "update.sent", payload: { update } });
-        return { updateId: update.id, customer: name, channel, status, adapter };
+        return { updateId: update.id, customer: name, channel, status, adapter, ...(callId ? { callId } : {}) };
       },
       summarize: (r) => {
         const { updateId, customer, channel, status } = r as { updateId: string; customer: string; channel: string; status: string };
         const how = channel === "ticket_reply" ? "ticket reply" : channel === "proactive_message" ? "proactive message" : "voice script";
+        if (status === "calling") return `calling ${customer} (${updateId}, ${(r as { callId?: string }).callId})`;
         return `${how} to ${customer} ${status === "prepared" ? "prepared (voice is off)" : "sent"} (${updateId})`;
       },
+    },
+    {
+      name: "record_contact_preference",
+      description: "Record that a customer no longer wants to be contacted this way (for example, they pressed 3 on a call: stop calling me).",
+      input: z.object({ incidentId: z.string().min(1), customerRef: z.string().min(1), channel: z.enum(["voice", "proactive"]) }),
+      level: fixed(1),
+      adapter: (ctx) => ctx.ports.orders.adapter,
+      async condition(args, ctx) {
+        const { customerRef } = args as { customerRef: string };
+        return (await ctx.ports.orders.customer(customerRef)) ? null : `unknown customer ${customerRef}`;
+      },
+      async run(args, ctx) {
+        const { customerRef, channel } = args as { customerRef: string; channel: "voice" | "proactive" };
+        await ctx.ports.orders.withdrawConsent(customerRef, channel);
+        return { customerRef, channel, consent: false };
+      },
+      summarize: (r) => `${(r as { customerRef: string }).customerRef} opted out of ${(r as { channel: string }).channel === "voice" ? "calls" : "proactive messages"}`,
     },
     {
       name: "add_account_note",
@@ -831,6 +864,39 @@ export function createTools(): Tool[] {
       },
     },
   ];
+}
+
+const CALL_FINAL = ["completed", "no_answer", "busy", "failed"];
+
+/** The hour of the day, 0 to 23, in a time zone. */
+function hourIn(at: number, timeZone: string): number {
+  return Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone }).format(at));
+}
+
+/**
+ * What may stop a call to a customer, beyond consent and evidence: the hour,
+ * a call already out, a call already answered, the number of calls, and a
+ * script that names a credit amount nobody has issued.
+ */
+function callGuardrails(ctx: ToolCtx, incident: IncidentView, customerRef: string, text: string): string | null {
+  const { callingHours, maxAttempts } = ctx.policy.voice;
+  const hour = hourIn(ctx.now(), callingHours.timeZone);
+  if (hour < callingHours.start || hour >= callingHours.end) {
+    return `outside calling hours (${String(callingHours.start).padStart(2, "0")}:00 to ${String(callingHours.end).padStart(2, "0")}:00, ${callingHours.timeZone})`;
+  }
+  const calls = Object.values(ctx.state().calls).filter((c) => c.purpose === "customer" && c.metadata?.incidentId === incident.id && c.metadata?.customerRef === customerRef);
+  if (calls.some((c) => !CALL_FINAL.includes(c.state))) return "a call to this customer is already in progress";
+  if (calls.some((c) => c.state === "completed")) return "this customer was already reached by phone about this incident";
+  if (calls.length >= maxAttempts) return `already called ${calls.length} times, the most allowed`;
+  // Only a credit that was actually issued may be named, and only at its amount.
+  const issued = new Set(ctx.state().credits.filter((c) => c.incidentId === incident.id && c.customerRef === customerRef).map((c) => c.amountInr));
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    if (!/credit/i.test(sentence)) continue;
+    for (const m of sentence.matchAll(/₹\s?([\d,]+)/g)) {
+      if (!issued.has(Number(m[1]!.replace(/,/g, "")))) return "the call can't promise a credit amount that hasn't been issued";
+    }
+  }
+  return null;
 }
 
 /** Changes one page attempt, leaving whatever else has happened to the paging since. */

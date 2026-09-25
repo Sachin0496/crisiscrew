@@ -203,7 +203,7 @@ describe("customer rows", () => {
   });
 
   it("sums up a plan in a few words", () => {
-    expect(planSummary(rows[1]!.actions)).toBe("Message · Voice · ₹1,000 credit");
+    expect(planSummary(rows[1]!.actions)).toBe("Message · Call · ₹1,000 credit");
     expect(planSummary([act("x", "account_note", "done"), act("x", "no_credit", "done")])).toBe("Account note");
   });
 });

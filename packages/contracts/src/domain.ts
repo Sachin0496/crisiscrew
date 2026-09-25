@@ -186,8 +186,10 @@ export type CustomerUpdate = {
   channel: UpdateChannel;
   text: string;
   source: string;
-  /** "prepared": a voice script was written but the voice port is off, so nothing was sent. */
-  status: "sent" | "prepared" | "refused";
+  /** "prepared": a voice script was written but the voice port is off, so nothing was sent. "calling": a phone call was placed. */
+  status: "sent" | "prepared" | "calling" | "refused";
+  /** The phone call carrying a voice update. */
+  callId?: string;
   adapter: string;
   audioId?: string | null;
   reason?: string;
@@ -291,7 +293,8 @@ export type CustomerImpact = {
  * payment reference. no_credit: a recorded decision not to credit, with its reason.
  */
 export type RecoveryKind = "ticket_reply" | "acknowledge" | "proactive_message" | "voice" | "account_note" | "credit" | "no_credit";
-export type RecoveryStatus = "planned" | "done" | "prepared" | "awaiting_approval" | "declined" | "failed";
+/** calling: a phone call is out (or will be retried); unreached: every allowed call went unanswered, so the written update stands. */
+export type RecoveryStatus = "planned" | "calling" | "done" | "prepared" | "unreached" | "awaiting_approval" | "declined" | "failed";
 
 /**
  * Which outreach a customer gets from the Handoff Agent. complained: they
@@ -321,6 +324,9 @@ export type RecoveryAction = {
   /** The outcome in a few words: an update or credit id, a refusal, who decided. */
   detail?: string;
   approvalId?: string;
+  /** A voice call: how many calls have been placed, and the latest. */
+  attempts?: number;
+  callId?: string;
   updatedAt: number;
 };
 

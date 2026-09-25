@@ -46,6 +46,7 @@ const base = {
   },
   issues: { rollbackConfidence: 0.8, problemOnRecovered: true },
   alerts: { openOnCritical: true, joinWindowMin: 60, criticalLr: 4, warningLr: 1.5 },
+  voice: { maxAttempts: 3, retryAfterMin: 10, callingHours: { start: 9, end: 21, timeZone: "Asia/Kolkata" } },
   oncall: { ackTimeoutMin: 5, maxEscalations: 2 },
   recovery: { affectedLookbackMin: 30, creditInr: { standard: 200, high: 1000 }, highValueInr: 10000 },
 };

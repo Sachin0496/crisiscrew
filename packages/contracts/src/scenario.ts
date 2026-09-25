@@ -24,6 +24,8 @@ export const ScenarioCustomer = z.object({
   consent: z
     .object({ voice: z.boolean().default(false), proactive: z.boolean().default(false) })
     .default({ voice: false, proactive: false }),
+  /** How the customer takes a call in the sandbox: answers (and which key they press), or doesn't. Unset: rolled from the scenario. */
+  onCall: z.object({ answers: z.enum(["answers", "no_answer", "busy"]), press: z.enum(["1", "2", "3"]).optional() }).optional(),
 });
 
 /** Someone on the on-call schedule, and what they do when paged in the sandbox. */
