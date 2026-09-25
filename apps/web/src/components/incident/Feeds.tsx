@@ -1,6 +1,6 @@
-import type { CrisisState, IncidentView, TicketView } from "@crisiscrew/contracts";
-import { Bot, Inbox } from "lucide-react";
-import { clock, plural, since, STATUS_LABELS, sentence, surface, TOOL_OWNER } from "../../format";
+import { GUARD_REASONS, type CrisisState, type TicketView } from "@crisiscrew/contracts";
+import { Inbox } from "lucide-react";
+import { clock, pct, surface } from "../../format";
 import { routeHref } from "../../router";
 import { TicketComposer } from "../TicketComposer";
 import { Badge, Card, Empty } from "../ui";
@@ -15,9 +15,24 @@ export function TicketTags({ view }: { view: TicketView }) {
       {signal ? (
         <>
           <Badge tone={signal.isFailure ? "danger" : "neutral"} title={`Failure score ${signal.failureScore.toFixed(2)}`}>
-            {signal.isFailure ? "Failure report" : "Question"}
+            {signal.isFailure ? "Failure report" : signal.ticketType === "request" ? "Request" : "Question"}
           </Badge>
           <Badge>{surface(signal.surface)}</Badge>
+          {signal.classifier?.source === "laya" && (
+            <Badge title={`Laya${signal.classifier.model ? ` (${signal.classifier.model})` : ""}: ${signal.classifier.ticketType} with probability ${pct(signal.classifier.confidence ?? 0)}`}>
+              Laya {pct(signal.classifier.confidence ?? 0)}
+            </Badge>
+          )}
+          {signal.classifier?.fallback && (
+            <Badge tone="warning" title={signal.classifier.fallback}>
+              Classifier fell back
+            </Badge>
+          )}
+          {signal.guard?.flagged && (
+            <Badge tone="warning" title={`Instruction-like text: ${signal.guard.reasons.map((r) => GUARD_REASONS[r] ?? r).join("; ")}. Kept as data.`}>
+              Flagged by guard
+            </Badge>
+          )}
         </>
       ) : (
         <Badge>Reading…</Badge>
@@ -60,57 +75,6 @@ export function RecentTickets({ state, customerNames }: { state: CrisisState; cu
         ))
       )}
       <TicketComposer customerNames={customerNames} />
-    </Card>
-  );
-}
-
-export function IncidentTimeline({ incident, start }: { incident: IncidentView; start: number }) {
-  return (
-    <Card title="Timeline" subtitle={`${incident.id} · time since the session started`} flush>
-      <ol className="timeline">
-        {incident.timeline.map((t, i) => (
-          <li key={`${t.at}-${i}`} className={i === incident.timeline.length - 1 ? "latest" : undefined}>
-            <div className="tl-head">
-              <span className="tl-title">{STATUS_LABELS[t.status]}</span>
-              <span className="tl-time">{since(t.at, start)}</span>
-            </div>
-            {t.note && <div className="tl-note">{sentence(t.note)}</div>}
-          </li>
-        ))}
-      </ol>
-    </Card>
-  );
-}
-
-export function Activity({ state }: { state: CrisisState }) {
-  const calls = [...state.toolCalls].reverse().slice(0, 8);
-  return (
-    <Card
-      title="Agent activity"
-      subtitle={`${plural(state.toolCalls.length, "tool call")}, each through the policy gate`}
-      actions={
-        <a className="link-btn" href={routeHref("agents")}>
-          View all
-        </a>
-      }
-      flush
-    >
-      {calls.length === 0 ? (
-        <Empty icon={<Bot size={18} />} title="No agent has acted yet">
-          Agents start work once an incident opens.
-        </Empty>
-      ) : (
-        calls.map((c) => (
-          <div className={c.decision === "denied" ? "activity-row refused row-new" : "activity-row row-new"} key={c.hash}>
-            <div>
-              <span className="who">{TOOL_OWNER[c.identity] ?? c.identity}</span> <span className="tool">{c.tool}</span>{" "}
-              {c.decision === "denied" ? <Badge tone="danger">Refused</Badge> : c.level !== null && <Badge>L{c.level}</Badge>}
-            </div>
-            <span className="when">{since(c.at, state.session.startedAt)}</span>
-            <div className="result">{c.decision === "denied" || c.outcome === "error" ? sentence(c.reason ?? "") : sentence(c.resultSummary ?? "")}</div>
-          </div>
-        ))
-      )}
     </Card>
   );
 }

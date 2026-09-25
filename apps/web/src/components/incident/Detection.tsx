@@ -10,9 +10,42 @@ const VERDICT = {
   refused: { tone: "neutral", icon: <ShieldCheck size={16} aria-hidden /> },
 } as const;
 
-/** The Pattern Agent's view of the latest ticket's group: similarity, the four gates, and the decision. */
-export function Detection({ state }: { state: CrisisState }) {
+/**
+ * The Pattern Agent's view of the latest ticket's group: similarity, the four
+ * gates, and the decision. Compact once an incident is open: one line, with
+ * the gates a click away.
+ */
+export function Detection({ state, compact = false }: { state: CrisisState; compact?: boolean }) {
   const group = state.candidate;
+  const incident = state.incidentOrder.length ? state.incidents[state.incidentOrder.at(-1)!] : undefined;
+  if (compact && group && incident) {
+    const verdict = groupVerdict(group, state.incidents);
+    const refused = group.gates.filter((g) => !g.pass).length;
+    return (
+      <Card title="How it was detected" subtitle="Pattern Agent · similarity by meaning and product area, behind four gates">
+        <p className="detect-line">
+          {incident.id} opened when {plural(incident.ticketIds.length, "failure report")} about {surface(incident.surface).toLowerCase()} passed all four gates. Every
+          later ticket is checked the same way.
+        </p>
+        <details className="disclosure">
+          <summary>
+            Latest ticket: {plural(group.memberTicketIds.length, "ticket")} in its group, similarity {pct(group.cohesion)},{" "}
+            {refused === 0 ? "every gate passed" : `${plural(refused, "gate")} refused`}
+          </summary>
+          <div className="gates" role="list" aria-label="Detection gates">
+            {group.gates.map((g) => (
+              <div className={g.pass ? "gate pass" : "gate fail"} key={g.name} role="listitem">
+                {g.pass ? <CircleCheck size={16} aria-label="Passed" /> : <CircleAlert size={16} aria-label="Not met" />}
+                <span className="gate-name">{GATE_LABELS[g.name]}</span>
+                <span className="gate-reason">{sentence(g.reason)}</span>
+              </div>
+            ))}
+          </div>
+          <p className="muted small">{verdict.text}</p>
+        </details>
+      </Card>
+    );
+  }
   if (!group) {
     return (
       <Card title="Detection" subtitle="Pattern Agent">

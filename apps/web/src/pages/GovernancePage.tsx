@@ -1,17 +1,87 @@
-import type { CrisisState } from "@crisiscrew/contracts";
+import { GUARD_REASONS, type CrisisState, type WiringReport } from "@crisiscrew/contracts";
 import { Check, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, type AuditVerify, type PolicyView } from "../api";
+import { api, type AuditVerify, type Health, type PolicyView } from "../api";
 import { Badge, Card, Empty, Segmented } from "../components/ui";
-import { inr, plural, sentence, since, TOOL_OWNER } from "../format";
-import { decisionOf } from "./AgentsPage";
+import { decisionOf, inr, plural, sentence, since, TOOL_OWNER } from "../format";
 
 type Filter = "all" | "refused";
 
-export function GovernancePage({ state, policy }: { state: CrisisState; policy: PolicyView | null }) {
+/** Guardrails at a glance: what screens untrusted text, what it flagged, what the gate refused, and who may write. */
+function Guardrails({ state, wiring, health }: { state: CrisisState; wiring: WiringReport | null; health: Health | null }) {
+  const guard = wiring?.ports.find((p) => p.port === "guard");
+  const flags = [...state.guardFlags].reverse();
+  const refused = state.toolCalls.filter((e) => e.decision === "denied").length;
+  const locked = health ? health.auth.admin && health.auth.approver : null;
+  return (
+    <Card title="Guardrails" subtitle="Tickets, tool outputs and documents are data, never instructions. A flag never grants authority; the policy gate decides every action." flush>
+      <div className="guard-grid">
+        <div className="guard-stat">
+          <div className="stat-label">Prompt guard</div>
+          <div className="guard-value">{guard?.adapter === "lakera" ? "Lakera + rules" : "Built-in rules"}</div>
+          <div className="stat-sub">Screens every ticket and the text in external tool outputs</div>
+        </div>
+        <div className="guard-stat">
+          <div className="stat-label">Flagged inputs</div>
+          <div className={`guard-value${flags.length ? " warn" : ""}`}>{flags.length}</div>
+          <div className="stat-sub">{flags.length ? "Kept as data; see below" : "Nothing instruction-like this session"}</div>
+        </div>
+        <div className="guard-stat">
+          <div className="stat-label">Refused calls</div>
+          <div className={`guard-value${refused ? " bad" : ""}`}>{refused}</div>
+          <div className="stat-sub">Allow-lists, authority levels, consent, exact amounts, unknown fields</div>
+        </div>
+        <div className="guard-stat">
+          <div className="stat-label">Write access</div>
+          <div className="guard-value">{locked === null ? "–" : locked ? "Tokens required" : "Open, local demo"}</div>
+          <div className="stat-sub">An exposed server won't start without both tokens</div>
+        </div>
+      </div>
+      {flags.length > 0 && (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Source</th>
+                <th>Why it was flagged</th>
+                <th>Text</th>
+              </tr>
+            </thead>
+            <tbody>
+              {flags.map((f, i) => (
+                <tr key={`${f.at}-${i}`}>
+                  <td className="nowrap num">{since(f.at, state.session.startedAt)}</td>
+                  <td className="nowrap primary">{f.source === "ticket" ? `Ticket ${f.ref}` : <span className="mono">{f.ref} output</span>}</td>
+                  <td>
+                    <div className="tags">
+                      {f.verdict.reasons.map((r) => (
+                        <Badge key={r} tone="warning" title={r}>
+                          {GUARD_REASONS[r] ?? r}
+                        </Badge>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="wrap flagged-text">“{f.excerpt}”</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function GovernancePage({ state, policy, wiring }: { state: CrisisState; policy: PolicyView | null; wiring: WiringReport | null }) {
   const [verify, setVerify] = useState<AuditVerify | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const calls = state.toolCalls.length;
+
+  useEffect(() => {
+    api.health().then(setHealth, () => undefined);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +115,7 @@ export function GovernancePage({ state, policy }: { state: CrisisState; policy: 
           below are generated from config/policy.json, the same file the gate enforces.
         </p>
       </div>
+      <Guardrails state={state} wiring={wiring} health={health} />
       <Card
         title="Audit log"
         subtitle={`${plural(calls, "entry", "entries")} · ${refused} refused · this session`}

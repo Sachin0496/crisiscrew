@@ -14,12 +14,10 @@ import { Callout, Card, Empty } from "../ui";
 export function Impact({ incident }: { incident?: IncidentView }) {
   const rows = customerRows(incident);
   const coverage = incident ? recoveryCoverage(incident) : undefined;
-  const confirmed = coverage?.confirmed ?? 0;
-  const silentShare = coverage && confirmed > 0 ? coverage.silent / confirmed : 0;
   return (
     <Card
       title="Customer impact"
-      subtitle="Recovery Agent · who was harmed, and how CrisisCrew knows"
+      subtitle="Who was harmed, proved from payment data. Pick a customer for their evidence"
       actions={
         rows.length > 0 ? (
           <a className="link-btn" href={routeHref("customers")}>
@@ -36,30 +34,6 @@ export function Impact({ incident }: { incident?: IncidentView }) {
       ) : (
         <>
           <div className="card-body impact-top">
-            <div className="impact-counts">
-              <div>
-                <div className="impact-value">{confirmed}</div>
-                <div className="similarity-caption">customers harmed</div>
-              </div>
-              <div>
-                <div className="impact-value muted-value">{coverage.complained}</div>
-                <div className="similarity-caption">complained</div>
-              </div>
-              <div>
-                <div className="impact-value silent-value">{coverage.silent}</div>
-                <div className="similarity-caption">stayed silent</div>
-              </div>
-              {coverage.unverified > 0 && (
-                <div>
-                  <div className="impact-value muted-value">{coverage.unverified}</div>
-                  <div className="similarity-caption">not verified</div>
-                </div>
-              )}
-            </div>
-            <div className="split" role="img" aria-label={`${coverage.complained} complained, ${coverage.silent} silent`}>
-              <span className="complained" style={{ width: `${(1 - silentShare) * 100}%` }} />
-              <span className="silent" style={{ width: `${silentShare * 100}%` }} />
-            </div>
             {coverage.silent > 0 ? (
               <Callout tone="accent" icon={<Radar size={16} aria-hidden />}>
                 <strong>

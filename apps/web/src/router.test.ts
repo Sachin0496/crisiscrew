@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { parseCustomer, parseRoute, routeHref, ROUTES } from "./router";
+import { parseCustomer, parseRoute, parseTrace, routeHref, ROUTES, traceHref } from "./router";
 
 describe("parseRoute", () => {
   it("reads each page from its hash", () => {
     expect(parseRoute("#/incident")).toBe("incident");
     expect(parseRoute("#/customers")).toBe("customers");
     expect(parseRoute("#/tickets")).toBe("tickets");
-    expect(parseRoute("#/agents")).toBe("agents");
+    expect(parseRoute("#/traces")).toBe("traces");
     expect(parseRoute("#/governance")).toBe("governance");
+  });
+
+  it("sends old Agents links to Traces, which replaced that page", () => {
+    expect(parseRoute("#/agents")).toBe("traces");
   });
 
   it("opens the incident page for an empty or unknown hash", () => {
@@ -29,5 +33,15 @@ describe("customer links", () => {
     expect(parseCustomer(routeHref("customers", "freshdesk:requester:9105"))).toBe("freshdesk:requester:9105");
     expect(parseCustomer("#/customers")).toBeUndefined();
     expect(parseCustomer("#/tickets/s03")).toBeUndefined();
+  });
+});
+
+describe("trace links", () => {
+  it("points the Traces page at one trace", () => {
+    const id = "5f0c2b1e-8a7d-4c3e-9b1a-0d2e3f4a5b6c";
+    expect(parseRoute(traceHref(id))).toBe("traces");
+    expect(parseTrace(traceHref(id))).toBe(id);
+    expect(parseTrace("#/traces")).toBeUndefined();
+    expect(parseTrace("#/customers/s03")).toBeUndefined();
   });
 });

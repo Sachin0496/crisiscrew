@@ -1,5 +1,5 @@
 import { recoveryCoverage, type CrisisState, type WiringReport } from "@crisiscrew/contracts";
-import { Activity, Bot, Box, ChevronUp, Inbox, Moon, ShieldCheck, Siren, Sun, Users } from "lucide-react";
+import { Activity, Box, ChevronUp, Inbox, Moon, ShieldCheck, Siren, Sun, Users, Waypoints } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MODE, PORT_LABELS } from "../format";
 import { ROUTES, routeHref, type Route } from "../router";
@@ -7,7 +7,7 @@ import type { Theme } from "../theme";
 import { currentIncident } from "../view";
 import { Badge } from "./ui";
 
-const ICONS = { incident: Siren, customers: Users, tickets: Inbox, agents: Bot, governance: ShieldCheck } as const;
+const ICONS = { incident: Siren, customers: Users, tickets: Inbox, traces: Waypoints, governance: ShieldCheck } as const;
 
 type Props = {
   route: Route;
@@ -21,7 +21,8 @@ type Props = {
 export function Sidebar({ route, state, connected, wiring, theme, onToggleTheme }: Props) {
   const incident = currentIncident(state);
   const open = incident !== undefined && !["recovered", "resolved", "dismissed"].includes(incident.status);
-  const working = Object.values(state.agents).filter((a) => a.status === "working").length;
+  const attention = state.traces.filter((t) => t.status === "attention" || t.status === "error").length;
+  const flagged = state.guardFlags.length;
   const coverage = incident?.impact ? recoveryCoverage(incident) : undefined;
   const meta: Record<Route, ReactNode> = {
     incident: open ? <span className="nav-alert" title="An incident is open" /> : null,
@@ -36,8 +37,22 @@ export function Sidebar({ route, state, connected, wiring, theme, onToggleTheme 
         </span>
       ) : null,
     tickets: <span className="nav-meta">{state.ticketOrder.length}</span>,
-    agents: working > 0 ? <span className="nav-meta">{working} active</span> : null,
-    governance: <span className="nav-meta">{state.toolCalls.length}</span>,
+    traces:
+      attention > 0 ? (
+        <span className="nav-meta nav-warn" title={`${attention} runs need attention`}>
+          {attention} to check
+        </span>
+      ) : (
+        <span className="nav-meta">{state.traces.length}</span>
+      ),
+    governance:
+      flagged > 0 ? (
+        <span className="nav-meta nav-warn" title={`${flagged} inputs flagged by the prompt guard`}>
+          {flagged} flagged
+        </span>
+      ) : (
+        <span className="nav-meta">{state.toolCalls.length}</span>
+      ),
   };
   return (
     <aside className="sidebar">
@@ -111,8 +126,8 @@ function Environment({ wiring }: { wiring: WiringReport }) {
           <div className="popover-head">
             <h3>Integrations</h3>
             <p>
-              Every number is computed by the engine. Sandbox ports read the scenario's simulated world. Freshdesk and Freshservice are wired and switch on with their
-              keys in .env; the other external APIs are designed but not wired yet.
+              Every number is computed by the engine. Live means real computation or a real service; sandbox ports read the scenario's simulated world. Freshdesk,
+              Freshservice, Laya, Lakera and LangSmith are wired and switch on with their keys in .env; the other external APIs are designed but not wired yet.
             </p>
           </div>
           <div className="popover-body">

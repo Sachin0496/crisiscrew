@@ -1,6 +1,7 @@
 import {
   SURFACE_LABELS,
   type AgentStatus,
+  type AuditEntry,
   type CustomerRecoveryState,
   type EvidenceKind,
   type IncidentStatus,
@@ -141,6 +142,9 @@ export const PORT_LABELS: Record<PortName, string> = {
   embeddings: "Embeddings",
   credits: "Credits",
   translate: "Translation",
+  classifier: "Ticket classifier",
+  guard: "Prompt guard",
+  tracing: "Tracing",
 };
 
 export const MODE: Record<PortMode, { label: string; tone: Tone }> = {
@@ -162,6 +166,13 @@ export const ADAPTER_LABELS: Record<string, string> = {
   "freshdesk-mcp": "Freshdesk MCP",
   freshservice: "Freshservice",
 };
+
+/** An audit entry's outcome, as the tables show it. */
+export function decisionOf(call: AuditEntry): { label: string; tone: Tone } {
+  if (call.decision === "denied") return { label: "Refused", tone: "danger" };
+  if (call.outcome === "error") return { label: "Error", tone: "danger" };
+  return { label: "Allowed", tone: "neutral" };
+}
 
 export const TOOL_OWNER: Record<string, string> = {
   pattern: "Pattern Agent",

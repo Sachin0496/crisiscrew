@@ -5,22 +5,19 @@ import { ADAPTER_LABELS, clock, inr, pct, plural, SEVERITY, since, STATUS_LABELS
 import { expectedOutcome, incidentTitle, progressSteps } from "../../view";
 import { Badge, Stat } from "../ui";
 
-export function ScenarioNote({ scenario, finished }: { scenario: ScenarioSummary; finished: boolean }) {
+/** One quiet line under the title: which replay this is and what it should do. */
+function ReplayLine({ scenario, finished }: { scenario: ScenarioSummary; finished: boolean }) {
   return (
-    <section className="card scenario-note" aria-label="Scenario">
-      <CirclePlay size={18} aria-hidden />
-      <div className="scenario-text">
-        <strong>
-          {finished ? "Replay finished" : "Replaying"}: {scenario.title}.
-        </strong>{" "}
-        {scenario.purpose}
-        <div className="scenario-expected">{expectedOutcome(scenario.expected)}.</div>
-      </div>
-    </section>
+    <p className="replay-line">
+      <CirclePlay size={14} aria-hidden />
+      <span>
+        {finished ? "Replay finished" : "Replaying"}: <strong>{scenario.title}</strong>. {expectedOutcome(scenario.expected)}.
+      </span>
+    </p>
   );
 }
 
-export function IncidentSummary({ incident }: { incident?: IncidentView }) {
+export function IncidentSummary({ incident, scenario, finished }: { incident?: IncidentView; scenario?: ScenarioSummary; finished: boolean }) {
   if (!incident) {
     return (
       <div className="page-header">
@@ -30,10 +27,14 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
             Monitoring
           </Badge>
         </div>
-        <p className="page-lede">
-          CrisisCrew reads every new complaint. When a burst of them describes the same failure, it opens an incident, proves which customers were harmed from the
-          payment data, finds the ones who stayed silent, and runs each one's recovery until every affected customer is covered.
-        </p>
+        {scenario ? (
+          <ReplayLine scenario={scenario} finished={finished} />
+        ) : (
+          <p className="page-lede">
+            CrisisCrew reads every new complaint. When a burst of them describes the same failure, it opens an incident, proves who was harmed from the payment
+            data, finds the customers who stayed silent, and recovers each one until everyone is covered.
+          </p>
+        )}
       </div>
     );
   }
@@ -83,6 +84,7 @@ export function IncidentSummary({ incident }: { incident?: IncidentView }) {
           </span>
         )}
       </div>
+      {scenario && <ReplayLine scenario={scenario} finished={finished} />}
     </div>
   );
 }
