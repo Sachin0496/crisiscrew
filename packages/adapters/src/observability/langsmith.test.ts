@@ -82,4 +82,34 @@ describe("egress allow-list", () => {
     await guarded("http://localhost:8000/v1/systemone");
     expect(sent).toBe(1);
   });
+
+  it("checks each redirect before sending and strips credentials across origins", async () => {
+    const seen: { url: string; authorization: string | null; redirect: Request["redirect"] }[] = [];
+    const guarded = allowListedFetch(["api.laya.studio", "api.smith.langchain.com"], (async (request: Request, init?: RequestInit) => {
+      seen.push({ url: request.url, authorization: request.headers.get("authorization"), redirect: init?.redirect ?? request.redirect });
+      if (request.url.endsWith("/start")) return new Response(null, { status: 302, headers: { location: "https://api.smith.langchain.com/next" } });
+      if (request.url.endsWith("/next")) return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data" } });
+      return new Response("ok");
+    }) as typeof fetch);
+
+    await expect(guarded("https://api.laya.studio/start", { headers: { authorization: "Bearer secret" } })).rejects.toBeInstanceOf(EgressError);
+    expect(seen).toEqual([
+      { url: "https://api.laya.studio/start", authorization: "Bearer secret", redirect: "manual" },
+      { url: "https://api.smith.langchain.com/next", authorization: null, redirect: "manual" },
+    ]);
+  });
+
+  it("follows a safe relative redirect and honors manual mode", async () => {
+    const seen: string[] = [];
+    const guarded = allowListedFetch(allowed, (async (request: Request) => {
+      seen.push(request.url);
+      return request.url.endsWith("/start")
+        ? new Response(null, { status: 307, headers: { location: "/done" } })
+        : new Response("ok");
+    }) as typeof fetch);
+    expect((await guarded("https://api.laya.studio/start")).status).toBe(200);
+    expect(seen).toEqual(["https://api.laya.studio/start", "https://api.laya.studio/done"]);
+    expect((await guarded("https://api.laya.studio/start", { redirect: "manual" })).status).toBe(307);
+    expect(seen).toHaveLength(3);
+  });
 });

@@ -29,7 +29,8 @@ export function rateLimit(group: string, perMinute: number): MiddlewareHandler {
 }
 
 function clientKey(c: Context): string {
-  const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-  const socket = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress;
-  return forwarded || socket || "local";
+  // The Node adapter supplies the actual peer socket. Forwarded headers are
+  // client controlled unless a trusted proxy has been configured to set them.
+  const env = c.env as { incoming?: { socket?: { remoteAddress?: string } }; server?: { incoming?: { socket?: { remoteAddress?: string } } } } | undefined;
+  return env?.server?.incoming?.socket?.remoteAddress ?? env?.incoming?.socket?.remoteAddress ?? "local";
 }

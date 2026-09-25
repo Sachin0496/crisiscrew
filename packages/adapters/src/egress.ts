@@ -41,15 +41,46 @@ function urlOf(input: string | URL | Request): URL {
   return new URL(typeof input === "string" ? input : input.url);
 }
 
-/** A fetch that refuses any host off the allow-list, and plain HTTP except to a listed loopback host. */
+/** A fetch that checks every redirect hop against the allow-list. */
 export function allowListedFetch(allowed: readonly string[], inner: typeof fetch = fetch): typeof fetch {
   const guarded = async (input: string | URL | Request, init?: RequestInit) => {
-    const url = urlOf(input);
-    if (!hostAllowed(url, allowed)) throw new EgressError(`${url.host} is not on the egress allow-list (${allowed.join(", ") || "empty"})`);
-    if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK.has(url.hostname))) {
-      throw new EgressError(`${url.protocol.replace(":", "")} to ${url.host} is not allowed; use https`);
+    let request = new Request(input, init);
+    for (let redirects = 0; ; redirects += 1) {
+      const url = urlOf(request);
+      if (!hostAllowed(url, allowed)) throw new EgressError(`${url.host} is not on the egress allow-list (${allowed.join(", ") || "empty"})`);
+      if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK.has(url.hostname))) {
+        throw new EgressError(`${url.protocol.replace(":", "")} to ${url.host} is not allowed; use https`);
+      }
+      const response = await inner(request.clone(), { redirect: "manual" });
+      if (![301, 302, 303, 307, 308].includes(response.status) || !response.headers.has("location")) return response;
+      if (request.redirect === "manual") return response;
+      if (request.redirect === "error") throw new TypeError("Redirect is not allowed");
+      if (redirects >= 20) throw new TypeError("Too many redirects");
+
+      const target = new URL(response.headers.get("location")!, url);
+      // Preserve fetch's method rewrite and remove credentials on an origin change.
+      const rewrite = response.status === 303 && request.method !== "HEAD"
+        || (response.status === 301 || response.status === 302) && request.method === "POST";
+      const headers = new Headers(request.headers);
+      if (rewrite) {
+        headers.delete("content-type");
+        headers.delete("content-length");
+      }
+      if (target.origin !== url.origin) {
+        headers.delete("authorization");
+        headers.delete("cookie");
+        headers.delete("proxy-authorization");
+      }
+      request = rewrite
+        ? new Request(target, { method: "GET", headers, redirect: request.redirect, signal: request.signal })
+        : new Request(target, request);
+      if (!rewrite && target.origin !== url.origin) {
+        request.headers.delete("authorization");
+        request.headers.delete("cookie");
+        request.headers.delete("proxy-authorization");
+      }
+      await response.body?.cancel();
     }
-    return inner(input, init);
   };
   return guarded as typeof fetch;
 }
