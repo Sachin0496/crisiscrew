@@ -11,6 +11,7 @@ import {
   type CustomerImpact,
   type CustomerUpdate,
   type EventInput,
+  type ImportanceLevel,
   type IncidentView,
   type Level,
   type Policy,
@@ -153,6 +154,7 @@ export function createTools(): Tool[] {
           id: i.id,
           status: i.status,
           severity: i.severity,
+          importance: i.importance ? { level: i.importance.level, page: i.importance.page, reasons: i.importance.reasons.map((r) => r.text), by: i.importance.by ?? null } : null,
           surface: i.surface,
           openedAt: new Date(i.openedAt).toISOString(),
           linkedTickets: i.linkedTicketIds.length,
@@ -296,17 +298,17 @@ export function createTools(): Tool[] {
         clusterId: z.string().min(1),
         ticketIds: z.array(z.string()).min(1),
         surface: Surface,
-        severity: z.enum(["high", "medium"]),
+        importance: z.enum(["P1", "P2", "P3"]),
       }),
       level: fixed(1),
       condition: (args, ctx) => (ctx.state().incidents[(args as { incidentId: string }).incidentId] ? "incident is already open" : null),
       async run(args, ctx) {
-        const a = args as { incidentId: string; clusterId: string; ticketIds: string[]; surface: Surface; severity: "high" | "medium" };
+        const a = args as { incidentId: string; clusterId: string; ticketIds: string[]; surface: Surface; importance: ImportanceLevel };
         const now = ctx.now();
         const incident: IncidentView = {
           id: a.incidentId,
           status: "detected",
-          severity: a.severity,
+          severity: a.importance === "P1" ? "high" : "medium",
           openedAt: now,
           surface: a.surface,
           clusterId: a.clusterId,
@@ -336,22 +338,28 @@ export function createTools(): Tool[] {
       async run(args, ctx) {
         const { incidentId } = args as { incidentId: string };
         const incident = incidentOf(ctx, incidentId);
-        const record = await ctx.ports.incidents.open({ incidentId, severity: incident.severity, ...engineeringSummary(incident) });
-        ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, adapter: ctx.ports.incidents.adapter } } });
+        const importance = incident.importance?.level ?? (incident.severity === "high" ? "P1" : "P2");
+        const record = await ctx.ports.incidents.open({ incidentId, importance, ...engineeringSummary(incident) });
+        ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, adapter: ctx.ports.incidents.adapter, importance } } });
         return record;
       },
       summarize: (r) => `filed ${(r as { id: string }).id}`,
     },
     {
       name: "update_engineering_incident",
-      description: "Add a private note to the engineering incident: the root cause, or customer impact and recovery coverage.",
-      input: z.object({ incidentId: z.string().min(1), note: z.string().min(1).max(4000) }),
+      description:
+        "Add a private note to the engineering incident: the root cause, customer impact and recovery coverage, or a change of importance (which also sets its priority).",
+      input: z.object({ incidentId: z.string().min(1), note: z.string().min(1).max(4000), importance: z.enum(["P1", "P2", "P3"]).optional() }),
       level: fixed(1),
       adapter: (ctx) => ctx.ports.incidents.adapter,
       condition: (args, ctx) => (ctx.state().incidents[(args as { incidentId: string }).incidentId]?.engineering ? null : "no engineering incident has been filed"),
       async run(args, ctx) {
-        const { incidentId, note } = args as { incidentId: string; note: string };
+        const { incidentId, note, importance } = args as { incidentId: string; note: string; importance?: ImportanceLevel };
         const record = incidentOf(ctx, incidentId).engineering!;
+        if (importance && importance !== record.importance) {
+          await ctx.ports.incidents.setImportance(record.id, importance);
+          ctx.emit({ type: "engineering.recorded", payload: { incidentId, record: { ...record, importance } } });
+        }
         await ctx.ports.incidents.note(record.id, note);
         return { recordId: record.id };
       },

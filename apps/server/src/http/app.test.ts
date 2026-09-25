@@ -65,6 +65,25 @@ describe("HTTP API", () => {
     expect(state.ticketOrder).toHaveLength(2);
   });
 
+  it("lets an admin set an incident's importance, and says why a request is refused", async () => {
+    const { app, runtime } = await setup({ ADMIN_TOKEN: "s3cret" });
+    const auth = { authorization: "Bearer s3cret" };
+    const done = replayDone(runtime);
+    await app.request("/api/replay", json({ scenario: "checkout-v4.21.7", speed: 500 }, auth));
+    await done;
+    const id = runtime.state().incidentOrder[0]!;
+    expect(runtime.state().incidents[id]?.importance).toMatchObject({ level: "P1", page: true });
+
+    expect((await app.request(`/api/incidents/${id}/importance`, json({ level: "P2" }))).status).toBe(401);
+    expect((await app.request(`/api/incidents/${id}/importance`, json({ level: "P0" }, auth))).status).toBe(400);
+    expect((await app.request(`/api/incidents/INC-404/importance`, json({ level: "P2" }, auth))).status).toBe(404);
+    const res = await app.request(`/api/incidents/${id}/importance`, json({ level: "P2", note: "provider confirmed a fix" }, { ...auth, "x-operator-name": "Asha" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ level: "P2", page: false, source: "human", by: "Asha", note: "provider confirmed a fix" });
+    expect(runtime.state().incidents[id]?.importance?.level).toBe("P2");
+    expect(runtime.state().incidents[id]?.engineering?.importance).toBe("P2");
+  });
+
   it("returns 404 for an unknown scenario and 400 for a bad body", async () => {
     const { app } = await setup();
     expect((await app.request("/api/replay", json({ scenario: "nope" }))).status).toBe(404);

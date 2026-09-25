@@ -43,6 +43,7 @@ export function expectedOutcome(expected: Scenario["expected"]): string {
   const cause = expected.rootCause?.split(":")[1];
   const parts = [`an incident${cause ? ` caused by ${cause}` : ""}`];
   if (expected.affected !== undefined) parts.push(`${expected.affected} customers harmed${expected.silent !== undefined ? ` (${expected.silent} silent)` : ""}`);
+  if (expected.importance) parts.push(`importance ${expected.importance}${expected.pages ? ", page on-call" : ""}`);
   if (expected.needsHuman) parts.push(`${expected.needsHuman === 1 ? "one credit" : `${expected.needsHuman} credits`} for a human to decide`);
   return `Expected: ${joinList(parts)}`;
 }

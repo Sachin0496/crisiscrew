@@ -6,7 +6,7 @@ import {
   type FreshdeskTicket,
   type FreshdeskWriter,
 } from "@crisiscrew/adapters";
-import type { Approval, AuditEntry, CrisisState, Customer, DecisionBody, Policy, Scenario, Ticket, TicketInput } from "@crisiscrew/contracts";
+import type { Approval, AuditEntry, ImportanceAssessment, ImportanceLevel, CrisisState, Customer, DecisionBody, Policy, Scenario, Ticket, TicketInput } from "@crisiscrew/contracts";
 import {
   CrisisEngine,
   EventBus,
@@ -148,6 +148,10 @@ export class Runtime {
     }
     this.lastPoll = polledAt;
     return ingested;
+  }
+
+  setImportance(incidentId: string, level: ImportanceLevel, by: string, note?: string): Promise<ImportanceAssessment> {
+    return this.current().setImportance(incidentId, level, by, note);
   }
 
   decide(approvalId: string, body: DecisionBody, by: string): Promise<Approval> {

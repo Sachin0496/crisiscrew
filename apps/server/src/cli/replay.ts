@@ -88,8 +88,13 @@ function print(e: CrisisEvent): void {
       break;
     }
     case "incident.opened":
-      console.log(red(bold(`\n  ${e.payload.incident.id} opened: ${e.payload.incident.ticketIds.length} tickets, ${SURFACE_LABELS[e.payload.incident.surface]}, severity ${e.payload.incident.severity}\n`)));
+      console.log(red(bold(`\n  ${e.payload.incident.id} opened: ${e.payload.incident.ticketIds.length} tickets, ${SURFACE_LABELS[e.payload.incident.surface]}\n`)));
       break;
+    case "incident.importance": {
+      const imp = e.payload.importance;
+      console.log(bold(`  ${e.payload.incidentId}: importance ${imp.level}${imp.page ? ", page on-call" : ""}`) + dim(`  ${imp.reasons[0]?.text ?? "no rule raised it"}`));
+      break;
+    }
     case "incident.status_changed":
       console.log(bold(`  ${e.payload.incidentId}: ${e.payload.to.replace(/_/g, " ")}`) + dim(`  ${e.payload.note}`));
       break;
@@ -169,7 +174,7 @@ for (const i of summary) {
   const m = recoveryMetrics(final, i);
   const pct = c.ratio === null ? "n/a" : `${Math.round(c.ratio * 100)}%`;
   console.log(
-    `  ${i.id}: ${i.status.replace("_", " ")}; root cause ${i.rootCause ? `${i.rootCause.label} (${(i.rootCause.confidence * 100).toFixed(0)}%)` : "not identified"}; ` +
+    `  ${i.id}: ${i.status.replace("_", " ")}${i.importance ? `, ${i.importance.level}${i.importance.page ? ", page on-call" : ""}` : ""}; root cause ${i.rootCause ? `${i.rootCause.label} (${(i.rootCause.confidence * 100).toFixed(0)}%)` : "not identified"}; ` +
       `${i.linkedTicketIds.length} tickets linked\n` +
       `  ${c.confirmed} affected (${c.complained} complained, ${c.silent} silent${c.unverified ? `, ${c.unverified} not verified` : ""}); ` +
       `${bold(`recovery coverage ${c.recovered}/${c.confirmed} (${pct})`)}${c.needsHuman ? `, ${c.needsHuman} waiting for a human` : ""}\n` +

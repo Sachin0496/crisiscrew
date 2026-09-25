@@ -34,6 +34,14 @@ const base = {
     provider: { operationalLr: 0.1, degradedLr: 8, uncheckedLr: 1 },
     methodSpread: { concentratedShare: 0.8, concentratedLr: 2, spreadLr: 0.7 },
   },
+  importance: {
+    tier1Surfaces: ["checkout_payments"],
+    affectedCustomers: { p1: 20, p2: 5 },
+    failedValueInr: { p1: 200000, p2: 25000 },
+    priorityCustomers: { p1: 3, p2: 1 },
+    deployConfidence: 0.8,
+    pageAt: "P1",
+  },
   recovery: { affectedLookbackMin: 30, creditInr: { standard: 200, high: 1000 }, highValueInr: 10000 },
 };
 
@@ -53,5 +61,10 @@ describe("parsePolicy", () => {
     const partial = structuredClone(base) as Record<string, unknown>;
     delete (partial.identities as Record<string, unknown>).handoff;
     expect(() => parsePolicy(partial, ["get_incident", "open_incident"])).toThrow();
+  });
+
+  it("rejects importance tiers where P2 needs more than P1, and a product area that doesn't exist", () => {
+    expect(() => parsePolicy({ ...base, importance: { ...base.importance, affectedCustomers: { p1: 5, p2: 20 } } }, ["get_incident", "open_incident"])).toThrow(/p2 must not be above p1/);
+    expect(() => parsePolicy({ ...base, importance: { ...base.importance, tier1Surfaces: ["payroll"] } }, ["get_incident", "open_incident"])).toThrow();
   });
 });
