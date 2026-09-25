@@ -218,6 +218,7 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
           out.push({
             id: `AMS-${d.service}-${d.sha.slice(0, 7)}`,
             source: "sandbox",
+            receivedAt: now,
             severity: open ? "critical" : "ok",
             resource: d.service,
             hostname: d.service,
