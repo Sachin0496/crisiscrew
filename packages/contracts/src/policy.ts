@@ -51,7 +51,7 @@ export const PolicySchema = z.object({
   rca: z.object({
     lookbackHours: z.number().positive(),
     confidenceFloor: z.number().min(0).max(1),
-    priors: z.object({ deploy: z.number().positive(), provider: z.number().positive(), unknown: z.number().positive() }),
+    priors: z.object({ deploy: z.number().positive(), provider: z.number().positive(), infra: z.number().positive(), unknown: z.number().positive() }),
     deployGap: z.object({
       withinMin: z.number().positive(),
       withinLr: z.number().positive(),
@@ -68,6 +68,24 @@ export const PolicySchema = z.object({
       noneLr: z.number().positive(),
     }),
     provider: z.object({ operationalLr: z.number().positive(), degradedLr: z.number().positive(), uncheckedLr: z.number().positive() }),
+    /** Infrastructure health from Kubernetes and cloud checks (get_infra_health). */
+    infra: z.object({
+      /** Pods restarting in a loop. */
+      crashLoopLr: z.number().positive(),
+      /** Fewer pods ready than wanted. */
+      unreadyLr: z.number().positive(),
+      /** At least this many restarts across the service's pods, with every pod ready now. */
+      restartsMin: z.number().int().min(1),
+      restartsLr: z.number().positive(),
+      /** Every pod ready, few restarts. */
+      healthyLr: z.number().positive(),
+      /** A cloud alarm on the service (CloudWatch). */
+      alarmLr: z.number().positive(),
+      noAlarmLr: z.number().positive(),
+      /** CPU at or above this percent is saturation. */
+      saturationPercent: z.number().min(1).max(100),
+      saturationLr: z.number().positive(),
+    }),
     methodSpread: z.object({
       concentratedShare: z.number().min(0).max(1),
       concentratedLr: z.number().positive(),

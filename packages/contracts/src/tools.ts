@@ -7,6 +7,7 @@ export const TOOL_NAMES = [
   "get_payment_health",
   "get_recent_deployments",
   "get_service_status",
+  "get_infra_health",
   "identify_affected_customers",
   "open_incident",
   "file_engineering_incident",

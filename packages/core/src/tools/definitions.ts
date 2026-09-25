@@ -22,7 +22,7 @@ import {
 } from "@crisiscrew/contracts";
 import { z } from "zod";
 import type { ToolDef } from "../policy/gate";
-import type { Ports } from "../ports";
+import type { InfraHealth, Ports } from "../ports";
 import { assessImpact } from "../recovery/impact";
 import { planRecovery } from "../recovery/plan";
 import { customerCase, draftUpdate, engineeringSummary, inr, pageScript, type Draft } from "../recovery/templates";
@@ -253,6 +253,24 @@ export function createTools(): Tool[] {
       summarize: (r) => {
         const { service, points, latestRate } = r as { service: string; points: unknown[]; latestRate: number | null };
         return `${service}: ${points.length} points, latest ${latestRate === null ? "n/a" : `${(latestRate * 100).toFixed(2)}%`}`;
+      },
+    },
+    {
+      name: "get_infra_health",
+      description:
+        "A service's infrastructure now: its pods (ready, restarts, CrashLoopBackOff) from Kubernetes, its cloud alarms (CloudWatch) over the last N minutes, and its CPU. A part no source could check is reported as not checked.",
+      input: z.object({ service: z.string().min(1), minutes: z.number().int().min(5).max(1440).default(120) }),
+      level: fixed(0),
+      adapter: (ctx) => ctx.ports.infra.adapter,
+      async run(args, ctx) {
+        const { service, minutes } = args as { service: string; minutes: number };
+        return ctx.ports.infra.health(service, ctx.now() - minutes * 60_000);
+      },
+      summarize: (r) => {
+        const h = r as InfraHealth;
+        const pods = h.pods ? `${h.pods.ready}/${h.pods.total} pods ready${h.pods.crashLooping ? `, ${h.pods.crashLooping} crash-looping` : ""}` : "pods not checked";
+        const alarms = h.alarms ? `${h.alarms.length} ${h.alarms.length === 1 ? "alarm" : "alarms"}` : "alarms not checked";
+        return `${h.service}: ${pods}; ${alarms}`;
       },
     },
     {

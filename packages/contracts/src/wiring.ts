@@ -11,6 +11,7 @@ export type PortName =
   | "telephony"
   | "oncall"
   | "alerts"
+  | "infra"
   | "llm"
   | "embeddings"
   | "credits"

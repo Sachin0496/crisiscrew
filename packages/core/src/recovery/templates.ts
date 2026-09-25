@@ -36,6 +36,7 @@ export function inr(amount: number): string {
 function causeSentence(root: Hypothesis | undefined): string {
   if (!root || root.kind === "unknown") return "We are still confirming the exact cause.";
   if (root.kind === "deploy") return "We've found the cause, a recent change on our side, and our team is fixing it now.";
+  if (root.kind === "infra") return "We've found the cause, a problem with our own systems, and our team is fixing it now.";
   return `We've found the cause, a problem at our payment partner (${root.subject}), and we're working with them on it.`;
 }
 
@@ -168,6 +169,7 @@ export function investigationNarrative(hypotheses: Hypothesis[]): string {
     checks.has("get_payment_health") && "the payment gateway",
     checks.has("get_recent_deployments") && "recent releases",
     checks.has("get_service_status") && "service error rates",
+    checks.has("get_infra_health") && "infrastructure (pods and cloud alarms)",
   ].filter(Boolean);
   const lead = `Checked ${checked.length ? checked.join(", ") : "nothing yet"}.`;
   if (top.kind === "unknown") return `${lead} No single cause stands out yet.`;

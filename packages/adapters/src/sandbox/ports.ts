@@ -172,6 +172,31 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
 
     telephony: sandboxTelephony({ seed: scenario.id, clock, record: record.calls, scripted: rosterOutcomes(world.oncall) }),
 
+    // A service the scenario says nothing about is healthy: every pod ready, no alarms.
+    infra: {
+      ...SANDBOX,
+      async health(service, sinceMs) {
+        await pause();
+        const info = world.infra[service];
+        const now = clock.now();
+        const alarms = (info?.alarms ?? [])
+          .map((a) => ({ name: a.name, since: at(a.at), ...(a.metric ? { metric: a.metric } : {}) }))
+          .filter((a) => a.since >= sinceMs && a.since <= now);
+        const pods = info?.pods ?? { ready: 3, total: 3, restarts: 0, crashLooping: 0 };
+        return {
+          service,
+          pods,
+          alarms,
+          ...(info?.cpuPercent !== undefined ? { cpuPercent: info.cpuPercent } : {}),
+          checks: [
+            { source: "sandbox", kind: "pods", checked: true, detail: `${pods.ready}/${pods.total} ready` },
+            { source: "sandbox", kind: "alarms", checked: true, detail: `${alarms.length} active` },
+            ...(info?.cpuPercent !== undefined ? [{ source: "sandbox", kind: "cpu" as const, checked: true, detail: `${info.cpuPercent}%` }] : []),
+          ],
+        };
+      },
+    },
+
     // The scenario's roster is on call for every service.
     oncall: {
       ...SANDBOX,

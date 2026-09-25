@@ -104,6 +104,25 @@ export interface TelephonyPort extends AdapterMode {
   onUpdate(listener: (call: CallView) => void): () => void;
 }
 
+/** What one infrastructure source (a Kubernetes or cloud MCP server, or the sandbox) said, or why it couldn't. */
+export type InfraCheck = { source: string; kind: "pods" | "alarms" | "cpu"; checked: boolean; detail: string };
+
+/**
+ * A service's infrastructure right now: its pods, its cloud alarms, and its
+ * CPU. A part that no source could check is left out, and its check says so.
+ */
+export type InfraHealth = {
+  service: string;
+  pods?: { ready: number; total: number; restarts: number; crashLooping: number };
+  alarms?: { name: string; since?: number; metric?: string }[];
+  cpuPercent?: number;
+  checks: InfraCheck[];
+};
+
+export interface InfraHealthPort extends AdapterMode {
+  health(service: string, sinceMs: number): Promise<InfraHealth>;
+}
+
 /** Someone on call right now, with how to reach them. */
 export type Responder = { name: string; role: OnCallRole; phone?: string; email?: string };
 
@@ -141,6 +160,7 @@ export type Ports = {
   voice: VoicePort;
   telephony: TelephonyPort;
   oncall: OnCallPort;
+  infra: InfraHealthPort;
   credits: CreditsPort;
   incidents: IncidentsPort;
   catalog: ServiceCatalog;

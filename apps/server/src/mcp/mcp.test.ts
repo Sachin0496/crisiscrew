@@ -42,6 +42,7 @@ describe("MCP endpoint", () => {
       [
         "get_customer_impact",
         "get_incident",
+        "get_infra_health",
         "get_payment_health",
         "get_recent_deployments",
         "get_recovery_coverage",

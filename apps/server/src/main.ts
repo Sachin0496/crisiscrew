@@ -6,6 +6,8 @@ import {
   freshserviceIncidents,
   freshserviceOnCall,
   FreshserviceAlertsClient,
+  mcpInfraHealth,
+  McpToolClient,
   HashEmbedder,
   LocalEmbedder,
   restWriter,
@@ -64,6 +66,7 @@ function liveAdapters(): LiveAdapters {
     const { domain, apiKey, requesterEmail, workspaceId } = config.freshservice;
     live.incidents = freshserviceIncidents({ domain, apiKey, requesterEmail, ...(workspaceId !== null ? { workspaceId } : {}) });
   }
+  if (config.infra) live.infra = mcpInfraHealth(config.infra.servers.map((server) => new McpToolClient(server)));
   if (config.alerts) {
     const { domain, apiKey, rules } = config.alerts;
     live.alerts = { client: new FreshserviceAlertsClient({ domain, apiKey }), rules };

@@ -127,7 +127,8 @@ export type EvidenceItem = {
   checked: boolean;
 };
 
-export type HypothesisKind = "deploy" | "provider" | "unknown";
+/** What a root-cause hypothesis blames: a release, the payment gateway, our own infrastructure (pods, cloud), or nothing yet identified. */
+export type HypothesisKind = "deploy" | "provider" | "infra" | "unknown";
 export type Hypothesis = {
   id: string;
   kind: HypothesisKind;

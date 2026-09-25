@@ -22,6 +22,7 @@ import {
   type Embedder,
   type CallRequest,
   type IncidentsPort,
+  type InfraHealthPort,
   type OnCallPort,
   type Ports,
 } from "@crisiscrew/core";
@@ -37,6 +38,8 @@ export type LiveAdapters = {
   telephony?: VobizTelephony;
   /** ONCALL=freshservice: who's on call, from Freshservice on-call schedules. */
   oncall?: OnCallPort;
+  /** INFRA=mcp: infrastructure health from Kubernetes and CloudWatch MCP servers. */
+  infra?: InfraHealthPort;
   /** ALERTS=freshservice: alerts from Freshservice Alert Management, and the rules that tie them to services. */
   alerts?: { client: FreshserviceAlertsClient; rules: AlertServiceRule[] };
 };
@@ -286,6 +289,7 @@ export class Runtime {
       ...(live?.incidents ? { incidents: live.incidents } : {}),
       ...(live?.telephony ? { telephony: live.telephony } : {}),
       ...(live?.oncall ? { oncall: live.oncall } : {}),
+      ...(live?.infra ? { infra: live.infra } : {}),
     };
   }
 
