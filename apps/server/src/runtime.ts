@@ -5,6 +5,7 @@ import {
   type FreshdeskClient,
   type FreshdeskTicket,
   type FreshdeskWriter,
+  type VobizTelephony,
 } from "@crisiscrew/adapters";
 import type { Approval, AuditEntry, ImportanceAssessment, ImportanceLevel, CrisisState, Customer, DecisionBody, Policy, Scenario, Ticket, TicketInput } from "@crisiscrew/contracts";
 import {
@@ -15,6 +16,7 @@ import {
   type Clock,
   type EngineSession,
   type Embedder,
+  type CallRequest,
   type IncidentsPort,
   type Ports,
 } from "@crisiscrew/core";
@@ -26,6 +28,8 @@ export type LiveAdapters = {
   freshdesk?: { client: FreshdeskClient; writer: FreshdeskWriter };
   /** INCIDENTS=freshservice: files engineering incidents in Freshservice. */
   incidents?: IncidentsPort;
+  /** TELEPHONY=vobiz: places real phone calls. */
+  telephony?: VobizTelephony;
 };
 
 export type RuntimeOptions = {
@@ -154,6 +158,16 @@ export class Runtime {
     return this.current().setImportance(incidentId, level, by, note);
   }
 
+  /** The live Vobiz adapter, for its callbacks; null when calls are simulated. */
+  get vobiz(): VobizTelephony | null {
+    return this.options.live?.telephony ?? null;
+  }
+
+  /** Places a call through the current session's telephony port (Vobiz or the sandbox). */
+  placeCall(request: CallRequest): Promise<{ callId: string }> {
+    return this.currentPorts().telephony.call(request);
+  }
+
   decide(approvalId: string, body: DecisionBody, by: string): Promise<Approval> {
     return this.current().decide(approvalId, body, by);
   }
@@ -216,6 +230,7 @@ export class Runtime {
       ...sandbox,
       ...(live?.freshdesk ? { ticketActions: freshdeskTicketActions(live.freshdesk.writer, sandbox.ticketActions) } : {}),
       ...(live?.incidents ? { incidents: live.incidents } : {}),
+      ...(live?.telephony ? { telephony: live.telephony } : {}),
     };
   }
 

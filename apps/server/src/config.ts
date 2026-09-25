@@ -51,6 +51,16 @@ const PORTS: Record<PortName, PortSpec> = {
   payments: { env: "PAYMENTS", options: ["sandbox", "razorpay-status"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's gateway status" },
   metrics: { env: "METRICS", options: ["sandbox"], wired: ["sandbox"], mode: sandboxMode, detail: () => "Error rates simulated from the scenario's releases" },
   orders: { env: "ORDERS", options: ["sandbox"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's customers and payment attempts" },
+  telephony: {
+    env: "TELEPHONY",
+    options: ["sandbox", "vobiz"],
+    wired: ["sandbox", "vobiz"],
+    mode: (v) => (v === "vobiz" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "vobiz" && c.vobiz
+        ? `Vobiz: calls from ${c.vobiz.from}, with callbacks to ${c.publicBaseUrl}/api/webhooks/vobiz`
+        : "Calls are simulated: they ring, and are answered, missed or busy, the same way on every replay",
+  },
   voice: { env: "VOICE", options: ["off", "elevenlabs"], wired: ["off"], mode: () => "off", detail: () => "Voice scripts are prepared; no audio is generated" },
   llm: { env: "LLM", options: ["template", "anthropic"], wired: ["template"], mode: () => "off", detail: () => "Fixed templates; no language model is called" },
   embeddings: {
@@ -77,6 +87,8 @@ export type FreshdeskConfig = {
 
 export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null };
 
+export type VobizConfig = { authId: string; authToken: string; from: string; ringTimeoutSec: number; timeLimitSec: number };
+
 export type Config = {
   port: number;
   publicBaseUrl: string | null;
@@ -91,6 +103,7 @@ export type Config = {
   generatedTokens: Identity[];
   freshdesk: FreshdeskConfig | null;
   freshservice: FreshserviceConfig | null;
+  vobiz: VobizConfig | null;
 };
 
 type Env = Record<string, string | undefined>;
@@ -153,6 +166,26 @@ function freshserviceConfig(env: Env): FreshserviceConfig {
   };
 }
 
+function vobizConfig(env: Env): VobizConfig {
+  const missing = ["VOBIZ_AUTH_ID", "VOBIZ_AUTH_TOKEN", "VOBIZ_FROM_NUMBER"].filter((k) => !text(env, k));
+  if (missing.length > 0) throw new ConfigError(`TELEPHONY=vobiz needs ${missing.join(", ")}; see .env.example`);
+  const base = text(env, "PUBLIC_BASE_URL");
+  if (!base?.startsWith("https://")) {
+    throw new ConfigError("TELEPHONY=vobiz needs PUBLIC_BASE_URL set to this server's public https:// URL, so Vobiz can fetch what each call says");
+  }
+  // A public server that can place real calls must not let anyone start them.
+  if (!text(env, "ADMIN_TOKEN")) throw new ConfigError("TELEPHONY=vobiz needs ADMIN_TOKEN, so only an admin can place a test call");
+  const from = text(env, "VOBIZ_FROM_NUMBER")!;
+  if (!/^\+?[1-9]\d{7,14}$/.test(from.replace(/[\s()-]/g, ""))) throw new ConfigError("VOBIZ_FROM_NUMBER must be a phone number in E.164 format, e.g. +918065551234");
+  return {
+    authId: text(env, "VOBIZ_AUTH_ID")!,
+    authToken: text(env, "VOBIZ_AUTH_TOKEN")!,
+    from,
+    ringTimeoutSec: Math.max(10, int(env, "VOBIZ_RING_TIMEOUT_SEC", 30)),
+    timeLimitSec: Math.max(30, int(env, "VOBIZ_TIME_LIMIT_SEC", 300)),
+  };
+}
+
 /** Reads and validates configuration from environment variables. See .env.example. */
 export function loadConfig(env: Env): Config {
   const switches = {} as Record<PortName, string>;
@@ -187,6 +220,7 @@ export function loadConfig(env: Env): Config {
     generatedTokens,
     freshdesk: switches.tickets === "freshdesk" ? freshdeskConfig(env) : null,
     freshservice: switches.incidents === "freshservice" ? freshserviceConfig(env) : null,
+    vobiz: switches.telephony === "vobiz" ? vobizConfig(env) : null,
   };
 }
 

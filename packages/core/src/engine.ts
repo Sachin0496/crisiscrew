@@ -68,6 +68,7 @@ export class CrisisEngine {
   private readonly chains = new Map<string, Promise<unknown>>();
   private readonly kit: AgentKit;
   private stopped = false;
+  private readonly unsubscribe: () => void;
 
   constructor(private readonly deps: EngineDeps) {
     this.audit = new AuditLog((entry) => {
@@ -107,6 +108,7 @@ export class CrisisEngine {
       },
       noted: new Set(),
     };
+    this.unsubscribe = deps.ports.telephony.onUpdate((call) => this.emit({ type: "call.updated", payload: { call } }));
   }
 
   async init(): Promise<void> {
@@ -118,6 +120,7 @@ export class CrisisEngine {
   /** Stops emitting; used when a new session replaces this one. */
   stop(): void {
     this.stopped = true;
+    this.unsubscribe();
   }
 
   snapshot(): CrisisState {

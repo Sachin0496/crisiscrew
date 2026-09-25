@@ -6,3 +6,6 @@ export * from "./freshworks/freshdesk-mcp";
 export * from "./freshworks/freshservice";
 export * from "./freshworks/http";
 export * from "./sandbox/ports";
+export * from "./telephony/calls";
+export * from "./telephony/sandbox";
+export * from "./telephony/vobiz";

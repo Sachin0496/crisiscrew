@@ -150,6 +150,32 @@ export type Customer = {
   consent: { voice: boolean; proactive: boolean };
 };
 
+/** Why a phone call is made: paging the on-call engineer, or calling an affected customer. */
+export type CallPurpose = "oncall" | "customer";
+
+/** A call's lifecycle. The last four are final. */
+export type CallState = "queued" | "ringing" | "answered" | "completed" | "no_answer" | "busy" | "failed";
+
+export const FINAL_CALL_STATES: readonly CallState[] = ["completed", "no_answer", "busy", "failed"];
+
+/** One outbound phone call, as the telephony adapter last reported it. */
+export type CallView = {
+  id: string;
+  purpose: CallPurpose;
+  /** The number called, masked to its last four digits for display and logs. */
+  to: string;
+  state: CallState;
+  adapter: string;
+  startedAt: number;
+  updatedAt: number;
+  durationSec?: number;
+  /** Keys the callee pressed, when the call asked for input. */
+  digits?: string;
+  /** Why a call failed or ended without an answer, in the provider's words. */
+  reason?: string;
+  metadata?: Record<string, string>;
+};
+
 export type UpdateChannel = "ticket_reply" | "proactive_message" | "voice";
 export type CustomerUpdate = {
   id: string;

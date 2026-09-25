@@ -13,13 +13,14 @@ describe("loadConfig", () => {
       metrics: "sandbox",
       orders: "sandbox",
       voice: "off",
+      telephony: "sandbox",
       llm: "template",
       embeddings: "local",
       credits: "sandbox",
       translate: "off",
     });
     expect(config.embeddingsModel).toBe(DEFAULT_EMBEDDING_MODEL);
-    expect(config).toMatchObject({ freshdesk: null, freshservice: null });
+    expect(config).toMatchObject({ freshdesk: null, freshservice: null, vobiz: null });
   });
 
   it("switches Freshdesk on with its keys, and refuses without them", () => {
@@ -37,6 +38,23 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ INCIDENTS: "freshservice", FRESHSERVICE_DOMAIN: "acme" })).toThrow(
       "INCIDENTS=freshservice needs FRESHSERVICE_API_KEY, FRESHSERVICE_REQUESTER_EMAIL; see .env.example",
     );
+  });
+
+  it("switches Vobiz on only with its keys, a public https URL and an admin token", () => {
+    const keys = {
+      TELEPHONY: "vobiz",
+      VOBIZ_AUTH_ID: "MA123",
+      VOBIZ_AUTH_TOKEN: "tok",
+      VOBIZ_FROM_NUMBER: "+918065551234",
+      PUBLIC_BASE_URL: "https://crisis.example.com",
+      ADMIN_TOKEN: "admin",
+    };
+    expect(loadConfig(keys).vobiz).toEqual({ authId: "MA123", authToken: "tok", from: "+918065551234", ringTimeoutSec: 30, timeLimitSec: 300 });
+    expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "live", adapter: "vobiz" });
+    expect(() => loadConfig({ ...keys, VOBIZ_AUTH_TOKEN: "", VOBIZ_FROM_NUMBER: "" })).toThrow("TELEPHONY=vobiz needs VOBIZ_AUTH_TOKEN, VOBIZ_FROM_NUMBER; see .env.example");
+    expect(() => loadConfig({ ...keys, PUBLIC_BASE_URL: "http://localhost:8787" })).toThrow(/PUBLIC_BASE_URL.*https/);
+    expect(() => loadConfig({ ...keys, ADMIN_TOKEN: "" })).toThrow(/needs ADMIN_TOKEN/);
+    expect(() => loadConfig({ ...keys, VOBIZ_FROM_NUMBER: "reception" })).toThrow(/E\.164/);
   });
 
   it("refuses to start with a live adapter that isn't wired yet, naming it", () => {
@@ -68,7 +86,8 @@ describe("wiringReport", () => {
     const report = wiringReport(loadConfig({}));
     // Only the local embedding model is live: it is real computation on this machine, not simulated data.
     expect(report.liveCount).toBe(1);
-    expect(report.ports).toHaveLength(11);
+    expect(report.ports).toHaveLength(12);
+    expect(report.ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "sandbox", available: ["vobiz"], planned: [], env: "TELEPHONY" });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });
     expect(report.ports.find((p) => p.port === "incidents")).toMatchObject({ mode: "sandbox", available: ["freshservice"], planned: [] });
     expect(report.ports.find((p) => p.port === "voice")).toMatchObject({ mode: "off", available: [], planned: ["elevenlabs"] });
