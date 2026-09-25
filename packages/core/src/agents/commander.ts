@@ -1,16 +1,57 @@
-import { recoveryCoverage, type Approval, type ClusterView, type IncidentStatus } from "@crisiscrew/contracts";
+import { recoveryCoverage, type ClusterView, type IncidentStatus } from "@crisiscrew/contracts";
 import { coverageNote } from "../recovery/templates";
-import { carryOutDecision, requestApprovals } from "./handoff";
-import { investigate } from "./investigator";
 import type { AgentKit } from "./kit";
-import { assessImpact, noteOutcomes, reconcile, startRecovery } from "./recovery";
+
+/**
+ * Incident Commander: opens the incident, files it where engineering works,
+ * and drives recovery until every affected customer is covered or waiting
+ * for a human. The order of its steps lives in the LangGraph workflows
+ * (src/workflows); these are the steps.
+ */
+
+/** Opens the incident for a cluster that passed every detection gate. */
+export async function openIncident(kit: AgentKit, cluster: ClusterView, incidentId: string): Promise<{ opened: true; severity: "high" | "medium" } | { opened: false; reason: string }> {
+  kit.setAgent("commander", "working", `Opening ${incidentId}`);
+  const severity = cluster.dominantSurface === "checkout_payments" ? "high" : "medium";
+  const opened = await kit.gate.call("commander", "open_incident", {
+    incidentId,
+    clusterId: cluster.id,
+    ticketIds: cluster.reportTicketIds,
+    surface: cluster.dominantSurface,
+    severity,
+  });
+  if (!opened.ok) {
+    kit.setAgent("commander", "done", `Could not open ${incidentId}: ${opened.reason}`);
+    return { opened: false, reason: opened.reason };
+  }
+  kit.setStatus(incidentId, "investigating", "Investigator and Recovery Agent started in parallel");
+  kit.setAgent("commander", "working", `Coordinating ${incidentId}`);
+  return { opened: true, severity };
+}
+
+/** Files the incident where engineering works (Freshservice, or its sandbox). */
+export async function fileEngineering(kit: AgentKit, incidentId: string): Promise<{ record: string | null; reason?: string }> {
+  const r = await kit.gate.call("commander", "file_engineering_incident", { incidentId });
+  return r.ok ? { record: (r.result as { id: string }).id } : { record: null, reason: r.reason };
+}
+
+/** Once the investigation and the first impact assessment are in: brief engineering, and move the incident to recovery. */
+export async function briefEngineering(kit: AgentKit, incidentId: string): Promise<{ briefed: boolean }> {
+  const incident = kit.state().incidents[incidentId]!;
+  let briefed = false;
+  if (incident.engineering && incident.narrative) {
+    briefed = (await kit.gate.call("commander", "update_engineering_incident", { incidentId, note: `Investigation: ${incident.narrative}` })).ok;
+  }
+  kit.setStatus(incidentId, "recovering", "Planning a recovery for each affected customer");
+  return { briefed };
+}
 
 /**
  * Sets the incident's status from Recovery Coverage. An incident is
  * Recovered only when every confirmed affected customer is; while a credit
  * waits for a human it's Awaiting approval.
  */
-async function settle(kit: AgentKit, incidentId: string): Promise<void> {
+export async function settle(kit: AgentKit, incidentId: string): Promise<{ status: IncidentStatus; recovered: number; confirmed: number; pending: number }> {
   const incident = kit.state().incidents[incidentId]!;
   const coverage = recoveryCoverage(incident);
   const pending = Object.values(kit.state().approvals).filter((a) => a.incidentId === incidentId && a.status === "pending").length;
@@ -46,76 +87,12 @@ async function settle(kit: AgentKit, incidentId: string): Promise<void> {
         ? `${incidentId} is waiting for ${pending === 1 ? "one human decision" : `${pending} human decisions`}`
         : `Coordinating ${incidentId}: ${tally}`,
   );
+  return { status: after.status, recovered: coverage.recovered, confirmed: coverage.confirmed, pending };
 }
 
-/** One full recovery pass, then the approvals it needs and the incident's status, one pass at a time per incident. */
-async function recover(kit: AgentKit, incidentId: string): Promise<void> {
-  await kit.serial(incidentId, async () => {
-    await reconcile(kit, incidentId, { assessFirst: true });
-    await requestApprovals(kit, incidentId);
-    await settle(kit, incidentId);
-  });
-}
-
-/**
- * Incident Commander: opens the incident, files it where engineering works,
- * runs the Investigator and the Recovery Agent in parallel, then drives
- * recovery until every affected customer is covered or waiting for a human.
- */
-export async function runIncident(kit: AgentKit, cluster: ClusterView, incidentId: string, onOpened: () => void): Promise<void> {
-  kit.setAgent("commander", "working", `Opening ${incidentId}`);
-  const severity = cluster.dominantSurface === "checkout_payments" ? "high" : "medium";
-  const opened = await kit.gate.call("commander", "open_incident", {
-    incidentId,
-    clusterId: cluster.id,
-    ticketIds: cluster.reportTicketIds,
-    surface: cluster.dominantSurface,
-    severity,
-  });
-  onOpened();
-  if (!opened.ok) {
-    kit.setAgent("commander", "done", `Could not open ${incidentId}: ${opened.reason}`);
-    return;
-  }
-
-  kit.setStatus(incidentId, "investigating", "Investigator and Recovery Agent started in parallel");
-  kit.setAgent("commander", "working", `Coordinating ${incidentId}`);
-  await Promise.all([
-    investigate(kit, incidentId),
-    startRecovery(kit, incidentId),
-    kit.gate.call("commander", "file_engineering_incident", { incidentId }),
-  ]);
-
-  const incident = kit.state().incidents[incidentId]!;
-  if (incident.engineering && incident.narrative) {
-    await kit.gate.call("commander", "update_engineering_incident", { incidentId, note: `Investigation: ${incident.narrative}` });
-  }
-  kit.setStatus(incidentId, "recovering", "Planning a recovery for each affected customer");
-  await recover(kit, incidentId);
-}
-
-/**
- * A later complaint that matches an open incident: link it, then update the
- * impact graph. Once recovery is under way, a full pass follows, so a silent
- * customer who writes in gets a reply on their ticket and a new customer
- * gets a plan.
- */
-export async function handleLateTicket(kit: AgentKit, incidentId: string, ticketId: string): Promise<void> {
+/** A later complaint that matches an open incident: link it. */
+export async function linkLateTicket(kit: AgentKit, incidentId: string, ticketId: string): Promise<{ linked: boolean; reason?: string }> {
   kit.setAgent("recovery", "working", `Linking ${ticketId} to ${incidentId}`);
-  await kit.gate.call("recovery", "link_ticket_to_incident", { incidentId, ticketId });
-  if (kit.draftFor(incidentId)) {
-    await recover(kit, incidentId);
-    return;
-  }
-  await kit.serial(incidentId, () => assessImpact(kit, incidentId));
-  kit.setAgent("recovery", "idle", `Linked ${ticketId}; waiting for the root cause`);
-}
-
-/** Carries out a human decision, writes the outcome to the customer's ticket, and recomputes the incident's status. */
-export async function settleDecision(kit: AgentKit, approval: Approval): Promise<void> {
-  await kit.serial(approval.incidentId, async () => {
-    await carryOutDecision(kit, approval);
-    await noteOutcomes(kit, approval.incidentId, "handoff");
-    await settle(kit, approval.incidentId);
-  });
+  const r = await kit.gate.call("recovery", "link_ticket_to_incident", { incidentId, ticketId });
+  return r.ok ? { linked: true } : { linked: false, reason: r.reason };
 }

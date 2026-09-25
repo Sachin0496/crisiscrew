@@ -66,6 +66,22 @@ export const PolicySchema = z.object({
       spreadLr: z.number().positive(),
     }),
   }),
+  guardrails: z
+    .object({
+      /** Hosts a customer update may link to. Empty: updates carry no links. */
+      allowedLinkHosts: z.array(z.string()).default([]),
+    })
+    .default({ allowedLinkHosts: [] }),
+  classifier: z
+    .object({
+      /** A classifier's "failure" counts only at this probability or more; below it the built-in answer stands. */
+      failureMin: z.number().min(0).max(1).default(0.6),
+      /** Its product area counts only at this probability or more. */
+      surfaceMin: z.number().min(0).max(1).default(0.5),
+      /** A classifier slower than this is skipped for the ticket, and the built-in answer is used. */
+      timeoutMs: z.number().int().positive().default(1500),
+    })
+    .default({ failureMin: 0.6, surfaceMin: 0.5, timeoutMs: 1500 }),
   recovery: z.object({
     /** Without a cause's start time, the incident window opens this long before the first complaint. */
     affectedLookbackMin: z.number().positive(),

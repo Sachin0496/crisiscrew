@@ -75,6 +75,10 @@
     "provider": { "operationalLr": 0.1, "degradedLr": 8, "uncheckedLr": 1 },
     "methodSpread": { "concentratedShare": 0.8, "concentratedLr": 2, "spreadLr": 0.7 }
   },
+  "guardrails": {
+    "allowedLinkHosts": []
+  },
+  "classifier": { "failureMin": 0.6, "surfaceMin": 0.5, "timeoutMs": 1500 },
   "recovery": {
     "affectedLookbackMin": 30,
     "creditInr": { "standard": 200, "high": 1000 },

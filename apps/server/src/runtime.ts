@@ -17,7 +17,11 @@ import {
   type Embedder,
   type IncidentsPort,
   type Ports,
+  type PromptGuard,
+  type TicketClassifier,
+  type TraceSink,
 } from "@crisiscrew/core";
+import { TraceStore } from "./observability/trace-store";
 import { scenarioTickets } from "./scenarios";
 
 /** Live Freshworks adapters, layered over the sandbox world when their switches are on. */
@@ -37,6 +41,12 @@ export type RuntimeOptions = {
   /** Scenario whose world backs the live session (for tickets typed into the UI or arriving from Freshdesk). */
   liveWorld: string;
   live?: LiveAdapters;
+  /** The prompt guard (built-in rules, or Lakera layered over them). Defaults to the built-in rules. */
+  guard?: PromptGuard;
+  /** Laya, when CLASSIFIER=laya. */
+  classifier?: TicketClassifier | null;
+  /** Where traces go besides the Traces page: the LangSmith exporter. */
+  traceSinks?: TraceSink[];
   /** Called for every audit entry, with the session it belongs to (each session is its own hash chain). */
   onAudit?: (entry: AuditEntry, sessionId: string) => void;
   onError?: (error: unknown) => void;
@@ -64,6 +74,8 @@ export type FreshdeskIngest =
  */
 export class Runtime {
   readonly bus = new EventBus();
+  /** Every session's workflow traces, span by span, for the Traces page. */
+  readonly traces = new TraceStore();
   private engine: CrisisEngine | null = null;
   private ports: Ports | null = null;
   private world: Scenario | null = null;
@@ -232,6 +244,9 @@ export class Runtime {
       bus: this.bus,
       session: { sessionId, ...session },
       baselinePerHour: scenario.world.baselinePerHour,
+      ...(this.options.guard ? { guard: this.options.guard } : {}),
+      classifier: this.options.classifier ?? null,
+      traceSinks: [this.traces, ...(this.options.traceSinks ?? [])],
       onAudit: this.options.onAudit ? (entry) => this.options.onAudit!(entry, sessionId) : undefined,
       onError: this.options.onError,
     });

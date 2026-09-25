@@ -7,14 +7,14 @@
  *   pnpm embeddings:warm Xenova/all-MiniLM-L6-v2 Xenova/paraphrase-multilingual-MiniLM-L12-v2
  */
 import { CachedEmbedder, LocalEmbedder } from "@crisiscrew/adapters";
-import { corpusTexts, loadPools } from "../corpus";
+import { corpusTexts, loadPools, loadSecurityCorpus } from "../corpus";
 import { EMBEDDING_CACHE_DIR, MODELS_DIR } from "../paths";
 import { loadScenarios } from "../scenarios";
 
 const models = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 if (models.length === 0) models.push(process.env.EMBEDDINGS_MODEL || "Xenova/all-MiniLM-L6-v2");
 
-const texts = corpusTexts(loadScenarios().values(), loadPools());
+const texts = corpusTexts(loadScenarios().values(), loadPools(), loadSecurityCorpus());
 console.log(`${texts.length} texts to embed`);
 
 for (const modelId of models) {

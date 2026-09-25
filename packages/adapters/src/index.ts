@@ -1,3 +1,5 @@
+export * from "./classifiers/laya";
+export * from "./egress";
 export * from "./embeddings/cached";
 export * from "./embeddings/hash";
 export * from "./embeddings/local";
@@ -5,4 +7,6 @@ export * from "./freshworks/freshdesk";
 export * from "./freshworks/freshdesk-mcp";
 export * from "./freshworks/freshservice";
 export * from "./freshworks/http";
+export * from "./guards/lakera";
+export * from "./observability/langsmith";
 export * from "./sandbox/ports";

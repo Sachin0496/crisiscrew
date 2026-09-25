@@ -28,7 +28,7 @@ async function afterHeroReplay() {
   const done = new Promise<void>((resolve) => runtime.bus.subscribe((e) => e.type === "replay.finished" && resolve()));
   await runtime.startReplay("checkout-v4.21.7", 500);
   await done;
-  return { app: createApp({ runtime, config: loadConfig({ SANDBOX_LATENCY_MS: "0", PUBLIC_BASE_URL: "https://crisiscrew.example" }) }), runtime };
+  return { app: createApp({ runtime, config: loadConfig({ SANDBOX_LATENCY_MS: "0", PUBLIC_BASE_URL: "https://crisiscrew.example", ADMIN_TOKEN: "a", APPROVER_TOKEN: "b" }) }), runtime };
 }
 
 describe("the Freshdesk sidebar app against the server's real payload", () => {

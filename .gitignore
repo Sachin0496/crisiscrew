@@ -20,5 +20,6 @@ data/
 .vscode/
 *.log
 
-# downloaded embedding models
+# downloaded embedding models, and the local Laya server's virtualenv
 .models/
+.laya/

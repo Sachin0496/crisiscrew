@@ -3,6 +3,7 @@ import type { PolicyGate } from "../policy/gate";
 import type { Ports } from "../ports";
 import type { Draft } from "../recovery/templates";
 import type { ToolCtx } from "../tools/definitions";
+import type { Tracer } from "../trace/tracer";
 
 /** What every agent gets: the policy gate (its only way to act), a read-only view of state, and status reporting. */
 export type AgentKit = {
@@ -20,6 +21,8 @@ export type AgentKit = {
   serial<T>(incidentId: string, run: () => Promise<T>): Promise<T>;
   /** "incidentId:customerRef" pairs whose ticket already carries the recovery outcome note. */
   noted: Set<string>;
+  /** Records workflow runs as traces; every gate call inside a node becomes a span of it. */
+  tracer: Tracer;
 };
 
 /** Runs up to `size` promises at a time, in order. */

@@ -1,4 +1,4 @@
-import type { Customer, PaymentMethod, Ticket } from "@crisiscrew/contracts";
+import type { Customer, GuardVerdict, PaymentMethod, Surface, Ticket, TicketType } from "@crisiscrew/contracts";
 
 /**
  * Ports: the only way core reaches the outside world. Sandbox adapters
@@ -90,6 +90,34 @@ export interface CreditsPort extends AdapterMode {
 export interface IncidentsPort extends AdapterMode {
   open(input: { incidentId: string; title: string; description: string; severity: "high" | "medium" }): Promise<{ id: string; url?: string }>;
   note(recordId: string, text: string): Promise<void>;
+}
+
+/**
+ * Screens untrusted text (tickets, text inside tool outputs) for
+ * instruction-like content before any language model could read it. The
+ * built-in guard is rule-based; a model such as Lakera Guard can replace it.
+ */
+export interface PromptGuard extends AdapterMode {
+  screen(text: string): Promise<GuardVerdict>;
+}
+
+/** A classifier's answer for one ticket: labels with probabilities, never an action. */
+export type ClassifierVerdict = {
+  source: string;
+  model?: string;
+  ticketType: { label: TicketType; confidence: number; probabilities: Partial<Record<TicketType, number>> };
+  surface: { label: Surface; confidence: number; probabilities: Partial<Record<Surface, number>> };
+  latencyMs: number;
+};
+
+/**
+ * Bounded decisions about one ticket: failure, question or request, and its
+ * product area. The built-in answer comes from the embedding prototypes; a
+ * decision model such as Laya can be switched on. A classifier's output only
+ * feeds the detection gates; it can't call a tool.
+ */
+export interface TicketClassifier extends AdapterMode {
+  classify(text: string): Promise<ClassifierVerdict>;
 }
 
 export type ServiceInfo = { name: string; surfaces: string[] };

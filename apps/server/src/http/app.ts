@@ -1,5 +1,6 @@
 import { serveStatic } from "@hono/node-server/serve-static";
 import { DecisionBody, impactGraph, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
+import { describeWorkflows } from "@crisiscrew/core";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -10,19 +11,22 @@ import { mountMcp } from "../mcp/endpoint";
 import { REPO_ROOT, WEB_DIST_DIR } from "../paths";
 import type { Runtime } from "../runtime";
 import { ticketImpact } from "./impact";
+import { rateLimit } from "./rate-limit";
 import { eventStream } from "./sse";
 
 export type AppDeps = { runtime: Runtime; config: Config; onError?: (error: unknown) => void };
 
 const VERSION = "0.2.0";
 
-const ManualTicket = z.object({
-  customerName: z.string().trim().min(1).max(80).default("Walk-in customer"),
-  customerEmail: z.string().trim().max(120).optional(),
-  channel: z.enum(["chat", "email", "phone", "portal"]).default("chat"),
-  subject: z.string().trim().max(200).optional(),
-  body: z.string().trim().min(1).max(2000),
-});
+const ManualTicket = z
+  .object({
+    customerName: z.string().trim().min(1).max(80).default("Walk-in customer"),
+    customerEmail: z.string().trim().max(120).optional(),
+    channel: z.enum(["chat", "email", "phone", "portal"]).default("chat"),
+    subject: z.string().trim().max(200).optional(),
+    body: z.string().trim().min(1).max(2000),
+  })
+  .strict();
 
 /** Freshdesk's automation rule posts {"ticket_id": 123}; its simple mode nests the fields under "freshdesk_webhook". */
 const FreshdeskWebhook = z.union([
@@ -65,8 +69,12 @@ async function body<T>(c: Context, schema: z.ZodType<T>): Promise<{ ok: true; da
 /** The HTTP API (design section 10.1), the event stream, the Freshdesk webhook and sidebar data, and the built web app. */
 export function createApp({ runtime, config, onError }: AppDeps): Hono {
   const app = new Hono();
+  const limit = config.rateLimitPerMinute;
+  const adminLimit = rateLimit("admin", limit);
+  const approvalLimit = rateLimit("approval", limit);
   const admin = requireToken(config.adminToken, "admin");
   const approver = requireToken(config.approverToken, "approver");
+  const workflows = describeWorkflows();
   const startedAt = Date.now();
   const baseUrl = (c: Context) => config.publicBaseUrl ?? new URL(c.req.url).origin;
 
@@ -85,7 +93,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   app.get("/api/stream", (c) => eventStream(c, runtime.bus));
   app.get("/api/scenarios", (c) => c.json(runtime.scenarioList()));
 
-  app.post("/api/replay", admin, async (c) => {
+  app.post("/api/replay", adminLimit, admin, async (c) => {
     const parsed = await body(c, ReplayBody);
     if (!parsed.ok) return parsed.response;
     if (!runtime.scenarioList().some((s) => s.id === parsed.data.scenario)) return c.json({ error: `unknown scenario "${parsed.data.scenario}"` }, 404);
@@ -93,12 +101,12 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json({ sessionId });
   });
 
-  app.post("/api/live", admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
-  app.post("/api/admin/reset", admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
+  app.post("/api/live", adminLimit, admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
+  app.post("/api/admin/reset", adminLimit, admin, async (c) => c.json({ sessionId: await runtime.startLive() }));
 
   app.get("/api/customers", (c) => c.json(runtime.customerDirectory()));
 
-  app.post("/api/tickets", admin, async (c) => {
+  app.post("/api/tickets", adminLimit, admin, async (c) => {
     const parsed = await body(c, ManualTicket);
     if (!parsed.ok) return parsed.response;
     const { customerName, customerEmail, channel, subject, body: text } = parsed.data;
@@ -127,7 +135,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json(ticketImpact(runtime.state(), view, baseUrl(c)));
   });
 
-  app.post("/api/webhooks/freshdesk", async (c) => {
+  app.post("/api/webhooks/freshdesk", rateLimit("webhook", limit * 5), async (c) => {
     if (!runtime.freshdeskEnabled || !config.freshdesk?.webhookSecret) return c.json({ error: "Freshdesk webhook ingest is off: set TICKETS=freshdesk and FRESHDESK_INGEST=webhook" }, 404);
     if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshdesk.webhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
     const parsed = await body(c, FreshdeskWebhook);
@@ -138,7 +146,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json({ accepted: true, ticketId }, 202);
   });
 
-  app.post("/api/approvals/:id", approver, async (c) => {
+  app.post("/api/approvals/:id", approvalLimit, approver, async (c) => {
     const parsed = await body(c, DecisionBody);
     if (!parsed.ok) return parsed.response;
     const id = c.req.param("id");
@@ -167,6 +175,21 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
 
   app.get("/api/voice/:id", (c) => c.json({ error: "voice is off: no audio is generated in sandbox mode" }, 404));
 
+  // The LangGraph workflows, read from the compiled graphs, and their traces.
+  app.get("/api/workflows", (c) => c.json(workflows));
+  app.get("/api/traces", (c) => {
+    const session = c.req.query("session") === "all" ? undefined : runtime.state().session.id;
+    const incident = c.req.query("incident");
+    const status = c.req.query("status");
+    const traces = runtime.traces.list(session).filter((t) => (!incident || t.incidentId === incident) && (!status || t.status === status));
+    return c.json({ traces, langsmith: config.langsmith ? { project: config.langsmith.project } : null });
+  });
+  app.get("/api/traces/:id", (c) => {
+    const detail = runtime.traces.get(c.req.param("id"));
+    return detail ? c.json(detail) : c.json({ error: `no trace ${c.req.param("id")}` }, 404);
+  });
+
+  app.use("/mcp", rateLimit("MCP", limit * 5));
   mountMcp(app, { runtime, config });
 
   app.notFound((c) => (c.req.path.startsWith("/api/") ? c.json({ error: "not found" }, 404) : c.text("Not found", 404)));

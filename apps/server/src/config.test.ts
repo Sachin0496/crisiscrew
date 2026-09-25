@@ -17,9 +17,42 @@ describe("loadConfig", () => {
       embeddings: "local",
       credits: "sandbox",
       translate: "off",
+      classifier: "embeddings",
+      guard: "heuristic",
+      tracing: "local",
     });
     expect(config.embeddingsModel).toBe(DEFAULT_EMBEDDING_MODEL);
-    expect(config).toMatchObject({ freshdesk: null, freshservice: null });
+    expect(config).toMatchObject({ freshdesk: null, freshservice: null, laya: null, lakera: null, langsmith: null, egress: [], rateLimitPerMinute: 120 });
+  });
+
+  it("switches Laya on, self-hosted by default, and allow-lists only its host", () => {
+    const config = loadConfig({ CLASSIFIER: "laya" });
+    expect(config.laya).toEqual({ baseUrl: "http://localhost:8000", apiKey: null, model: null });
+    expect(config.egress).toEqual(["localhost:8000"]);
+    expect(loadConfig({ CLASSIFIER: "laya", LAYA_URL: "https://api.laya.studio/", LAYA_API_KEY: "lsk_live_x", LAYA_MODEL: "multilingual" }).laya).toEqual({
+      baseUrl: "https://api.laya.studio",
+      apiKey: "lsk_live_x",
+      model: "multilingual",
+    });
+    expect(() => loadConfig({ CLASSIFIER: "laya", LAYA_MODEL: "gpt" })).toThrow(/LAYA_MODEL must be one of english, multilingual, typed-decisions/);
+    expect(() => loadConfig({ CLASSIFIER: "laya", LAYA_URL: "file:///etc/passwd" })).toThrow(/LAYA_URL must be an http or https URL/);
+  });
+
+  it("switches Lakera and LangSmith on with their keys, and accepts LangSmith's own LANGSMITH_TRACING switch", () => {
+    expect(() => loadConfig({ PROMPT_GUARD: "lakera" })).toThrow("PROMPT_GUARD=lakera needs LAKERA_API_KEY; see .env.example");
+    expect(loadConfig({ PROMPT_GUARD: "lakera", LAKERA_API_KEY: "lk" }).egress).toEqual(["api.lakera.ai"]);
+    expect(() => loadConfig({ TRACING: "langsmith" })).toThrow("TRACING=langsmith needs LANGSMITH_API_KEY; see .env.example");
+    const ls = loadConfig({ LANGSMITH_TRACING: "true", LANGSMITH_API_KEY: "lsv2_x" });
+    expect(ls.switches.tracing).toBe("langsmith");
+    expect(ls.langsmith).toEqual({ apiKey: "lsv2_x", project: "crisiscrew", endpoint: "https://api.smith.langchain.com" });
+    expect(ls.egress).toEqual(["api.smith.langchain.com"]);
+    expect(loadConfig({ LANGSMITH_TRACING: "true", TRACING: "local" }).switches.tracing).toBe("local");
+  });
+
+  it("refuses to start when it's reachable from outside without both tokens (security scenario 8)", () => {
+    expect(() => loadConfig({ PUBLIC_BASE_URL: "https://crisiscrew.example" })).toThrow(/PUBLIC_BASE_URL is set.*set ADMIN_TOKEN and APPROVER_TOKEN/);
+    expect(() => loadConfig({ CRISISCREW_ENV: "production", ADMIN_TOKEN: "a" })).toThrow(/CRISISCREW_ENV=production.*set APPROVER_TOKEN,/);
+    expect(loadConfig({ PUBLIC_BASE_URL: "https://crisiscrew.example", ADMIN_TOKEN: "a", APPROVER_TOKEN: "b" }).publicBaseUrl).toBe("https://crisiscrew.example");
   });
 
   it("switches Freshdesk on with its keys, and refuses without them", () => {
@@ -66,9 +99,12 @@ describe("loadConfig", () => {
 describe("wiringReport", () => {
   it("reports every port as sandbox, with the live adapters available and the ones only planned", () => {
     const report = wiringReport(loadConfig({}));
-    // Only the local embedding model is live: it is real computation on this machine, not simulated data.
-    expect(report.liveCount).toBe(1);
-    expect(report.ports).toHaveLength(11);
+    // Live means real computation on this machine, not simulated data: the embedding model, and the built-in
+    // classifier, prompt guard and tracing. The world the agents act on is the sandbox.
+    expect(report.liveCount).toBe(4);
+    expect(report.ports).toHaveLength(14);
+    expect(report.ports.find((p) => p.port === "classifier")).toMatchObject({ mode: "live", adapter: "embeddings", available: ["laya"], env: "CLASSIFIER" });
+    expect(report.ports.find((p) => p.port === "tracing")).toMatchObject({ adapter: "local", available: ["langsmith"] });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });
     expect(report.ports.find((p) => p.port === "incidents")).toMatchObject({ mode: "sandbox", available: ["freshservice"], planned: [] });
     expect(report.ports.find((p) => p.port === "voice")).toMatchObject({ mode: "off", available: [], planned: ["elevenlabs"] });
@@ -88,7 +124,7 @@ describe("wiringReport", () => {
         FRESHSERVICE_REQUESTER_EMAIL: "ops@acme.test",
       }),
     );
-    expect(report.liveCount).toBe(3);
+    expect(report.liveCount).toBe(6);
     expect(report.ports.find((p) => p.port === "tickets")?.detail).toBe(
       "Freshdesk (acme.freshdesk.com): polled every 15 s; notes and replies through the REST API. Replays and typed tickets stay in the sandbox",
     );

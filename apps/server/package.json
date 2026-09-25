@@ -10,7 +10,10 @@
     "eval": "tsx src/eval/run.ts",
     "embeddings:warm": "tsx src/cli/warm-embeddings.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "calibrate": "tsx src/cli/calibrate.ts"
+    "calibrate": "tsx src/cli/calibrate.ts",
+    "eval:safety": "tsx src/eval/safety.ts",
+    "eval:impact": "tsx src/eval/impact.ts",
+    "eval:classifier": "tsx src/eval/classifier.ts"
   },
   "dependencies": {
     "@crisiscrew/adapters": "workspace:*",

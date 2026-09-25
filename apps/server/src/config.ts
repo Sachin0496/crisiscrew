@@ -29,6 +29,14 @@ function ticketsDetail(value: string, { freshdesk }: Config): string {
   return `Freshdesk (${freshdesk.domain}): ${ingest}; notes and replies through ${writes}. Replays and typed tickets stay in the sandbox`;
 }
 
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
+
 const PORTS: Record<PortName, PortSpec> = {
   tickets: {
     env: "TICKETS",
@@ -62,6 +70,36 @@ const PORTS: Record<PortName, PortSpec> = {
   },
   credits: { env: "CREDITS", options: ["sandbox", "dodo"], wired: ["sandbox"], mode: sandboxMode, detail: () => "An in-memory ledger" },
   translate: { env: "TRANSLATE", options: ["off", "sarvam"], wired: ["off"], mode: () => "off", detail: () => "Tickets are embedded as written" },
+  classifier: {
+    env: "CLASSIFIER",
+    options: ["embeddings", "laya"],
+    wired: ["embeddings", "laya"],
+    mode: () => "live",
+    detail: (v, c) =>
+      v === "laya" && c.laya
+        ? `Laya at ${hostOf(c.laya.baseUrl)}${c.laya.model ? ` (${c.laya.model} checkpoint)` : " (its router picks the checkpoint)"}: failure, question or request, and the product area. The built-in classifier answers if Laya doesn't`
+        : "Built in: each ticket is labeled failure, question or request against the embedding prototypes",
+  },
+  guard: {
+    env: "PROMPT_GUARD",
+    options: ["heuristic", "lakera"],
+    wired: ["heuristic", "lakera"],
+    mode: () => "live",
+    detail: (v) =>
+      v === "lakera"
+        ? "Lakera Guard, layered over the built-in rules: tickets and text in tool outputs are screened before any model could read them"
+        : "Built in: rule-based screening of tickets and text in tool outputs, with a reason for every flag",
+  },
+  tracing: {
+    env: "TRACING",
+    options: ["local", "langsmith"],
+    wired: ["local", "langsmith"],
+    mode: () => "live",
+    detail: (v, c) =>
+      v === "langsmith" && c.langsmith
+        ? `LangSmith project "${c.langsmith.project}" at ${hostOf(c.langsmith.endpoint)}, redacted, plus the Traces page`
+        : "The Traces page: every LangGraph workflow run, node and tool call, kept in memory",
+  },
 };
 
 const MCP_IDENTITIES: Identity[] = ["pattern", "commander", "investigator", "recovery", "handoff", "operator"];
@@ -77,6 +115,10 @@ export type FreshdeskConfig = {
 
 export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null };
 
+export type LayaConfig = { baseUrl: string; apiKey: string | null; model: string | null };
+export type LakeraConfig = { apiKey: string; projectId: string | null };
+export type LangSmithConfig = { apiKey: string; project: string; endpoint: string };
+
 export type Config = {
   port: number;
   publicBaseUrl: string | null;
@@ -91,6 +133,13 @@ export type Config = {
   generatedTokens: Identity[];
   freshdesk: FreshdeskConfig | null;
   freshservice: FreshserviceConfig | null;
+  laya: LayaConfig | null;
+  lakera: LakeraConfig | null;
+  langsmith: LangSmithConfig | null;
+  /** Hosts outbound model and tracing calls may reach; everything else is refused. */
+  egress: string[];
+  /** Requests per minute per client for each group of write endpoints; 0 turns limiting off. */
+  rateLimitPerMinute: number;
 };
 
 type Env = Record<string, string | undefined>;
@@ -153,8 +202,47 @@ function freshserviceConfig(env: Env): FreshserviceConfig {
   };
 }
 
+function url(env: Env, key: string, fallback: string): string {
+  const value = text(env, key) ?? fallback;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("protocol");
+    return value.replace(/\/+$/, "");
+  } catch {
+    throw new ConfigError(`${key} must be an http or https URL, got "${value}"`);
+  }
+}
+
+function layaConfig(env: Env): LayaConfig {
+  const model = text(env, "LAYA_MODEL");
+  if (model && !["english", "multilingual", "typed-decisions"].includes(model)) {
+    throw new ConfigError(`LAYA_MODEL must be one of english, multilingual, typed-decisions (or unset to let Laya's router pick); got "${model}"`);
+  }
+  return { baseUrl: url(env, "LAYA_URL", "http://localhost:8000"), apiKey: text(env, "LAYA_API_KEY"), model };
+}
+
+function lakeraConfig(env: Env): LakeraConfig {
+  const apiKey = text(env, "LAKERA_API_KEY");
+  if (!apiKey) throw new ConfigError("PROMPT_GUARD=lakera needs LAKERA_API_KEY; see .env.example");
+  return { apiKey, projectId: text(env, "LAKERA_PROJECT_ID") };
+}
+
+function langsmithConfig(env: Env): LangSmithConfig {
+  const apiKey = text(env, "LANGSMITH_API_KEY") ?? text(env, "LANGCHAIN_API_KEY");
+  if (!apiKey) throw new ConfigError("TRACING=langsmith needs LANGSMITH_API_KEY; see .env.example");
+  return {
+    apiKey,
+    project: text(env, "LANGSMITH_PROJECT") ?? text(env, "LANGCHAIN_PROJECT") ?? "crisiscrew",
+    endpoint: url(env, "LANGSMITH_ENDPOINT", "https://api.smith.langchain.com"),
+  };
+}
+
+const truthy = (value: string | null) => value !== null && ["true", "1", "yes"].includes(value.toLowerCase());
+
 /** Reads and validates configuration from environment variables. See .env.example. */
-export function loadConfig(env: Env): Config {
+export function loadConfig(input: Env): Config {
+  // LangSmith's own switch (LANGSMITH_TRACING=true) means TRACING=langsmith, unless TRACING says otherwise.
+  const env: Env = text(input, "TRACING") === null && (truthy(text(input, "LANGSMITH_TRACING")) || truthy(text(input, "LANGCHAIN_TRACING_V2"))) ? { ...input, TRACING: "langsmith" } : input;
   const switches = {} as Record<PortName, string>;
   for (const [port, spec] of Object.entries(PORTS) as [PortName, PortSpec][]) {
     const value = text(env, spec.env) ?? spec.options[0]!;
@@ -173,11 +261,26 @@ export function loadConfig(env: Env): Config {
     if (!given) generatedTokens.push(identity);
   }
 
+  const publicBaseUrl = text(env, "PUBLIC_BASE_URL");
+  const adminToken = text(env, "ADMIN_TOKEN");
+  const approverToken = text(env, "APPROVER_TOKEN");
+  // Open write routes are fine on a laptop, never on the internet: an exposed server refuses to start without both tokens.
+  const exposedBy = publicBaseUrl ? "PUBLIC_BASE_URL is set" : text(env, "CRISISCREW_ENV") === "production" ? "CRISISCREW_ENV=production" : null;
+  if (exposedBy && (!adminToken || !approverToken)) {
+    const missing = [!adminToken && "ADMIN_TOKEN", !approverToken && "APPROVER_TOKEN"].filter(Boolean).join(" and ");
+    throw new ConfigError(`${exposedBy}, so the server is reachable from outside: set ${missing}, or anyone could start replays, type tickets and approve credits; see .env.example`);
+  }
+
+  const laya = switches.classifier === "laya" ? layaConfig(env) : null;
+  const lakera = switches.guard === "lakera" ? lakeraConfig(env) : null;
+  const langsmith = switches.tracing === "langsmith" ? langsmithConfig(env) : null;
+  const egress = [...new Set([laya && hostOf(laya.baseUrl), lakera && "api.lakera.ai", langsmith && hostOf(langsmith.endpoint)].filter((h): h is string => Boolean(h)))];
+
   return {
     port: int(env, "PORT", 8787),
-    publicBaseUrl: text(env, "PUBLIC_BASE_URL"),
-    adminToken: text(env, "ADMIN_TOKEN"),
-    approverToken: text(env, "APPROVER_TOKEN"),
+    publicBaseUrl,
+    adminToken,
+    approverToken,
     sandboxLatencyMs: int(env, "SANDBOX_LATENCY_MS", 350),
     switches,
     embeddingsModel: text(env, "EMBEDDINGS_MODEL") ?? DEFAULT_EMBEDDING_MODEL,
@@ -187,6 +290,11 @@ export function loadConfig(env: Env): Config {
     generatedTokens,
     freshdesk: switches.tickets === "freshdesk" ? freshdeskConfig(env) : null,
     freshservice: switches.incidents === "freshservice" ? freshserviceConfig(env) : null,
+    laya,
+    lakera,
+    langsmith,
+    egress,
+    rateLimitPerMinute: int(env, "RATE_LIMIT_PER_MINUTE", 120),
   };
 }
 

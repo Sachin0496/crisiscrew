@@ -46,13 +46,21 @@ export function mountMcp(app: Hono, deps: { runtime: Runtime; config: Config }):
       return c.json(rpcError(null, -32700, "Parse error"), 400);
     }
 
-    const gate = deps.runtime.engineNow().gate;
+    const engine = deps.runtime.engineNow();
+    const gate = engine.gate;
     const permitted = gate.permitted(identity);
+    // Each MCP call is its own trace, so an external client's calls, allowed or refused, show on the Traces page too.
+    const call = (tool: string, args: unknown) =>
+      engine.tracer.trace(
+        { workflow: "mcp_call", title: `MCP · ${tool}`, actor: identity, input: { identity, tool, args } },
+        () => gate.call(identity, tool, args),
+        (r) => ({ outcome: r.ok ? `Allowed: ${r.entry.resultSummary ?? "ok"}` : `Refused: ${r.reason}` }),
+      );
     const message = body as { id?: unknown; method?: string; params?: { name?: unknown; arguments?: unknown } };
 
     // A call to a tool this identity may not use still goes through the gate, so the refusal is audited.
     if (!Array.isArray(body) && message.method === "tools/call" && !permitted.some((t) => t.name === message.params?.name)) {
-      const refused = await gate.call(identity, String(message.params?.name ?? ""), message.params?.arguments ?? {});
+      const refused = await call(String(message.params?.name ?? ""), message.params?.arguments ?? {});
       const reason = refused.ok ? "not permitted" : refused.reason;
       return c.json({
         jsonrpc: "2.0",
@@ -72,7 +80,7 @@ export function mountMcp(app: Hono, deps: { runtime: Runtime; config: Config }):
           inputSchema: (tool.input as z.ZodObject<z.ZodRawShape>).shape,
         },
         async (args) => {
-          const r = await gate.call(identity, tool.name, args);
+          const r = await call(tool.name, args);
           if (!r.ok) return { content: [{ type: "text", text: `Refused by the CrisisCrew policy gate: ${r.reason}` }], isError: true };
           return { content: [{ type: "text", text: JSON.stringify(r.result, null, 2) }] };
         },

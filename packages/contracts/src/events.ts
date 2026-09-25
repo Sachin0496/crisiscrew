@@ -15,6 +15,8 @@ import type {
   SignalView,
   Ticket,
 } from "./domain";
+import type { GuardFlag } from "./guard";
+import type { TraceSummary } from "./trace";
 
 type E<T extends string, P> = { seq: number; at: number; type: T; payload: P };
 
@@ -60,7 +62,11 @@ export type CrisisEvent =
   | E<"approval.decided", { approval: Approval }>
   | E<"credit.issued", { incidentId: string; customerRef: string; amountInr: number; approvalId?: string; adapter: string; creditId: string }>
   | E<"engineering.recorded", { incidentId: string; record: EngineeringRecord }>
-  | E<"replay.finished", { scenarioId: string }>;
+  | E<"replay.finished", { scenarioId: string }>
+  /** A workflow trace started, ended, or found a problem. The spans themselves are served by GET /api/traces/:id. */
+  | E<"trace.updated", { trace: TraceSummary }>
+  /** The prompt guard found instruction-like text in untrusted input. */
+  | E<"guard.flagged", { flag: GuardFlag }>;
 
 export type CrisisEventType = CrisisEvent["type"];
 

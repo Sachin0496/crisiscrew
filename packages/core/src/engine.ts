@@ -17,16 +17,18 @@ import {
   type TicketInput,
   type TicketSource,
 } from "@crisiscrew/contracts";
-import { handleLateTicket, runIncident, settleDecision } from "./agents/commander";
 import type { AgentKit } from "./agents/kit";
 import type { EventBus } from "./bus";
 import { PatternEngine } from "./correlation/pattern";
 import type { Prototypes } from "./correlation/prototypes";
+import { heuristicGuard } from "./guard/builtin";
 import { AuditLog } from "./policy/audit";
 import { PolicyGate } from "./policy/gate";
-import type { Clock, Embedder, Ports } from "./ports";
+import type { Clock, Embedder, Ports, PromptGuard, TicketClassifier } from "./ports";
 import type { Draft } from "./recovery/templates";
 import { createTools, type ToolCtx } from "./tools/definitions";
+import { Tracer, type TraceSink } from "./trace/tracer";
+import { createWorkflows, type Workflows } from "./workflows/graphs";
 
 export type EngineSession = { sessionId: string; mode: SessionMode; scenarioId?: string; scenarioTitle?: string; speed?: number };
 
@@ -39,6 +41,12 @@ export type EngineDeps = {
   session: EngineSession;
   baselinePerHour?: Partial<Record<Surface, number>>;
   prototypes?: Prototypes;
+  /** Screens untrusted text. Defaults to the built-in rule-based guard. */
+  guard?: PromptGuard;
+  /** A decision model (Laya) for ticket type and product area. Absent: the built-in embedding classifier. */
+  classifier?: TicketClassifier | null;
+  /** Where workflow traces go besides the event stream: the Traces page's store, LangSmith. */
+  traceSinks?: TraceSink[];
   onAudit?: (entry: AuditEntry) => void;
   onError?: (error: unknown) => void;
 };
@@ -47,12 +55,14 @@ const pad = (n: number) => String(n).padStart(3, "0");
 
 /**
  * One customer-harm-response session: the Pattern Agent's detection plus the
- * four agents behind the policy gate. All state comes from the events it
- * emits, so what the UI shows is exactly what the engine knows.
+ * four agents behind the policy gate, orchestrated as LangGraph workflows
+ * and traced span by span. All state comes from the events it emits, so
+ * what the UI shows is exactly what the engine knows.
  */
 export class CrisisEngine {
   readonly audit: AuditLog;
   readonly gate: PolicyGate<ToolCtx>;
+  readonly tracer: Tracer;
   private view: CrisisState = initialState();
   private readonly pattern: PatternEngine;
   private readonly tasks = new Set<Promise<unknown>>();
@@ -60,10 +70,12 @@ export class CrisisEngine {
   private readonly counters = { ticket: 1000, incident: 0, update: 0, approval: 0, action: 0 };
   private readonly drafts = new Map<string, { draft: Draft; since: number }>();
   private readonly spentApprovals = new Set<string>();
-  private readonly opened = new Map<string, Promise<void>>();
+  /** Incidents being opened: a ticket that joins one waits until it exists. */
+  private readonly opened = new Map<string, { promise: Promise<void>; resolve: () => void }>();
   /** The tail of each incident's recovery chain: recovery steps for one incident run one at a time. */
   private readonly chains = new Map<string, Promise<unknown>>();
   private readonly kit: AgentKit;
+  private readonly flows: Workflows;
   private stopped = false;
 
   constructor(private readonly deps: EngineDeps) {
@@ -71,6 +83,12 @@ export class CrisisEngine {
       deps.onAudit?.(entry);
       this.emit({ type: "tool.called", payload: { entry } });
     });
+    this.tracer = new Tracer({
+      sessionId: deps.session.sessionId,
+      now: () => deps.clock.now(),
+      sinks: [{ traceChanged: (trace) => this.emit({ type: "trace.updated", payload: { trace } }) }, ...(deps.traceSinks ?? [])],
+    });
+    const guard = deps.guard ?? heuristicGuard;
     const ctx: ToolCtx = {
       now: () => deps.clock.now(),
       state: () => this.view,
@@ -82,7 +100,11 @@ export class CrisisEngine {
         kind === "update" ? `UPD-${pad(++this.counters.update)}` : kind === "approval" ? `APR-${pad(++this.counters.approval)}` : `RA-${pad(++this.counters.action)}`,
       spentApprovals: this.spentApprovals,
     };
-    this.gate = new PolicyGate(deps.policy, createTools(), this.audit, deps.clock, () => ctx);
+    this.gate = new PolicyGate(deps.policy, createTools(), this.audit, deps.clock, () => ctx, {
+      tracer: this.tracer,
+      guard,
+      onFlag: (flag) => this.emit({ type: "guard.flagged", payload: { flag } }),
+    });
     this.pattern = new PatternEngine(deps.embedder, deps.policy.correlation, {
       baselinePerHour: deps.baselinePerHour,
       prototypes: deps.prototypes,
@@ -103,7 +125,24 @@ export class CrisisEngine {
         return next;
       },
       noted: new Set(),
+      tracer: this.tracer,
     };
+    this.flows = createWorkflows({
+      kit: this.kit,
+      pattern: this.pattern,
+      guard,
+      classifier: deps.classifier ?? null,
+      nextIncidentId: () => `INC-${new Date(this.deps.clock.now()).getUTCFullYear()}-${pad(++this.counters.incident)}`,
+      opening: (incidentId) => {
+        let resolve!: () => void;
+        const promise = new Promise<void>((r) => (resolve = r));
+        this.opened.set(incidentId, { promise, resolve });
+      },
+      markOpened: (incidentId) => this.opened.get(incidentId)?.resolve(),
+      whenOpened: (incidentId) => this.opened.get(incidentId)?.promise ?? Promise.resolve(),
+      track: (promise) => this.track(promise),
+      fail: (agent, error) => this.fail(agent, error),
+    });
   }
 
   async init(): Promise<void> {
@@ -144,7 +183,7 @@ export class CrisisEngine {
       ...(status === "modified" ? { approvedAmountInr: body.amountInr! } : {}),
     };
     this.emit({ type: "approval.decided", payload: { approval: decided } });
-    this.track(settleDecision(this.kit, decided).catch((error) => this.fail("handoff", error)));
+    this.track(this.flows.runDecision(decided).catch((error) => this.fail("handoff", error)));
     return decided;
   }
 
@@ -158,42 +197,12 @@ export class CrisisEngine {
     while (this.tasks.size > 0) await Promise.allSettled([...this.tasks]);
   }
 
+  /** Records the ticket, then runs the ticket workflow: screen, classify, correlate, and open, join or refuse. */
   private async ingestNow(input: TicketInput, source: TicketSource): Promise<Ticket> {
     const ticket: Ticket = { ...input, id: `T-${++this.counters.ticket}`, source, receivedAt: input.receivedAt ?? this.deps.clock.now() };
     this.emit({ type: "ticket.received", payload: { ticket } });
     this.setAgent("pattern", "working", `Reading ${ticket.id}`);
-
-    const result = await this.pattern.ingest(ticket);
-    this.emit({ type: "signal.scored", payload: { signal: result.signal, nearest: result.nearest } });
-
-    if (result.fires && result.candidate) {
-      const incidentId = `INC-${new Date(this.deps.clock.now()).getUTCFullYear()}-${pad(++this.counters.incident)}`;
-      const cluster = { ...result.candidate, incidentId };
-      this.emit({ type: "cluster.updated", payload: { cluster } });
-      this.pattern.attachIncident(incidentId, cluster.reportTicketIds);
-      let markOpened!: () => void;
-      this.opened.set(incidentId, new Promise((resolve) => (markOpened = resolve)));
-      this.setAgent("pattern", "done", `${cluster.reportTicketIds.length} failure reports describe one problem; alerted the Incident Commander`);
-      this.track(
-        runIncident(this.kit, cluster, incidentId, markOpened).catch((error) => {
-          markOpened();
-          this.fail("commander", error);
-        }),
-      );
-    } else if (result.joinIncidentId) {
-      const incidentId = result.joinIncidentId;
-      if (result.candidate) this.emit({ type: "cluster.updated", payload: { cluster: result.candidate } });
-      this.setAgent("pattern", "done", `${ticket.id} matches ${incidentId}`);
-      this.track(
-        (async () => {
-          await this.opened.get(incidentId);
-          await handleLateTicket(this.kit, incidentId, ticket.id);
-        })().catch((error) => this.fail("recovery", error)),
-      );
-    } else {
-      if (result.candidate) this.emit({ type: "cluster.updated", payload: { cluster: result.candidate } });
-      this.setAgent("pattern", "idle", `${ticket.id}: no incident`);
-    }
+    await this.flows.runTicket(ticket);
     return ticket;
   }
 

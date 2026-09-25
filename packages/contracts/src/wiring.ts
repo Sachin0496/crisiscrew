@@ -11,7 +11,10 @@ export type PortName =
   | "llm"
   | "embeddings"
   | "credits"
-  | "translate";
+  | "translate"
+  | "classifier"
+  | "guard"
+  | "tracing";
 
 export type PortMode = "sandbox" | "live" | "off";
 
@@ -36,14 +39,17 @@ export const DecisionBody = z
     amountInr: z.number().positive().optional(),
     note: z.string().max(500).optional(),
   })
+  .strict()
   .refine((body) => body.decision !== "modify" || body.amountInr !== undefined, {
     message: "amountInr is required when the decision is modify",
     path: ["amountInr"],
   });
 export type DecisionBody = z.infer<typeof DecisionBody>;
 
-export const ReplayBody = z.object({
-  scenario: z.string().min(1),
-  speed: z.number().min(0.25).max(500).optional(),
-});
+export const ReplayBody = z
+  .object({
+    scenario: z.string().min(1),
+    speed: z.number().min(0.25).max(500).optional(),
+  })
+  .strict();
 export type ReplayBody = z.infer<typeof ReplayBody>;
