@@ -131,6 +131,11 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
       };
     }
 
+    case "incident.importance": {
+      const { incidentId, importance } = event.payload;
+      return updateIncident(state, incidentId, (incident) => ({ ...incident, importance, severity: importance.level === "P1" ? "high" : "medium" }));
+    }
+
     case "incident.status_changed": {
       const { incidentId, to, note } = event.payload;
       return updateIncident(state, incidentId, (incident) => ({

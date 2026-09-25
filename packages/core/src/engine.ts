@@ -9,6 +9,8 @@ import {
   type CrisisState,
   type DecisionBody,
   type EventInput,
+  type ImportanceAssessment,
+  type ImportanceLevel,
   type IncidentStatus,
   type Policy,
   type SessionMode,
@@ -17,10 +19,11 @@ import {
   type TicketInput,
   type TicketSource,
 } from "@crisiscrew/contracts";
-import { handleLateTicket, runIncident, settleDecision } from "./agents/commander";
+import { handleLateTicket, runIncident, setImportanceByHuman, settleDecision } from "./agents/commander";
 import type { AgentKit } from "./agents/kit";
 import type { EventBus } from "./bus";
 import { PatternEngine } from "./correlation/pattern";
+import { higher } from "./importance/assess";
 import type { Prototypes } from "./correlation/prototypes";
 import { AuditLog } from "./policy/audit";
 import { PolicyGate } from "./policy/gate";
@@ -149,6 +152,30 @@ export class CrisisEngine {
     this.emit({ type: "approval.decided", payload: { approval: decided } });
     this.track(settleDecision(this.kit, decided).catch((error) => this.fail("handoff", error)));
     return decided;
+  }
+
+  /**
+   * A human sets an incident's importance, up or down. The rules no longer
+   * change it; the engineering record's priority follows. Resolves once
+   * the record is updated.
+   */
+  async setImportance(incidentId: string, level: ImportanceLevel, by: string, note?: string): Promise<ImportanceAssessment> {
+    const incident = this.view.incidents[incidentId];
+    if (!incident) throw new Error(`no incident ${incidentId}`);
+    const importance: ImportanceAssessment = {
+      level,
+      page: !higher(this.deps.policy.importance.pageAt, level),
+      reasons: [{ rule: "human", level, text: `Set to ${level} by ${by}${note ? `: “${note}”` : ""}` }],
+      stage: "human",
+      source: "human",
+      by,
+      ...(note ? { note } : {}),
+      assessedAt: this.deps.clock.now(),
+    };
+    const run = this.kit.serial(incidentId, () => setImportanceByHuman(this.kit, incidentId, importance));
+    this.track(run);
+    await run;
+    return importance;
   }
 
   /** Marks the end of a scenario replay (every ticket ingested and all agent work settled). */

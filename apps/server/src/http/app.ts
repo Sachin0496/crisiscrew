@@ -34,6 +34,7 @@ const FreshdeskWebhook = z.union([
 const TestCall = z.object({ to: z.string().trim().min(8).max(20) }).strict();
 
 const TEST_CALL_SCRIPT = "This is a test call from CrisisCrew. Your phone line is set up to receive incident calls.";
+const ImportanceBody = z.object({ level: z.enum(["P1", "P2", "P3"]), note: z.string().trim().max(500).optional() }).strict();
 
 function sameSecret(given: string, expected: string): boolean {
   const a = Buffer.from(given);
@@ -180,6 +181,16 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   app.get("/api/calls/:id", (c) => {
     const call = runtime.state().calls[c.req.param("id")];
     return call ? c.json(call) : c.json({ error: `no call ${c.req.param("id")}` }, 404);
+  });
+
+  // A human sets an incident's importance, up or down; the Commander's rules leave it alone from then on.
+  app.post("/api/incidents/:id/importance", admin, async (c) => {
+    const parsed = await body(c, ImportanceBody);
+    if (!parsed.ok) return parsed.response;
+    const id = c.req.param("id");
+    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
+    const by = c.req.header("x-operator-name")?.slice(0, 60) || "an operator";
+    return c.json(await runtime.setImportance(id, parsed.data.level, by, parsed.data.note || undefined));
   });
 
   app.post("/api/approvals/:id", approver, async (c) => {

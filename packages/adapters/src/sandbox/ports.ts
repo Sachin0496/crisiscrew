@@ -1,4 +1,4 @@
-import { parseOffset, type Customer, type Scenario, type Ticket } from "@crisiscrew/contracts";
+import { parseOffset, type Customer, type ImportanceLevel, type Scenario, type Ticket } from "@crisiscrew/contracts";
 import {
   hashSeed,
   mulberry32,
@@ -29,7 +29,7 @@ export type SandboxRecord = {
   proactive: { customerRef: string; text: string }[];
   accountNotes: { id: string; customerRef: string; text: string }[];
   credits: { id: string; customerRefs: string[]; amountInr: number; reference: string }[];
-  incidents: { id: string; incidentId: string; title: string; description: string; notes: string[] }[];
+  incidents: { id: string; incidentId: string; title: string; description: string; importance: ImportanceLevel; notes: string[] }[];
   calls: SandboxCall[];
 };
 
@@ -184,11 +184,17 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
 
     incidents: {
       ...SANDBOX,
-      async open({ incidentId, title, description }) {
+      async open({ incidentId, title, description, importance }) {
         await pause();
         const id = `ENG-${String(record.incidents.length + 1).padStart(3, "0")}`;
-        record.incidents.push({ id, incidentId, title, description, notes: [] });
+        record.incidents.push({ id, incidentId, title, description, importance, notes: [] });
         return { id };
+      },
+      async setImportance(recordId, importance) {
+        await pause();
+        const found = record.incidents.find((i) => i.id === recordId);
+        if (!found) throw new Error(`no engineering incident ${recordId}`);
+        found.importance = importance;
       },
       async note(recordId, text) {
         await pause();

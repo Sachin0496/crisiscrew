@@ -46,6 +46,7 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 | **Act within authority** | Recovery Agent | Updates, account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
 | **Stop for a human** | Handoff Agent | Any credit above that becomes an approval for **one customer**, with their evidence. The approver approves, changes the amount or rejects, and exactly that amount is paid to exactly that customer |
 | **Write back** | Recovery Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and a Freshservice incident for engineering |
+| **Decide how urgent** | Incident Commander | Sets the incident's importance, P1 to P3, from rules in `policy.json`: customers affected, money in failed payments, priority customers, a tier-1 area, a release as the likely cause. It rises as evidence arrives and never falls on its own; P1 means page on-call. See [Importance](#importance) |
 | **Measure** | Incident Commander | Recovery Coverage = recovered confirmed customers / confirmed customers. The incident reaches **Recovered** only at 100% |
 
 Every tool call, by an agent or an external MCP client, goes through one policy gate and lands in a hash-chained audit log.
@@ -92,6 +93,7 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
             LR  8.38  checkout-service error rate 0.40% → 3.34% after the release (8.4×)
 
   customer impact: 23 affected (4 complained, 19 silent)
+  INC-2026-001: importance P1, page on-call  23 customers affected (20 or more is P1)
   recovery plan: 48 actions for 23 customers, 2 credits for a human
 
   Approval APR-001 requested for Ananya Iyer: ₹1,000
@@ -107,10 +109,10 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
   customer impact: 23 affected (5 complained, 18 silent)
 
 Summary
-  INC-2026-001: awaiting approval; root cause checkout-service v4.21.7 (97%); 8 tickets linked
+  INC-2026-001: awaiting approval, P1, page on-call; root cause checkout-service v4.21.7 (97%); 8 tickets linked
   23 affected (8 complained, 15 silent); recovery coverage 21/23 (91%), 2 waiting for a human
   16 proactive contacts; credits ₹4,000 within authority, ₹0 approved, ₹2,000 awaiting approval
-  audit: 86 tool calls, hash chain verified
+  audit: 87 tool calls, hash chain verified
 ```
 
 Ritika was silent when the plan was made: her failed payment was already on record. When she writes in, she moves from silent to complained, and a reply on her ticket is added to her plan.
@@ -169,6 +171,26 @@ Recovery is based on each customer's actual harm, not one blanket action. The nu
 - Nisha paid on a retry, so she gets the update and no credit.
 - Pooja, Manoj and Lakshmi opted out of proactive messages. Nobody messages them; their accounts get a note and a credit.
 - Ananya and Farhan are priority customers, so their ₹1,000 credits wait for a human.
+
+## Importance
+
+The Incident Commander decides how urgently engineering must act. The rules are deterministic, and their thresholds live in [`config/policy.json`](config/policy.json) under `importance`:
+
+| Rule | P2 at | P1 at |
+|---|---|---|
+| Confirmed affected customers | 5 | 20 |
+| Failed or pending payments of those customers | ₹25,000 | ₹2,00,000 |
+| Priority customers affected | 1 | 3 |
+| A tier-1 area (checkout and payments, login and account) | always | |
+| A release ranked as the cause at 80% or more (a rollback is an option) | always | |
+| An alert on a service behind the incident (once Alert Management is wired) | warning | critical |
+
+- **How the level is set:** each rule that fires adds a reason, and the level is the most urgent one; P3 when none fires. **P1 means page the on-call engineer** (`pageAt`).
+- **When:** the Commander assesses when the incident opens (only the area is known, so the hero starts at P2), again once impact and the root cause are known, and after every recovery pass. The level rises on its own and never falls.
+- **Engineering's record follows it:** Freshservice priority, urgency and impact are P1 → 4, 3, 3 · P2 → 3, 2, 2 · P3 → 2, 1, 1. A rise sets them again and adds a note with every reason.
+- **A human can overrule it:** `POST /api/incidents/:id/importance` with `{"level": "P2", "note": "..."}` (admin token). From then on the rules leave it alone.
+
+In the hero, 23 affected customers make it P1. The UPI outage stays P2: 10 customers affected and one priority customer, below the P1 thresholds.
 
 ## Recovery Coverage
 
@@ -393,6 +415,7 @@ MCP Inspector, Claude, or Freshservice's Agent Studio MCP Gateway can connect th
 | `POST /api/telephony/test-call` | admin: place one short call to `{"to": "+91..."}` to check the phone line; its progress arrives as `call.updated` events |
 | `GET /api/calls/:id` | a call's state: queued, ringing, answered, then completed, no answer, busy or failed. Numbers are masked to the last four digits |
 | `POST /api/webhooks/vobiz/:callId/:kind` | Vobiz's callbacks (`answer`, `ring`, `hangup`, `digits`), checked against `X-Vobiz-Signature-V3` |
+| `POST /api/incidents/:id/importance` | admin: `{"level": "P1", "P2" or "P3", "note"?: "..."}` sets the importance by hand; the rules then leave it alone |
 | `POST /api/approvals/:id` | `{"decision": "approve", "reject" or "modify", "amountInr"?: 500}` for one customer's credit |
 | `GET /api/audit`, `GET /api/audit/verify` | audit entries, and the hash-chain check |
 | `GET /api/policy` | the agents × tools permission matrix and limits, computed from `config/policy.json` |

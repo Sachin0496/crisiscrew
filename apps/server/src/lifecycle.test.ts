@@ -115,8 +115,42 @@ describe("hero scenario: checkout release v4.21.7", () => {
     const outcomes = ports.record.notes.filter((n) => n.text.startsWith("CrisisCrew · "));
     expect(outcomes).toHaveLength(8);
     expect(outcomes[0]?.text).toMatch(/Confirmed affected: .*failed at/);
-    expect(incident?.engineering).toEqual({ id: "ENG-001", adapter: "sandbox" });
-    expect(ports.record.incidents[0]?.notes.map((n) => n.split(":")[0])).toEqual(["Investigation", "Customer impact"]);
+    expect(incident?.engineering).toEqual({ id: "ENG-001", adapter: "sandbox", importance: "P1" });
+    expect(ports.record.incidents[0]?.notes.map((n) => n.split(/[:.]/)[0])).toEqual(["Importance P1 (page on-call)", "Investigation", "Customer impact"]);
+  });
+
+  it("opens at P2 for a tier-1 area, then raises it to P1 and pages on-call once 23 customers are proved affected", async () => {
+    const { engine, ports, incident } = await replay("checkout-v4.21.7");
+    expect(incident?.importance).toMatchObject({ level: "P1", page: true, source: "rules", stage: "root_cause" });
+    expect(incident?.importance?.reasons.map((r) => r.text)).toEqual([
+      "23 customers affected (20 or more is P1)",
+      "₹63,987 in failed or pending payments (₹25,000 or more is P2)",
+      "2 priority customers affected (1 or more is P2)",
+      "Checkout & payments is a tier-1 area",
+      "checkout-service v4.21.7 is the likely cause (97%), so a rollback is an option",
+    ]);
+    expect(incident?.severity).toBe("high");
+    // Filed at P2 when the incident opened, then raised with the rest of the engineering record.
+    expect(ports.record.incidents[0]?.importance).toBe("P1");
+    const raised = engine.audit.entries().filter((e) => e.tool === "update_engineering_incident" && e.argsSummary.includes(`"importance":"P1"`));
+    expect(raised).toHaveLength(1);
+  });
+
+  it("lets a human lower the importance, and the rules then leave it alone", async () => {
+    const { engine, ports, incident, clock } = await replay("checkout-v4.21.7");
+    const id = incident!.id;
+    const set = await engine.setImportance(id, "P3", "Asha", "rollback done, customers covered");
+    expect(set).toMatchObject({ level: "P3", page: false, source: "human", by: "Asha" });
+    expect(ports.record.incidents[0]?.importance).toBe("P3");
+    expect(ports.record.incidents[0]?.notes.at(-1)).toMatch(/^Importance P3\. Set by Asha: “rollback done, customers covered”/);
+    // A later complaint joins the incident, and the rules would say P1 again.
+    clock.advance(30_000);
+    const again = scenarios.get("checkout-v4.21.7")!.tickets.find((t) => t.customerRef === "c-arjun")!;
+    await engine.ingest({ customerRef: "s02", customerName: "Kavya Reddy", channel: "chat", body: again.body, receivedAt: clock.now() });
+    await engine.whenIdle();
+    expect(engine.snapshot().incidents[id]?.linkedTicketIds).toHaveLength(9);
+    expect(engine.snapshot().incidents[id]?.importance).toMatchObject({ level: "P3", source: "human" });
+    await expect(engine.setImportance("INC-404", "P1", "Asha")).rejects.toThrow(/no incident INC-404/);
   });
 
   it("refuses contact and money that the evidence and consent don't support", async () => {
@@ -206,6 +240,15 @@ describe("UPI provider outage", () => {
     expect(Object.values(state.approvals).map((a) => a.customerName)).toEqual(["Indu Nair"]);
     expect(state.credits.reduce((sum, c) => sum + c.amountInr, 0)).toBe(1_800);
     expect(incident?.status).toBe("awaiting_approval");
+  });
+});
+
+describe("importance, as each scenario expects", () => {
+  it.each([...scenarios.values()].filter((s) => s.expected.importance).map((s) => [s.id, s] as const))("%s", async (id) => {
+    const scenario = scenarios.get(id)!;
+    const { incident } = await replay(id);
+    expect(incident?.importance?.level).toBe(scenario.expected.importance);
+    expect(incident?.importance?.page).toBe(scenario.expected.pages);
   });
 });
 

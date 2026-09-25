@@ -9,6 +9,7 @@ import type {
   CustomerUpdate,
   EngineeringRecord,
   Hypothesis,
+  ImportanceAssessment,
   IncidentStatus,
   IncidentView,
   Level,
@@ -37,6 +38,8 @@ export type CrisisEvent =
   | E<"signal.scored", { signal: SignalView; nearest: { ticketId: string; similarity: number }[] }>
   | E<"cluster.updated", { cluster: ClusterView }>
   | E<"incident.opened", { incident: IncidentView }>
+  /** The Incident Commander's (or a human's) new importance for an incident, with its reasons. */
+  | E<"incident.importance", { incidentId: string; importance: ImportanceAssessment }>
   | E<"incident.status_changed", { incidentId: string; from: IncidentStatus; to: IncidentStatus; note: string }>
   | E<"agent.status", { agent: AgentId; status: AgentStatus; task?: string }>
   | E<"tool.called", { entry: AuditEntry }>

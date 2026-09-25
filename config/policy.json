@@ -75,6 +75,14 @@
     "provider": { "operationalLr": 0.1, "degradedLr": 8, "uncheckedLr": 1 },
     "methodSpread": { "concentratedShare": 0.8, "concentratedLr": 2, "spreadLr": 0.7 }
   },
+  "importance": {
+    "tier1Surfaces": ["checkout_payments", "login_account"],
+    "affectedCustomers": { "p1": 20, "p2": 5 },
+    "failedValueInr": { "p1": 200000, "p2": 25000 },
+    "priorityCustomers": { "p1": 3, "p2": 1 },
+    "deployConfidence": 0.8,
+    "pageAt": "P1"
+  },
   "recovery": {
     "affectedLookbackMin": 30,
     "creditInr": { "standard": 200, "high": 1000 },

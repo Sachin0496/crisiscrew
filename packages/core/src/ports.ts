@@ -1,4 +1,4 @@
-import type { CallPurpose, CallView, Customer, PaymentMethod, Ticket } from "@crisiscrew/contracts";
+import type { CallPurpose, CallView, Customer, ImportanceLevel, PaymentMethod, Ticket } from "@crisiscrew/contracts";
 
 /**
  * Ports: the only way core reaches the outside world. Sandbox adapters
@@ -110,8 +110,10 @@ export interface CreditsPort extends AdapterMode {
 
 /** The engineering incident record (Freshservice, or its sandbox) the operational side works from. */
 export interface IncidentsPort extends AdapterMode {
-  open(input: { incidentId: string; title: string; description: string; severity: "high" | "medium" }): Promise<{ id: string; url?: string }>;
+  open(input: { incidentId: string; title: string; description: string; importance: ImportanceLevel }): Promise<{ id: string; url?: string }>;
   note(recordId: string, text: string): Promise<void>;
+  /** Raises (or lowers) the record's priority when the incident's importance changes after it was filed. */
+  setImportance(recordId: string, importance: ImportanceLevel): Promise<void>;
 }
 
 export type ServiceInfo = { name: string; surfaces: string[] };

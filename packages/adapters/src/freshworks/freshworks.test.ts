@@ -180,17 +180,20 @@ describe("Freshdesk MCP writer", () => {
 });
 
 describe("Freshservice incidents", () => {
-  it("files a high-priority open incident as the configured requester, then adds private notes", async () => {
+  it("files an open incident at its importance's priority as the configured requester, raises it, and adds private notes", async () => {
     const api = fakeApi({
       "POST /api/v2/tickets": { status: 201, body: { ticket: { id: 314 } } },
+      "PUT /api/v2/tickets/314": { status: 200, body: { ticket: { id: 314 } } },
       "POST /api/v2/tickets/314/notes": { status: 201, body: { conversation: { id: 1 } } },
     });
     const port = freshserviceIncidents({ domain: "acme.freshservice.com", apiKey: "fs-key", requesterEmail: "ops@acme.test", workspaceId: 2, fetch: api.fetch });
-    const record = await port.open({ incidentId: "INC-2026-001", title: "Checkout and payment failures (INC-2026-001)", description: "8 reports\nopened", severity: "high" });
+    const record = await port.open({ incidentId: "INC-2026-001", title: "Checkout and payment failures (INC-2026-001)", description: "8 reports\nopened", importance: "P2" });
+    await port.setImportance(record.id, "P1");
     await port.note(record.id, "Root cause: checkout-service v4.21.7");
     expect(record).toEqual({ id: "#314", url: "https://acme.freshservice.com/a/tickets/314" });
     expect(api.calls.map((c) => c.body)).toEqual([
-      { subject: "Checkout and payment failures (INC-2026-001)", description: "8 reports<br>opened", email: "ops@acme.test", priority: 3, status: 2, workspace_id: 2 },
+      { subject: "Checkout and payment failures (INC-2026-001)", description: "8 reports<br>opened", email: "ops@acme.test", priority: 3, urgency: 2, impact: 2, status: 2, workspace_id: 2 },
+      { priority: 4, urgency: 3, impact: 3 },
       { body: "Root cause: checkout-service v4.21.7", private: true },
     ]);
     expect(api.calls[0]?.auth).toBe(`Basic ${Buffer.from("fs-key:X").toString("base64")}`);

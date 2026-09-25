@@ -7,7 +7,7 @@ import {
   type FreshdeskWriter,
   type VobizTelephony,
 } from "@crisiscrew/adapters";
-import type { Approval, AuditEntry, CrisisState, Customer, DecisionBody, Policy, Scenario, Ticket, TicketInput } from "@crisiscrew/contracts";
+import type { Approval, AuditEntry, ImportanceAssessment, ImportanceLevel, CrisisState, Customer, DecisionBody, Policy, Scenario, Ticket, TicketInput } from "@crisiscrew/contracts";
 import {
   CrisisEngine,
   EventBus,
@@ -162,6 +162,10 @@ export class Runtime {
   /** Places a call through the current session's telephony port (Vobiz or the sandbox). */
   placeCall(request: CallRequest): Promise<{ callId: string }> {
     return this.currentPorts().telephony.call(request);
+  }
+
+  setImportance(incidentId: string, level: ImportanceLevel, by: string, note?: string): Promise<ImportanceAssessment> {
+    return this.current().setImportance(incidentId, level, by, note);
   }
 
   decide(approvalId: string, body: DecisionBody, by: string): Promise<Approval> {

@@ -1,5 +1,6 @@
-import { recoveryCoverage, type Approval, type ClusterView, type IncidentStatus } from "@crisiscrew/contracts";
-import { coverageNote } from "../recovery/templates";
+import { recoveryCoverage, type Approval, type ClusterView, type ImportanceAssessment, type IncidentStatus } from "@crisiscrew/contracts";
+import { assessImportance, higher, nextImportance } from "../importance/assess";
+import { coverageNote, importanceNote } from "../recovery/templates";
 import { carryOutDecision, requestApprovals } from "./handoff";
 import { investigate } from "./investigator";
 import type { AgentKit } from "./kit";
@@ -48,11 +49,51 @@ async function settle(kit: AgentKit, incidentId: string): Promise<void> {
   );
 }
 
+/**
+ * Keeps the engineering record's priority in step with the incident's
+ * importance. Filing can race a reassessment, so this compares what the
+ * record was filed or last set at, rather than trusting the moment of change.
+ */
+async function syncEngineering(kit: AgentKit, incidentId: string): Promise<void> {
+  const incident = kit.state().incidents[incidentId];
+  const record = incident?.engineering;
+  const importance = incident?.importance;
+  if (!record || !importance || record.importance === importance.level) return;
+  await kit.gate.call("commander", "update_engineering_incident", { incidentId, importance: importance.level, note: importanceNote(importance) });
+}
+
+/**
+ * Re-applies the importance rules to what's now known about the incident.
+ * The level only rises on its own (nextImportance), and the engineering
+ * record's priority follows it.
+ */
+export async function reassess(kit: AgentKit, incidentId: string, stage: ImportanceAssessment["stage"]): Promise<void> {
+  const incident = kit.state().incidents[incidentId];
+  if (!incident) return;
+  const assessed: ImportanceAssessment = { ...assessImportance(incident, [], kit.policy.importance), stage, source: "rules", assessedAt: kit.now() };
+  const next = nextImportance(incident.importance, assessed);
+  if (next) {
+    kit.emit({ type: "incident.importance", payload: { incidentId, importance: next } });
+    if (incident.importance && higher(next.level, incident.importance.level)) {
+      kit.setAgent("commander", "working", `Raised ${incidentId} to ${next.level}${next.page ? ", page on-call" : ""}: ${next.reasons[0]?.text ?? "no rule"}`);
+    }
+  }
+  await syncEngineering(kit, incidentId);
+}
+
+/** A human's decision on the incident's importance; the rules leave it alone from then on. */
+export async function setImportanceByHuman(kit: AgentKit, incidentId: string, importance: ImportanceAssessment): Promise<void> {
+  kit.emit({ type: "incident.importance", payload: { incidentId, importance } });
+  kit.setAgent("commander", "working", `${importance.by ?? "A human"} set ${incidentId} to ${importance.level}`);
+  await syncEngineering(kit, incidentId);
+}
+
 /** One full recovery pass, then the approvals it needs and the incident's status, one pass at a time per incident. */
 async function recover(kit: AgentKit, incidentId: string): Promise<void> {
   await kit.serial(incidentId, async () => {
     await reconcile(kit, incidentId, { assessFirst: true });
     await requestApprovals(kit, incidentId);
+    await reassess(kit, incidentId, kit.state().incidents[incidentId]?.rootCause ? "root_cause" : "impact");
     await settle(kit, incidentId);
   });
 }
@@ -64,14 +105,16 @@ async function recover(kit: AgentKit, incidentId: string): Promise<void> {
  */
 export async function runIncident(kit: AgentKit, cluster: ClusterView, incidentId: string, onOpened: () => void): Promise<void> {
   kit.setAgent("commander", "working", `Opening ${incidentId}`);
-  const severity = cluster.dominantSurface === "checkout_payments" ? "high" : "medium";
+  // Before the investigation, only the product area is known.
+  const initial = assessImportance({ surface: cluster.dominantSurface, hypotheses: [] }, [], kit.policy.importance);
   const opened = await kit.gate.call("commander", "open_incident", {
     incidentId,
     clusterId: cluster.id,
     ticketIds: cluster.reportTicketIds,
     surface: cluster.dominantSurface,
-    severity,
+    importance: initial.level,
   });
+  if (opened.ok) kit.emit({ type: "incident.importance", payload: { incidentId, importance: { ...initial, stage: "opened", source: "rules", assessedAt: kit.now() } } });
   onOpened();
   if (!opened.ok) {
     kit.setAgent("commander", "done", `Could not open ${incidentId}: ${opened.reason}`);
@@ -86,6 +129,7 @@ export async function runIncident(kit: AgentKit, cluster: ClusterView, incidentI
     kit.gate.call("commander", "file_engineering_incident", { incidentId }),
   ]);
 
+  await reassess(kit, incidentId, kit.state().incidents[incidentId]!.rootCause ? "root_cause" : "impact");
   const incident = kit.state().incidents[incidentId]!;
   if (incident.engineering && incident.narrative) {
     await kit.gate.call("commander", "update_engineering_incident", { incidentId, note: `Investigation: ${incident.narrative}` });
@@ -107,7 +151,10 @@ export async function handleLateTicket(kit: AgentKit, incidentId: string, ticket
     await recover(kit, incidentId);
     return;
   }
-  await kit.serial(incidentId, () => assessImpact(kit, incidentId));
+  await kit.serial(incidentId, async () => {
+    await assessImpact(kit, incidentId);
+    await reassess(kit, incidentId, "impact");
+  });
   kit.setAgent("recovery", "idle", `Linked ${ticketId}; waiting for the root cause`);
 }
 

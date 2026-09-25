@@ -3,6 +3,7 @@ import {
   type AgentStatus,
   type CustomerRecoveryState,
   type EvidenceKind,
+  type ImportanceLevel,
   type IncidentStatus,
   type PortMode,
   type PortName,
@@ -59,6 +60,12 @@ export const STATUS_TONE: Record<IncidentStatus, Tone> = {
   recovered: "success",
   resolved: "success",
   dismissed: "neutral",
+};
+
+export const IMPORTANCE: Record<ImportanceLevel, { tone: Tone; meaning: string }> = {
+  P1: { tone: "danger", meaning: "urgent: page the on-call engineer" },
+  P2: { tone: "warning", meaning: "high: engineering acts today" },
+  P3: { tone: "neutral", meaning: "normal: working hours" },
 };
 
 export const SEVERITY: Record<Severity, { label: string; tone: Tone }> = {
