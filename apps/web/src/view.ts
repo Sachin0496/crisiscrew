@@ -128,7 +128,7 @@ export function matchesFilter(row: CustomerRow, filter: CustomerFilter): boolean
   return true;
 }
 
-/** A customer's recovery in a few words, e.g. "Message · Voice · ₹1,000 credit". */
+/** A customer's recovery in a few words, e.g. "Message · Call · ₹1,000 credit". */
 export function planSummary(actions: RecoveryAction[]): string {
   return actions
     .filter((a) => a.kind !== "no_credit")
@@ -184,8 +184,8 @@ export function outreachByTrack(incident: IncidentView | undefined): TrackSummar
 /** The Handoff Agent's queue: outreach not yet sent, and credits waiting for a human, most urgent first. */
 export function handoffQueue(incident: IncidentView | undefined): RecoveryAction[] {
   const actions = incident?.actions ?? [];
-  const rank = (a: RecoveryAction) => (a.status === "failed" ? 0 : a.status === "awaiting_approval" ? 1 : 2);
+  const rank = (a: RecoveryAction) => (a.status === "failed" ? 0 : a.status === "awaiting_approval" ? 1 : a.status === "calling" ? 2 : 3);
   return actions
-    .filter((a) => (OUTREACH_KINDS.includes(a.kind) && (a.status === "planned" || a.status === "failed")) || (a.kind === "credit" && a.level === 3 && (a.status === "planned" || a.status === "awaiting_approval")))
+    .filter((a) => (OUTREACH_KINDS.includes(a.kind) && (a.status === "planned" || a.status === "calling" || a.status === "failed")) || (a.kind === "credit" && a.level === 3 && (a.status === "planned" || a.status === "awaiting_approval")))
     .sort((a, b) => rank(a) - rank(b));
 }

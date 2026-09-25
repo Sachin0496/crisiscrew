@@ -43,6 +43,7 @@ export type SandboxRecord = {
     problem?: { id: string; title: string; description: string };
   }[];
   calls: SandboxCall[];
+  consentWithdrawn: { customerRef: string; channel: "voice" | "proactive" }[];
 };
 
 /**
@@ -55,7 +56,7 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
   const world = scenario.world;
   const pause = () => (latencyMs > 0 ? clock.sleep(latencyMs) : Promise.resolve());
   const at = (offset: string) => t0 + parseOffset(offset);
-  const record: SandboxRecord = { notes: [], replies: [], proactive: [], accountNotes: [], credits: [], incidents: [], calls: [] };
+  const record: SandboxRecord = { notes: [], replies: [], proactive: [], accountNotes: [], credits: [], incidents: [], calls: [], consentWithdrawn: [] };
 
   const deployments = world.deployments
     .map((d) => ({ ...d, atMs: at(d.at) }))
@@ -151,6 +152,13 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
         record.accountNotes.push({ id, customerRef, text });
         return { id };
       },
+      async withdrawConsent(customerRef, channel) {
+        await pause();
+        const c = customers.get(customerRef);
+        if (!c) throw new Error(`unknown customer ${customerRef}`);
+        customers.set(customerRef, { ...c, consent: { ...c.consent, [channel]: false } });
+        record.consentWithdrawn.push({ customerRef, channel });
+      },
     },
 
     ticketActions: {
@@ -181,7 +189,7 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
       },
     },
 
-    telephony: sandboxTelephony({ seed: scenario.id, clock, record: record.calls, scripted: rosterOutcomes(world.oncall) }),
+    telephony: sandboxTelephony({ seed: scenario.id, clock, record: record.calls, scripted: new Map([...rosterOutcomes(world.oncall), ...customerOutcomes(world.customers)]) }),
 
     // A service the scenario says nothing about is healthy: every pod ready, no alarms.
     infra: {
@@ -282,4 +290,15 @@ function rosterOutcomes(roster: Scenario["world"]["oncall"]): Map<string, Script
     busy: { outcome: "busy" },
   };
   return new Map(roster.map((r) => [e164(r.phone), outcomes[r.answers]]));
+}
+
+/** How each scenario customer with an onCall entry takes a call. */
+function customerOutcomes(customers: Scenario["world"]["customers"]): Map<string, ScriptedCall> {
+  const outcomes = new Map<string, ScriptedCall>();
+  for (const c of customers) {
+    if (!c.phone || !c.onCall) continue;
+    const { answers, press } = c.onCall;
+    outcomes.set(e164(c.phone), answers === "answers" ? { outcome: "completed", ...(press ? { digits: press } : {}) } : { outcome: answers });
+  }
+  return outcomes;
 }

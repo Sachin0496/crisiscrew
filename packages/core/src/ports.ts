@@ -64,6 +64,8 @@ export interface OrdersPort extends AdapterMode {
   findCustomer(query: { email?: string; name?: string }): Promise<Customer | null>;
   /** Leaves a note on the customer's account, for support to see if they get in touch. */
   addAccountNote(customerRef: string, text: string): Promise<{ id: string }>;
+  /** Records that the customer no longer wants this kind of contact. */
+  withdrawConsent(customerRef: string, channel: "voice" | "proactive"): Promise<void>;
 }
 
 export interface TicketActionsPort extends AdapterMode {
@@ -88,8 +90,8 @@ export type CallRequest = {
   /** What the call says once answered. */
   script: string;
   purpose: CallPurpose;
-  /** Asks the callee to press a key after the script, e.g. "Press 1 to acknowledge". */
-  gather?: { prompt: string; numDigits?: number };
+  /** Asks the callee to press a key after the script, e.g. "Press 1 to acknowledge"; replies are what the call says back for each key. */
+  gather?: { prompt: string; numDigits?: number; replies?: Record<string, string> };
   /** Ids that tie the call back to its incident, customer or action. */
   metadata?: Record<string, string>;
 };

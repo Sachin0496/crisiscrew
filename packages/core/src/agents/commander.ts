@@ -202,3 +202,11 @@ export async function onAlertLinked(kit: AgentKit, incidentId: string): Promise<
     await reassess(kit, incidentId, kit.state().incidents[incidentId]?.rootCause ? "root_cause" : "impact");
   });
 }
+
+/** After something outside a recovery pass changes a customer's recovery (a call ending): outcome notes, then the incident's status. */
+export async function resettle(kit: AgentKit, incidentId: string): Promise<void> {
+  await kit.serial(incidentId, async () => {
+    await noteOutcomes(kit, incidentId, "handoff");
+    await settle(kit, incidentId);
+  });
+}

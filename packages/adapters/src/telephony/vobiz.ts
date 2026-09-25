@@ -47,6 +47,8 @@ export class VobizError extends Error {
 
 type Placed = { script: string; gather?: CallRequest["gather"]; requestUuid?: string; callUuid?: string };
 
+const xmlReply = (text: string) => `<?xml version="1.0" encoding="UTF-8"?><Response><Speak>${xml(text)}</Speak><Hangup/></Response>`;
+
 type CallRecord = {
   call_uuid?: string;
   answer_time?: string | null;
@@ -209,7 +211,8 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
           return answerXml(info.script, info.gather, callbackUrl(callId, "digits"));
         case "digits":
           if (params.Digits) book.update(callId, { digits: params.Digits.slice(0, 32) });
-          return `<?xml version="1.0" encoding="UTF-8"?><Response><Speak>Thank you. Goodbye.</Speak><Hangup/></Response>`;
+          // The call's own reply for the key pressed, or a plain goodbye.
+          return xmlReply(info.gather?.replies?.[params.Digits ?? ""] ?? "Thank you. Goodbye.");
         case "hangup": {
           const answered = call.state === "answered" || Boolean(params.AnswerTime);
           const cause = params.HangupCauseName ?? params.HangupCause;

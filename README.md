@@ -42,11 +42,12 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 | **Verify** | Investigator | Checks the payment gateway, recent releases, service error rates and infrastructure (Kubernetes pods and cloud alarms, over MCP), then ranks causes by prior × likelihood ratios, with every factor shown |
 | **Prove who was harmed** | Recovery Agent | Builds the **Customer Impact Graph**. A customer is affected when they have a failed or pending payment inside the incident window, whether or not they wrote in. A complaint with no such payment is kept as *not verified* |
 | **Find the silent** | Recovery Agent | The customers with failed payments who never contacted support: 15 of the 23 in the hero scenario |
-| **Plan each recovery** | Recovery Agent | A plan per customer from their own evidence: the channel they allow, a voice update for priority customers, and a credit sized by the harm, each with its reason and the authority it needs |
-| **Act within authority** | Recovery Agent | Updates, account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
+| **Plan each recovery** | Recovery Agent | A plan per customer from their own evidence: their outreach track, the channel they allow, a call when it's warranted, and a credit sized by the harm, each with its reason and the authority it needs |
+| **Act within authority** | Recovery Agent | Account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
+| **Reach out, by track** | Handoff Agent | Every customer message, in two tracks. **Complained:** a reply on their ticket that answers the complaint. **Not complained:** a message about a failure they may not have noticed. See [Outreach](#outreach) |
 | **Stop for a human** | Handoff Agent | Any credit above that becomes an approval for **one customer**, with their evidence. The approver approves, changes the amount or rejects, and exactly that amount is paid to exactly that customer |
 | **File for engineering** | Issue Creator | Once the Investigator has ranked the causes, files the Freshservice incident with the likely cause and its factors, the impact so far, on-call, and links back; routed to the service's group, at the importance's priority. A rollback change request when a release is blamed at 80% or more, and a problem record for the post-incident review once recovered |
-| **Write back** | Recovery Agent, Handoff Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and notes on the engineering incident as things change |
+| **Write back** | Handoff Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and notes on the engineering incident as things change |
 | **Alert first** | Incident Commander | A critical Freshservice alert on a service behind a tier-1 area opens an incident on its own, before anyone complains; complaints that follow join it. An alert during a complaint incident is linked to it and becomes evidence. See [Alerts](#alerts) |
 | **Decide how urgent** | Incident Commander | Sets the incident's importance, P1 to P3, from rules in `policy.json`: customers affected, money in failed payments, priority customers, a tier-1 area, a release as the likely cause. It rises as evidence arrives and never falls on its own; P1 means page on-call. See [Importance](#importance) |
 | **Page on-call** | Incident Commander | Phones whoever is on call (Freshservice on-call schedules) through Vobiz, and asks them to press 1. An unacknowledged call escalates to the next responder. See [Paging on-call](#paging-on-call) |
@@ -104,7 +105,7 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
   Approval APR-001 requested for Ananya Iyer: ₹1,000
     Ananya Iyer, a priority customer, never contacted support. Evidence: Card payment of ₹12,999 failed at 07:53:08.
     Likely cause: checkout-service v4.21.7 (97% confidence).
-    Done so far: proactive update sent; voice update prepared (voice is off).
+    Done so far: proactive update sent; phone call in progress.
     Proposed: ₹1,000 goodwill credit, above the ₹500 the agents may give one customer on their own.
 
   INC-2026-001: awaiting approval  2 credits are above the agents' authority and waiting for a human; recovery coverage 21/23
@@ -179,15 +180,17 @@ Recovery is based on each customer's actual harm, not one blanket action. The nu
 
 ## Outreach
 
-The Recovery Agent decides who gets what; the **Handoff Agent sends every customer message**, one track at a time. The Recovery Agent cannot message a customer: `send_customer_update` is on the Handoff Agent's allow-list only.
+The Recovery Agent decides who gets what; the **Handoff Agent sends every customer message**, one track at a time. The Recovery Agent can't message a customer at all: `send_customer_update` is on the Handoff Agent's allow-list only.
 
 | Track | Who | Message | Call |
 |---|---|---|---|
-| **Complained** | confirmed affected, and wrote in | a reply on their ticket about their own payment | when they are a priority customer or lost a large payment, and agreed to calls |
-| **Not complained** | confirmed affected, never wrote in | a proactive message about their failed payment; if they opted out, their account gets a note | whenever they agreed to calls |
+| **Complained** | confirmed affected, and wrote in | a reply on their ticket: *"thanks for writing in (ticket T-1004). You're right: … your ₹649 card payment at 13:25 was one of them"* | when they're a priority customer or lost a large payment, and agreed to calls |
+| **Not complained** | confirmed affected, never wrote in | a proactive message: *"you may not have noticed, but your ₹999 UPI payment at 13:24 didn't go through"*; if they opted out, nobody messages them and their account gets a note | whenever they agreed to calls |
 | **Not verified** | wrote in, but no failed payment on record | an acknowledgement asking for a payment reference | never |
 
-Outreach runs before approvals, so nobody waits for an approver to hear from us. Consent and confirmed impact are checked on every send. The Customers page shows each track and the Agents page shows the Handoff Agent's queue.
+- **Before approvals:** outreach runs before any credit goes to a human, so nobody waits for an approver to hear from us. A customer whose credit is being reviewed is told so, **without an amount**, until a human decides.
+- **The gate still decides:** consent and confirmed impact are checked on every send, exactly as before.
+- **Where to see it:** the Customers page has an **Outreach** card per track, and filters to match. The Agents page shows the **Handoff Agent's queue**. `get_customer_impact` gives each customer's `track` and takes `filter: "complained"` or `"not_complained"`.
 
 ## Importance
 
@@ -256,6 +259,28 @@ When the importance says to page (P1 by default), the Incident Commander phones 
    - a Freshservice workflow on the incident ticket: `POST /api/webhooks/freshservice/acknowledge` with `{"ticket_id": 314, "agent_name": "..."}` and `X-CrisisCrew-Secret`.
 
 Every call is a gated, audited `page_on_call` (L1, Incident Commander only). Its outcome is a private note on the Freshservice incident, and the Incident page's **On-call** card shows each attempt. In the hero, Neha Kapoor (primary) presses 1 on the first call; a P2 incident, like the UPI outage, pages no one.
+
+## Calling customers
+
+A voice action is a **phone call** through the telephony port (Vobiz, or the sandbox telephone), placed by the Handoff Agent with the customer's track script. After the script comes a bounded menu, with no free-form conversation:
+
+| Key | The call says | CrisisCrew does |
+|---|---|---|
+| 1 | the status of *their* payment (it failed, the bank reverses it), and their credit: named with its amount once issued, "being reviewed" without an amount before that | notes it |
+| 2 | someone will call them back | notes "please call them back" on their ticket or account |
+| 3 | they won't be called about this again | withdraws their voice consent (`record_contact_preference`) |
+
+- **Not answered or busy:** it's called again after `voice.retryAfterMin` (10 min), up to `voice.maxAttempts` (3). After that it's **not reached**: the written update stands, and the customer still counts as covered.
+- **Write-back:** every call's outcome is a private note on their ticket if they wrote in, or on their account otherwise.
+- **Guardrails, checked by the gate before every dial:**
+  - voice consent and confirmed impact;
+  - calling hours (`voice.callingHours`, 09:00 to 21:00 Asia/Kolkata). Outside them, no call, and the customer is marked not reached, not "needs attention";
+  - no second call while one is out, and none after the customer answered;
+  - at most `maxAttempts` calls;
+  - a script may name a credit amount only if that credit was issued.
+- **No phone number:** with voice consent but no number, the script is prepared for voice synthesis instead (ElevenLabs, not wired yet).
+
+In the hero, Ananya answers and presses 1; Farhan doesn't pick up, and after three calls he's marked not reached.
 
 ## Recovery Coverage
 
@@ -369,7 +394,8 @@ flowchart LR
   IS -- incident, rollback change, problem --> FS[Freshservice]
   IC --> REC[Recovery Agent]
   REC -- impact graph and plan --> REC
-  REC -- credit above authority --> HO[Handoff Agent]
+  REC -- outreach and credits above authority --> HO[Handoff Agent]
+  HO -- complained and not-complained tracks --> CU((Customers))
   HO -- one approval per customer --> H((Human))
   INV & REC & HO & IC --> G[Policy gate]
   MCP[MCP clients: /mcp] --> G
@@ -384,9 +410,10 @@ flowchart LR
 **Recovery is one idempotent pass,** run after the root cause, for each later complaint and after each human decision:
 1. rebuild the impact graph;
 2. plan only the actions each customer is still missing;
-3. carry out everything within authority;
-4. hand the rest to the Handoff Agent;
-5. set the incident's status from coverage.
+3. the Recovery Agent carries out its account notes and credits within authority;
+4. the Handoff Agent sends the messages, complained track first, then not complained;
+5. the Handoff Agent asks a human about each credit above authority;
+6. set the incident's status from coverage.
 
 Passes for one incident run one at a time, so nothing is planned or paid twice.
 
@@ -450,7 +477,7 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 | Issue Creator | L1 | `file_engineering_incident`, `update_engineering_incident`, `request_rollback_change`, `open_problem_record`, `get_incident`, `get_infra_health` |
 | Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_infra_health`, `get_incident` |
 | Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
-| Handoff Agent | L3 | `send_customer_update`, `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |
+| Handoff Agent | L3 | `send_customer_update`, `record_contact_preference`, `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `add_account_note`, `get_incident`, `get_customer_impact` |
 | External MCP client (operator) | L0 | the eight read tools, including `get_customer_impact` and `get_recovery_coverage` |
 
 ## MCP server

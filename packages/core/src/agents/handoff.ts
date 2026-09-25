@@ -37,7 +37,8 @@ function messageFor(kit: AgentKit, action: RecoveryAction, customer: AffectedCus
   }
 }
 
-async function send(kit: AgentKit, action: RecoveryAction, customer: AffectedCustomer | undefined, draft: Draft): Promise<void> {
+/** Sends one outreach action through the gate, as the Handoff Agent. A call's progress is then followed by onCustomerCall. */
+export async function sendAction(kit: AgentKit, action: RecoveryAction, customer: AffectedCustomer | undefined, draft: Draft): Promise<void> {
   if (!customer) {
     updateAction(kit, action, { status: "failed", detail: "No longer in the impact graph" });
     return;
@@ -45,10 +46,13 @@ async function send(kit: AgentKit, action: RecoveryAction, customer: AffectedCus
   const { channel, text } = messageFor(kit, action, customer, draft);
   const r = await kit.gate.call("handoff", "send_customer_update", { incidentId: action.incidentId, customerRef: customer.ref, channel, text, actionId: action.id });
   if (!r.ok) {
-    updateAction(kit, action, { status: "failed", detail: r.reason });
+    // A call the gate won't place (outside calling hours, say): the written update stands, so the customer isn't left needing attention.
+    updateAction(kit, action, action.kind === "voice" ? { status: "unreached", detail: `Not called: ${r.reason}` } : { status: "failed", detail: r.reason });
     return;
   }
   const result = r.result as { updateId: string; status: string; adapter?: string };
+  // A call placed: its own updates (queued, then how it ends) move the action from here.
+  if (result.status === "calling") return;
   if (result.status === "prepared") updateAction(kit, action, { status: "prepared", detail: `${result.updateId}: prepared, voice is off` });
   else updateAction(kit, action, { status: "done", detail: `${result.updateId} · ${result.adapter ?? r.entry.adapter}` });
 }
@@ -70,9 +74,9 @@ export async function reachOut(kit: AgentKit, incidentId: string): Promise<void>
     const mine = todo.filter((a) => (a.track ?? "unverified") === track);
     if (mine.length === 0) continue;
     kit.setAgent("handoff", "working", TRACK_TASK[track](new Set(mine.map((a) => a.customerRef)).size));
-    await inBatches(mine, 5, (action) => send(kit, action, customers.get(action.customerRef), draft));
+    await inBatches(mine, 5, (action) => sendAction(kit, action, customers.get(action.customerRef), draft));
   }
-  const sent = kit.state().incidents[incidentId]!.actions.filter((a) => todo.some((t) => t.id === a.id) && (a.status === "done" || a.status === "prepared")).length;
+  const sent = kit.state().incidents[incidentId]!.actions.filter((a) => todo.some((t) => t.id === a.id) && ["done", "prepared", "calling", "unreached"].includes(a.status)).length;
   kit.setAgent("handoff", "idle", `Sent ${sent} of ${todo.length} ${todo.length === 1 ? "message" : "messages"}`);
 }
 export async function requestApprovals(kit: AgentKit, incidentId: string): Promise<void> {

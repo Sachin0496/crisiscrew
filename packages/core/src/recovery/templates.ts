@@ -137,7 +137,12 @@ const DONE_PHRASES: Partial<Record<RecoveryAction["kind"], string>> = {
 /** What has been done for one customer, in a phrase per action. */
 export function actionPhrases(actions: RecoveryAction[]): string[] {
   return actions.flatMap((a) => {
-    if (a.kind === "voice") return a.status === "prepared" ? ["voice update prepared (voice is off)"] : a.status === "done" ? ["voice update sent"] : [];
+    if (a.kind === "voice") {
+      if (a.status === "prepared") return ["voice update prepared (voice is off)"];
+      if (a.status === "calling") return ["phone call in progress"];
+      if (a.status === "unreached") return [`not reached by phone after ${a.attempts ?? 1} ${(a.attempts ?? 1) === 1 ? "call" : "calls"}`];
+      return a.status === "done" ? [a.callId ? "phone call answered" : "voice update sent"] : [];
+    }
     if (a.kind === "credit") {
       if (a.status === "done") return [`${inr(a.amountInr ?? 0)} goodwill credit issued${a.approvalId ? ` on approval ${a.approvalId}` : ""}${a.detail ? ` (${a.detail})` : ""}`];
       if (a.status === "declined") return [`credit declined by the approver${a.detail ? `: ${a.detail}` : ""}`];
@@ -334,4 +339,46 @@ export function problemRecord(incident: IncidentView, coverage: Coverage): { tit
       "Opened by CrisisCrew's Issue Creator for the post-incident review: confirm the cause, and plan the work that stops it happening again.",
     ].join("\n"),
   };
+}
+
+/**
+ * The bounded menu after a customer call's script, and what the call says
+ * back for each key. It answers with facts CrisisCrew holds, and never
+ * promises a credit it hasn't issued: an issued credit is named with its
+ * amount, one under review without.
+ */
+export function callMenu(customer: Pick<AffectedCustomer, "name" | "amountInr" | "methods" | "lastFailedAt" | "paidOnRetry">, credit?: RecoveryAction): { prompt: string; replies: Record<string, string> } {
+  const payment = fillOutreach("{payment}", customer);
+  const status = customer.paidOnRetry
+    ? `${capitalise(payment)} went through on a later try, so there's nothing more to pay.`
+    : `${capitalise(payment)} didn't go through. If money left your account, your bank will reverse it automatically.`;
+  const creditLine =
+    credit?.status === "done"
+      ? ` A goodwill credit of ${inr(credit.amountInr ?? 0)} has been added to your account.`
+      : credit && (credit.status === "planned" || credit.status === "awaiting_approval")
+        ? " A goodwill credit for you is being reviewed, and we'll confirm it shortly."
+        : "";
+  return {
+    prompt: "Press 1 to hear the status of your payment, 2 to have a person call you back, or 3 to stop these calls.",
+    replies: {
+      "1": `${status}${creditLine} Thank you, goodbye.`,
+      "2": "Thank you. Someone from our team will call you back. Goodbye.",
+      "3": "Understood. We won't call you about this again. Goodbye.",
+    },
+  };
+}
+
+const PRESSED: Record<string, string> = {
+  "1": "pressed 1 and heard their payment and credit status",
+  "2": "pressed 2: asked for a person to call them back",
+  "3": "pressed 3: asked not to be called again, so voice consent is withdrawn",
+};
+
+/** The note written after a customer call ends: when, how long, and what they chose. */
+export function callNote(incidentId: string, customer: Pick<AffectedCustomer, "name">, outcome: { answered: boolean; durationSec?: number; digits?: string; attempts: number; reason?: string }): string {
+  if (!outcome.answered) {
+    return `CrisisCrew · ${incidentId} · ${customer.name} wasn't reached by phone after ${outcome.attempts} ${outcome.attempts === 1 ? "call" : "calls"}${outcome.reason ? ` (${outcome.reason})` : ""}. The written update stands.`;
+  }
+  const choice = outcome.digits ? PRESSED[outcome.digits[0]!] ?? `pressed ${outcome.digits}` : "listened, and pressed nothing";
+  return `CrisisCrew · ${incidentId} · Called ${customer.name}${outcome.durationSec !== undefined ? ` (${outcome.durationSec} s)` : ""}: answered, ${choice}.${outcome.digits?.startsWith("2") ? " Please call them back." : ""}`;
 }

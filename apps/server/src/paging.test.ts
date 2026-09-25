@@ -105,7 +105,7 @@ describe("paging on-call", () => {
   it("says so when nobody on call can be phoned", async () => {
     const { incident, state } = await run(heroWith([]));
     expect(incident?.paging).toMatchObject({ status: "no_responder", attempts: [] });
-    expect(Object.values(state.calls)).toHaveLength(0);
+    expect(Object.values(state.calls).filter((c) => c.purpose === "oncall")).toHaveLength(0);
   });
 
   it("pages no one for a P2 incident or a burst that isn't an incident", async () => {
