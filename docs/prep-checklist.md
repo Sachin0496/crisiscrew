@@ -57,7 +57,7 @@ What the team does before and at Stage 2 (Bangalore, 25–26 September 2026). Th
   | Anthropic | `ANTHROPIC_API_KEY` | designed, not wired |
   | Sarvam | `SARVAM_API_KEY` | designed, not wired |
   | Dodo Payments | `DODO_PAYMENTS_API_KEY` | designed, not wired |
-  | Vobiz | `VOBIZ_AUTH_ID`, `VOBIZ_AUTH_TOKEN` | designed, not wired |
+  | Vobiz | `VOBIZ_AUTH_ID`, `VOBIZ_AUTH_TOKEN`, `VOBIZ_FROM_NUMBER` | **Wired:** `TELEPHONY=vobiz` switches it on (needs an https `PUBLIC_BASE_URL` and `ADMIN_TOKEN`) |
   | AWS | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | designed, not wired |
 
 ### Switch Freshdesk on (about 20 minutes)

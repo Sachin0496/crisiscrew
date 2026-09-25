@@ -10,6 +10,7 @@ import {
   type ProviderHealth,
   type ServiceInfo,
 } from "@crisiscrew/core";
+import { sandboxTelephony, type SandboxCall } from "../telephony/sandbox";
 
 const MINUTE = 60_000;
 const SANDBOX = { mode: "sandbox" as const, adapter: "sandbox" };
@@ -29,6 +30,7 @@ export type SandboxRecord = {
   accountNotes: { id: string; customerRef: string; text: string }[];
   credits: { id: string; customerRefs: string[]; amountInr: number; reference: string }[];
   incidents: { id: string; incidentId: string; title: string; description: string; notes: string[] }[];
+  calls: SandboxCall[];
 };
 
 /**
@@ -41,7 +43,7 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
   const world = scenario.world;
   const pause = () => (latencyMs > 0 ? clock.sleep(latencyMs) : Promise.resolve());
   const at = (offset: string) => t0 + parseOffset(offset);
-  const record: SandboxRecord = { notes: [], replies: [], proactive: [], accountNotes: [], credits: [], incidents: [] };
+  const record: SandboxRecord = { notes: [], replies: [], proactive: [], accountNotes: [], credits: [], incidents: [], calls: [] };
 
   const deployments = world.deployments
     .map((d) => ({ ...d, atMs: at(d.at) }))
@@ -166,6 +168,8 @@ export function createSandboxPorts(scenario: Scenario, options: SandboxOptions):
         return { audioId: null };
       },
     },
+
+    telephony: sandboxTelephony({ seed: scenario.id, clock, record: record.calls }),
 
     credits: {
       ...SANDBOX,

@@ -3,6 +3,7 @@ import type {
   AgentView,
   Approval,
   AuditEntry,
+  CallView,
   ClusterView,
   IncidentView,
   SignalView,
@@ -36,6 +37,8 @@ export type CrisisState = {
   toolCalls: AuditEntry[];
   approvals: Record<string, Approval>;
   credits: CreditRecord[];
+  /** Outbound phone calls, by id. */
+  calls: Record<string, CallView>;
   replayFinished: boolean;
 };
 
@@ -60,6 +63,7 @@ export function initialState(): CrisisState {
     toolCalls: [],
     approvals: {},
     credits: [],
+    calls: {},
     replayFinished: false,
   };
 }
@@ -211,6 +215,11 @@ export function reduce(previous: CrisisState, event: CrisisEvent): CrisisState {
     case "engineering.recorded": {
       const { incidentId, record } = event.payload;
       return updateIncident(state, incidentId, (incident) => ({ ...incident, engineering: record }));
+    }
+
+    case "call.updated": {
+      const { call } = event.payload;
+      return { ...state, calls: { ...state.calls, [call.id]: call } };
     }
 
     case "replay.finished":

@@ -1,4 +1,5 @@
 import { serveStatic } from "@hono/node-server/serve-static";
+import { VOBIZ_CALLBACKS, type VobizCallback } from "@crisiscrew/adapters";
 import { DecisionBody, impactGraph, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -29,6 +30,10 @@ const FreshdeskWebhook = z.union([
   z.object({ ticket_id: z.coerce.number().int().positive() }),
   z.object({ freshdesk_webhook: z.object({ ticket_id: z.coerce.number().int().positive() }) }),
 ]);
+
+const TestCall = z.object({ to: z.string().trim().min(8).max(20) }).strict();
+
+const TEST_CALL_SCRIPT = "This is a test call from CrisisCrew. Your phone line is set up to receive incident calls.";
 
 function sameSecret(given: string, expected: string): boolean {
   const a = Buffer.from(given);
@@ -136,6 +141,45 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     // Answer at once; Freshdesk's webhook times out quickly, and ingest reads the ticket back from the API.
     void runtime.ingestFreshdesk(ticketId).catch((error) => onError?.(error));
     return c.json({ accepted: true, ticketId }, 202);
+  });
+
+  // Vobiz fetches what a call says and reports its progress here. Each callback is signed with the account's auth token.
+  app.post("/api/webhooks/vobiz/:callId/:kind", async (c) => {
+    const vobiz = runtime.vobiz;
+    if (!vobiz) return c.json({ error: "Vobiz calls are off: set TELEPHONY=vobiz" }, 404);
+    const kind = c.req.param("kind") as VobizCallback;
+    if (!VOBIZ_CALLBACKS.includes(kind)) return c.json({ error: `unknown Vobiz callback "${kind}"` }, 404);
+    const callId = c.req.param("callId");
+    // Vobiz signs the public URL it called, which a tunnel or proxy rewrites before it reaches us.
+    if (!vobiz.verifySignature(vobiz.callbackUrl(callId, kind), (name) => c.req.header(name))) return c.json({ error: "Vobiz signature is missing or wrong" }, 401);
+    const form = await c.req.parseBody().catch(() => ({}));
+    const params = Object.fromEntries(Object.entries(form).filter((e): e is [string, string] => typeof e[1] === "string"));
+    const reply = vobiz.handleCallback(callId, kind, params);
+    if (reply === null) return kind === "answer" || kind === "digits" ? c.json({ error: `no call ${callId}` }, 404) : c.body(null, 204);
+    return c.body(reply, 200, { "content-type": "application/xml; charset=utf-8" });
+  });
+
+  // Checks the phone line end to end: places one short call, and its progress arrives as call.updated events.
+  app.post("/api/telephony/test-call", admin, async (c) => {
+    const parsed = await body(c, TestCall);
+    if (!parsed.ok) return parsed.response;
+    try {
+      const { callId } = await runtime.placeCall({
+        to: parsed.data.to,
+        script: TEST_CALL_SCRIPT,
+        purpose: "oncall",
+        gather: { prompt: "Press 1 to confirm you can hear this." },
+        metadata: { test: "true" },
+      });
+      return c.json({ callId, status: runtime.state().calls[callId] ?? null }, 202);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
+  app.get("/api/calls/:id", (c) => {
+    const call = runtime.state().calls[c.req.param("id")];
+    return call ? c.json(call) : c.json({ error: `no call ${c.req.param("id")}` }, 404);
   });
 
   app.post("/api/approvals/:id", approver, async (c) => {
