@@ -46,7 +46,7 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 | **Act within authority** | Recovery Agent | Updates, account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
 | **Stop for a human** | Handoff Agent | Any credit above that becomes an approval for **one customer**, with their evidence. The approver approves, changes the amount or rejects, and exactly that amount is paid to exactly that customer |
 | **File for engineering** | Issue Creator | Once the Investigator has ranked the causes, files the Freshservice incident with the likely cause and its factors, the impact so far, on-call, and links back; routed to the service's group, at the importance's priority. A rollback change request when a release is blamed at 80% or more, and a problem record for the post-incident review once recovered |
-| **Write back** | Recovery Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and notes on the engineering incident as things change |
+| **Write back** | Recovery Agent, Handoff Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and notes on the engineering incident as things change |
 | **Alert first** | Incident Commander | A critical Freshservice alert on a service behind a tier-1 area opens an incident on its own, before anyone complains; complaints that follow join it. An alert during a complaint incident is linked to it and becomes evidence. See [Alerts](#alerts) |
 | **Decide how urgent** | Incident Commander | Sets the incident's importance, P1 to P3, from rules in `policy.json`: customers affected, money in failed payments, priority customers, a tier-1 area, a release as the likely cause. It rises as evidence arrives and never falls on its own; P1 means page on-call. See [Importance](#importance) |
 | **Page on-call** | Incident Commander | Phones whoever is on call (Freshservice on-call schedules) through Vobiz, and asks them to press 1. An unacknowledged call escalates to the next responder. See [Paging on-call](#paging-on-call) |
@@ -176,6 +176,18 @@ Recovery is based on each customer's actual harm, not one blanket action. The nu
 - Nisha paid on a retry, so she gets the update and no credit.
 - Pooja, Manoj and Lakshmi opted out of proactive messages. Nobody messages them; their accounts get a note and a credit.
 - Ananya and Farhan are priority customers, so their ₹1,000 credits wait for a human.
+
+## Outreach
+
+The Recovery Agent decides who gets what; the **Handoff Agent sends every customer message**, one track at a time. The Recovery Agent cannot message a customer: `send_customer_update` is on the Handoff Agent's allow-list only.
+
+| Track | Who | Message | Call |
+|---|---|---|---|
+| **Complained** | confirmed affected, and wrote in | a reply on their ticket about their own payment | when they are a priority customer or lost a large payment, and agreed to calls |
+| **Not complained** | confirmed affected, never wrote in | a proactive message about their failed payment; if they opted out, their account gets a note | whenever they agreed to calls |
+| **Not verified** | wrote in, but no failed payment on record | an acknowledgement asking for a payment reference | never |
+
+Outreach runs before approvals, so nobody waits for an approver to hear from us. Consent and confirmed impact are checked on every send. The Customers page shows each track and the Agents page shows the Handoff Agent's queue.
 
 ## Importance
 
@@ -437,8 +449,8 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 | Incident Commander | L1 | `open_incident`, `update_engineering_incident`, `page_on_call`, `get_recovery_coverage`, `get_incident`, `search_recent_tickets` |
 | Issue Creator | L1 | `file_engineering_incident`, `update_engineering_incident`, `request_rollback_change`, `open_problem_record`, `get_incident`, `get_infra_health` |
 | Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_infra_health`, `get_incident` |
-| Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `send_customer_update`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
-| Handoff Agent | L3 | `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |
+| Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
+| Handoff Agent | L3 | `send_customer_update`, `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |
 | External MCP client (operator) | L0 | the eight read tools, including `get_customer_impact` and `get_recovery_coverage` |
 
 ## MCP server

@@ -1,4 +1,4 @@
-import type { AffectedCustomer, Level, Policy, RecoveryAction, RecoveryKind } from "@crisiscrew/contracts";
+import { outreachTrack, type AffectedCustomer, type Level, type Policy, type RecoveryAction, type RecoveryKind } from "@crisiscrew/contracts";
 import { clockTimeSec, inr } from "./templates";
 
 export type PlanInput = {
@@ -17,6 +17,12 @@ export type PlanInput = {
  * the actions a customer doesn't have yet, so it can run again when a silent
  * customer writes in or a new customer turns up.
  *
+ * Outreach follows the customer's track. Complained: a reply on their
+ * ticket, and a call when they're a priority customer or lost a large
+ * payment. Not complained: a proactive message (or, if they opted out, only
+ * a note on their account), and a call whenever they agreed to calls. The
+ * gate checks consent again when each is sent.
+ *
  * Credits are sized by the harm, not handed out per ticket. The agents may
  * give one customer up to the per-customer limit and the whole incident up
  * to the authority limit; customers are planned in order, so the first
@@ -32,6 +38,7 @@ export function planRecovery(input: PlanInput): RecoveryAction[] {
 
   for (const c of input.customers) {
     const have = new Set(input.existing.filter((a) => a.customerRef === c.ref).map((a) => a.kind));
+    const track = outreachTrack(c);
     const add = (kind: RecoveryKind, reason: string, level: Level | null, amountInr?: number) => {
       if (have.has(kind)) return;
       have.add(kind);
@@ -43,6 +50,7 @@ export function planRecovery(input: PlanInput): RecoveryAction[] {
         reason,
         level,
         ...(amountInr !== undefined ? { amountInr } : {}),
+        ...(kind === "credit" || kind === "no_credit" ? {} : { track }),
         status: kind === "no_credit" ? "done" : "planned",
         updatedAt: input.now,
       });
@@ -54,18 +62,23 @@ export function planRecovery(input: PlanInput): RecoveryAction[] {
       continue;
     }
 
-    if (c.complained) add("ticket_reply", "Wrote in, so the update goes on their ticket", 2);
-    else if (c.consent.proactive) add("proactive_message", "Didn't write in, and agreed to proactive messages", 2);
-    else add("account_note", "Didn't write in and opted out of proactive messages, so nobody messages them. A note on their account tells support what happened", 1);
-
-    if (c.tier === "priority" && c.consent.voice) add("voice", "Priority customer who agreed to calls", 2);
+    const high = c.severity === "high";
+    if (track === "complained") {
+      add("ticket_reply", "Wrote in, so the update goes on their ticket", 2);
+      if (c.consent.voice && (c.tier === "priority" || high)) {
+        add("voice", c.tier === "priority" ? "Priority customer who wrote in and agreed to calls" : `Wrote in about a ${inr(c.amountInr)} payment and agreed to calls`, 2);
+      }
+    } else {
+      if (c.consent.proactive) add("proactive_message", "Didn't write in, and agreed to proactive messages", 2);
+      else add("account_note", "Didn't write in and opted out of proactive messages, so nobody messages them. A note on their account tells support what happened", 1);
+      if (c.consent.voice) add("voice", c.tier === "priority" ? "Priority customer who didn't write in and agreed to calls" : "Didn't write in, and agreed to calls", 2);
+    }
 
     if (have.has("credit") || have.has("no_credit")) continue;
     if (c.paidOnRetry) {
       add("no_credit", `Paid on a retry${c.lastFailedAt !== undefined ? ` after the failure at ${clockTimeSec(c.lastFailedAt)}` : ""}, so the update is enough`, null);
       continue;
     }
-    const high = c.severity === "high";
     const amount = high ? recovery.creditInr.high : recovery.creditInr.standard;
     if (amount <= 0) {
       add("no_credit", "The recovery policy sets no credit for this harm", null);
