@@ -1,5 +1,5 @@
 import { serveStatic } from "@hono/node-server/serve-static";
-import { DecisionBody, impactGraph, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
+import { AlertPayload, DecisionBody, impactGraph, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -137,6 +137,39 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     void runtime.ingestFreshdesk(ticketId).catch((error) => onError?.(error));
     return c.json({ accepted: true, ticketId }, 202);
   });
+
+  /**
+   * Where a monitoring tool posts its alerts. The payload is the Freshservice
+   * Alert Management shape (hostname, resource, severity, message, ...), so a
+   * Grafana, CloudWatch or Datadog webhook points straight here. Guarded by
+   * X-CrisisCrew-Secret when ALERTS_WEBHOOK_SECRET is set.
+   */
+  app.post(config.alerts?.webhookPath ?? "/api/webhooks/alerts", async (c) => {
+    if (!runtime.alertsEnabled) return c.json({ error: "alert ingest is off: set ALERTS=freshservice-ams" }, 404);
+    const secret = config.alerts?.webhookSecret ?? null;
+    if (secret && !sameSecret(c.req.header("x-crisiscrew-secret") ?? "", secret)) {
+      return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
+    }
+    const parsed = await body(c, AlertPayload);
+    if (!parsed.ok) return parsed.response;
+    try {
+      const alert = runtime.ingestAlert(parsed.data);
+      return c.json({ accepted: true, alert }, 202);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  /** The alerts monitoring tools posted in, and the ones CrisisCrew pushed out. */
+  app.get("/api/alerts", (c) =>
+    c.json({
+      enabled: runtime.alertsEnabled,
+      adapter: runtime.alertsEnabled ? "freshservice-ams" : "sandbox",
+      ...(config.alerts ? { endpoint: config.alerts.redactedEndpoint, integrationId: config.alerts.integrationId, webhookPath: config.alerts.webhookPath } : {}),
+      received: runtime.receivedAlerts(),
+      pushed: runtime.pushedAlerts(),
+    }),
+  );
 
   app.post("/api/approvals/:id", approver, async (c) => {
     const parsed = await body(c, DecisionBody);

@@ -40,6 +40,7 @@ describe("MCP endpoint", () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
+        "get_active_alerts",
         "get_customer_impact",
         "get_incident",
         "get_payment_health",

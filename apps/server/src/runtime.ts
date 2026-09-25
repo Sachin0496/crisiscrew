@@ -2,11 +2,25 @@ import {
   createSandboxPorts,
   freshdeskTicketActions,
   freshdeskToTicketInput,
+  type LiveAlerts,
   type FreshdeskClient,
   type FreshdeskTicket,
   type FreshdeskWriter,
 } from "@crisiscrew/adapters";
-import type { Approval, AuditEntry, CrisisState, Customer, DecisionBody, Policy, Scenario, Ticket, TicketInput } from "@crisiscrew/contracts";
+import type {
+  AlertPayload,
+  AlertView,
+  Approval,
+  AuditEntry,
+  CrisisState,
+  Customer,
+  DecisionBody,
+  Policy,
+  Scenario,
+  SessionMode,
+  Ticket,
+  TicketInput,
+} from "@crisiscrew/contracts";
 import {
   CrisisEngine,
   EventBus,
@@ -26,6 +40,8 @@ export type LiveAdapters = {
   freshdesk?: { client: FreshdeskClient; writer: FreshdeskWriter };
   /** INCIDENTS=freshservice: files engineering incidents in Freshservice. */
   incidents?: IncidentsPort;
+  /** ALERTS=freshservice-ams: pushes incidents to Alert Management and reads the alerts monitoring tools post in. */
+  alerts?: LiveAlerts;
 };
 
 export type RuntimeOptions = {
@@ -150,6 +166,35 @@ export class Runtime {
     return ingested;
   }
 
+  /** True when incidents are pushed to Freshservice Alert Management and alerts post in. */
+  get alertsEnabled(): boolean {
+    return Boolean(this.options.live?.alerts);
+  }
+
+  /**
+   * An alert arriving from a monitoring tool. It goes into the live feed the
+   * investigator reads, and onto the event stream so the console shows it as
+   * it lands. Alerts CrisisCrew pushed itself are not fed back.
+   */
+  ingestAlert(payload: AlertPayload): AlertView {
+    const alerts = this.options.live?.alerts;
+    if (!alerts) throw new Error("alert ingest is off: set ALERTS=freshservice-ams");
+    const receivedAt = Date.now();
+    const alert = alerts.ingest(payload, receivedAt);
+    this.bus.emit({ type: "alert.received", payload: { alert } }, receivedAt);
+    return alert;
+  }
+
+  /** Alerts received on the inbound webhook, newest first. */
+  receivedAlerts(): AlertView[] {
+    return this.options.live?.alerts?.received() ?? [];
+  }
+
+  /** Alerts CrisisCrew pushed to Alert Management, newest first. */
+  pushedAlerts() {
+    return this.options.live?.alerts?.pushed() ?? [];
+  }
+
   decide(approvalId: string, body: DecisionBody, by: string): Promise<Approval> {
     return this.current().decide(approvalId, body, by);
   }
@@ -205,13 +250,15 @@ export class Runtime {
   }
 
   /** The scenario's sandbox world, with the live Freshworks adapters layered on top when they're switched on. */
-  private portsFor(scenario: Scenario, clock: Clock, t0: number): Ports {
+  private portsFor(scenario: Scenario, clock: Clock, t0: number, kind: SessionMode): Ports {
     const sandbox = createSandboxPorts(scenario, { t0, clock, latencyMs: this.options.latencyMs });
     const live = this.options.live;
     return {
       ...sandbox,
       ...(live?.freshdesk ? { ticketActions: freshdeskTicketActions(live.freshdesk.writer, sandbox.ticketActions) } : {}),
       ...(live?.incidents ? { incidents: live.incidents } : {}),
+      // Alerts are a live feed of the real world; a replay keeps the scenario's own.
+      ...(live?.alerts && kind !== "replay" ? { alerts: live.alerts } : {}),
     };
   }
 
@@ -223,7 +270,7 @@ export class Runtime {
     this.lastPoll = null;
     this.startedAt = Date.now();
     const sessionId = `S${++this.sessions}`;
-    const ports = this.portsFor(scenario, clock, t0);
+    const ports = this.portsFor(scenario, clock, t0, session.mode);
     const engine = new CrisisEngine({
       ports,
       embedder: this.options.embedder,

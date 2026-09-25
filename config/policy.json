@@ -9,12 +9,22 @@
     "commander": {
       "name": "Incident Commander",
       "maxLevel": 1,
-      "tools": ["open_incident", "get_incident", "search_recent_tickets", "file_engineering_incident", "update_engineering_incident", "get_recovery_coverage"]
+      "tools": [
+        "open_incident",
+        "get_incident",
+        "search_recent_tickets",
+        "file_engineering_incident",
+        "update_engineering_incident",
+        "get_recovery_coverage",
+        "get_active_alerts",
+        "raise_alert",
+        "resolve_alert"
+      ]
     },
     "investigator": {
       "name": "Investigator",
       "maxLevel": 0,
-      "tools": ["get_payment_health", "get_recent_deployments", "get_service_status", "get_incident"]
+      "tools": ["get_payment_health", "get_recent_deployments", "get_service_status", "get_active_alerts", "get_incident"]
     },
     "recovery": {
       "name": "Recovery Agent",
@@ -47,7 +57,8 @@
         "get_recovery_coverage",
         "get_payment_health",
         "get_recent_deployments",
-        "get_service_status"
+        "get_service_status",
+        "get_active_alerts"
       ]
     }
   },

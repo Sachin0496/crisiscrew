@@ -121,6 +121,7 @@ describe("PolicyGate", () => {
     expect(pattern?.tools.filter((t) => t.allowed).map((t) => t.name)).toEqual(["search_recent_tickets", "get_incident"]);
     expect(gate.permitted("operator").map((t) => t.name).sort()).toEqual(
       [
+        "get_active_alerts",
         "get_customer_impact",
         "get_incident",
         "get_payment_health",

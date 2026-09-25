@@ -11,6 +11,7 @@ describe("loadConfig", () => {
       deployments: "sandbox",
       payments: "sandbox",
       metrics: "sandbox",
+      alerts: "sandbox",
       orders: "sandbox",
       voice: "off",
       llm: "template",
@@ -68,9 +69,10 @@ describe("wiringReport", () => {
     const report = wiringReport(loadConfig({}));
     // Only the local embedding model is live: it is real computation on this machine, not simulated data.
     expect(report.liveCount).toBe(1);
-    expect(report.ports).toHaveLength(11);
+    expect(report.ports).toHaveLength(12);
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });
     expect(report.ports.find((p) => p.port === "incidents")).toMatchObject({ mode: "sandbox", available: ["freshservice"], planned: [] });
+    expect(report.ports.find((p) => p.port === "alerts")).toMatchObject({ mode: "sandbox", available: ["freshservice-ams"], planned: [], env: "ALERTS" });
     expect(report.ports.find((p) => p.port === "voice")).toMatchObject({ mode: "off", available: [], planned: ["elevenlabs"] });
     expect(report.ports.find((p) => p.port === "embeddings")).toMatchObject({ mode: "live", adapter: "local" });
   });
