@@ -115,8 +115,10 @@ describe("hero scenario: checkout release v4.21.7", () => {
     const outcomes = ports.record.notes.filter((n) => n.text.startsWith("CrisisCrew · "));
     expect(outcomes).toHaveLength(8);
     expect(outcomes[0]?.text).toMatch(/Confirmed affected: .*failed at/);
-    expect(incident?.engineering).toEqual({ id: "ENG-001", adapter: "sandbox", importance: "P1" });
-    expect(ports.record.incidents[0]?.notes.map((n) => n.split(/[:.]/)[0])).toEqual(["Importance P1 (page on-call)", "On-call page 1", "Investigation", "Customer impact"]);
+    expect(incident?.engineering).toEqual({ id: "ENG-001", adapter: "sandbox", importance: "P1", change: { id: "CHG-001" } });
+    // Filed after the investigation, so the findings are in the ticket itself; notes follow as recovery moves.
+    expect(ports.record.incidents[0]?.description).toContain("Likely cause: checkout-service v4.21.7 (97% confidence)");
+    expect(ports.record.incidents[0]?.notes.map((n) => n.split(/[:.]/)[0])).toEqual(["Customer impact"]);
   });
 
   it("opens at P2 for a tier-1 area, then raises it to P1 and pages on-call once 23 customers are proved affected", async () => {
@@ -130,10 +132,10 @@ describe("hero scenario: checkout release v4.21.7", () => {
       "checkout-service v4.21.7 is the likely cause (97%), so a rollback is an option",
     ]);
     expect(incident?.severity).toBe("high");
-    // Filed at P2 when the incident opened, then raised with the rest of the engineering record.
+    // The record is filed after the importance is known, so it starts at P1 and needs no raise.
     expect(ports.record.incidents[0]?.importance).toBe("P1");
     const raised = engine.audit.entries().filter((e) => e.tool === "update_engineering_incident" && e.argsSummary.includes(`"importance":"P1"`));
-    expect(raised).toHaveLength(1);
+    expect(raised).toHaveLength(0);
   });
 
   it("lets a human lower the importance, and the rules then leave it alone", async () => {

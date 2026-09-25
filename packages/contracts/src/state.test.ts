@@ -13,6 +13,7 @@ const agents = [
   { id: "pattern", name: "Pattern Agent", level: 0 },
   { id: "commander", name: "Incident Commander", level: 1 },
   { id: "investigator", name: "Investigator", level: 0 },
+  { id: "issue_creator", name: "Issue Creator", level: 1 },
   { id: "recovery", name: "Recovery Agent", level: 2 },
   { id: "handoff", name: "Handoff Agent", level: 3 },
 ] as const;

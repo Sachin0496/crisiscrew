@@ -9,12 +9,17 @@
     "commander": {
       "name": "Incident Commander",
       "maxLevel": 1,
-      "tools": ["open_incident", "get_incident", "search_recent_tickets", "file_engineering_incident", "update_engineering_incident", "get_recovery_coverage", "page_on_call"]
+      "tools": ["open_incident", "get_incident", "search_recent_tickets", "update_engineering_incident", "get_recovery_coverage", "page_on_call"]
     },
     "investigator": {
       "name": "Investigator",
       "maxLevel": 0,
       "tools": ["get_payment_health", "get_recent_deployments", "get_service_status", "get_infra_health", "get_incident"]
+    },
+    "issue_creator": {
+      "name": "Issue Creator",
+      "maxLevel": 1,
+      "tools": ["file_engineering_incident", "update_engineering_incident", "request_rollback_change", "open_problem_record", "get_incident", "get_infra_health"]
     },
     "recovery": {
       "name": "Recovery Agent",
@@ -84,6 +89,10 @@
     "priorityCustomers": { "p1": 3, "p2": 1 },
     "deployConfidence": 0.8,
     "pageAt": "P1"
+  },
+  "issues": {
+    "rollbackConfidence": 0.8,
+    "problemOnRecovered": true
   },
   "alerts": {
     "openOnCritical": true,

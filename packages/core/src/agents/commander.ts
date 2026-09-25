@@ -4,6 +4,7 @@ import { coverageNote, importanceNote } from "../recovery/templates";
 import { carryOutDecision, requestApprovals } from "./handoff";
 import { investigate } from "./investigator";
 import type { AgentKit } from "./kit";
+import { fileIssue, openProblem } from "./issue-creator";
 import { pageIfNeeded } from "./paging";
 import { assessImpact, noteOutcomes, reconcile, startRecovery } from "./recovery";
 
@@ -34,6 +35,7 @@ async function settle(kit: AgentKit, incidentId: string): Promise<void> {
   }
   if (incident.status !== to) {
     kit.setStatus(incidentId, to, note);
+    if (to === "recovered") await openProblem(kit, incidentId);
     if (incident.engineering && to !== "recovering") {
       await kit.gate.call("commander", "update_engineering_incident", { incidentId, note: coverageNote(recoveryCoverage(kit.state().incidents[incidentId]!)) });
     }
@@ -148,17 +150,12 @@ async function openAndRun(kit: AgentKit, opening: Opening, onOpened: () => void)
 
   kit.setStatus(incidentId, "investigating", "Investigator and Recovery Agent started in parallel");
   kit.setAgent("commander", "working", `Coordinating ${incidentId}`);
-  await Promise.all([
-    investigate(kit, incidentId),
-    startRecovery(kit, incidentId),
-    kit.gate.call("commander", "file_engineering_incident", { incidentId }),
-  ]);
+  // The investigation can fail; engineering still gets a ticket with what is known.
+  await Promise.all([investigate(kit, incidentId).catch(() => undefined), startRecovery(kit, incidentId)]);
 
+  // Importance first, so the ticket is filed at the right priority, then the Issue Creator files it with the findings.
   await reassess(kit, incidentId, kit.state().incidents[incidentId]!.rootCause ? "root_cause" : "impact");
-  const incident = kit.state().incidents[incidentId]!;
-  if (incident.engineering && incident.narrative) {
-    await kit.gate.call("commander", "update_engineering_incident", { incidentId, note: `Investigation: ${incident.narrative}` });
-  }
+  await fileIssue(kit, incidentId);
   kit.setStatus(incidentId, "recovering", "Planning a recovery for each affected customer");
   await recover(kit, incidentId);
 }

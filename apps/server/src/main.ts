@@ -63,8 +63,8 @@ function liveAdapters(): LiveAdapters {
     }
   }
   if (config.freshservice) {
-    const { domain, apiKey, requesterEmail, workspaceId } = config.freshservice;
-    live.incidents = freshserviceIncidents({ domain, apiKey, requesterEmail, ...(workspaceId !== null ? { workspaceId } : {}) });
+    const { domain, apiKey, requesterEmail, workspaceId, groups } = config.freshservice;
+    live.incidents = freshserviceIncidents({ domain, apiKey, requesterEmail, groups, ...(workspaceId !== null ? { workspaceId } : {}) });
   }
   if (config.infra) live.infra = mcpInfraHealth(config.infra.servers.map((server) => new McpToolClient(server)));
   if (config.alerts) {
@@ -95,6 +95,7 @@ const runtime = new Runtime({
   live: liveAdapters(),
   onAudit: (entry, sessionId) => appendFileSync(join(auditDir, `${runStamp}-${sessionId}.jsonl`), `${JSON.stringify(entry)}\n`),
   onError: (error) => console.error("[crisiscrew]", error),
+  ...(config.publicBaseUrl ? { publicBaseUrl: config.publicBaseUrl } : {}),
 });
 await runtime.start();
 

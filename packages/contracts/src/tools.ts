@@ -11,6 +11,8 @@ export const TOOL_NAMES = [
   "identify_affected_customers",
   "open_incident",
   "file_engineering_incident",
+  "request_rollback_change",
+  "open_problem_record",
   "update_engineering_incident",
   "link_ticket_to_incident",
   "add_ticket_note",

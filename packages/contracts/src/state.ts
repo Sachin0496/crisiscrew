@@ -49,6 +49,7 @@ const DEFAULT_AGENTS: Record<AgentId, AgentView> = {
   pattern: { id: "pattern", name: "Pattern Agent", level: 0, status: "idle" },
   commander: { id: "commander", name: "Incident Commander", level: 1, status: "idle" },
   investigator: { id: "investigator", name: "Investigator", level: 0, status: "idle" },
+  issue_creator: { id: "issue_creator", name: "Issue Creator", level: 1, status: "idle" },
   recovery: { id: "recovery", name: "Recovery Agent", level: 2, status: "idle" },
   handoff: { id: "handoff", name: "Handoff Agent", level: 3, status: "idle" },
 };

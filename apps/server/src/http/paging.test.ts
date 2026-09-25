@@ -15,6 +15,8 @@ const freshservice: IncidentsPort = {
   open: async () => ({ id: "#314", url: "https://acme.freshservice.com/a/tickets/314" }),
   note: async () => undefined,
   setImportance: async () => undefined,
+  requestChange: async () => ({ id: "CHN-1" }),
+  openProblem: async () => ({ id: "PRB-1" }),
 };
 
 async function setup() {

@@ -56,6 +56,8 @@ export type RuntimeOptions = {
   /** Called for every audit entry, with the session it belongs to (each session is its own hash chain). */
   onAudit?: (entry: AuditEntry, sessionId: string) => void;
   onError?: (error: unknown) => void;
+  /** This server's public URL, for links back from engineering records. */
+  publicBaseUrl?: string;
 };
 
 export type ScenarioSummary = Pick<Scenario, "id" | "title" | "purpose" | "speed" | "expected"> & { tickets: number };
@@ -313,6 +315,7 @@ export class Runtime {
       baselinePerHour: scenario.world.baselinePerHour,
       onAudit: this.options.onAudit ? (entry) => this.options.onAudit!(entry, sessionId) : undefined,
       onError: this.options.onError,
+      ...(this.options.publicBaseUrl ? { publicBaseUrl: this.options.publicBaseUrl } : {}),
     });
     this.engine = engine;
     this.ports = ports;

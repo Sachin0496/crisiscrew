@@ -18,7 +18,7 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 > **Status: it runs fully offline, in sandbox mode, and the Freshworks adapters are wired.**
 > - **Real and running:**
 >   - the detection engine, the Customer Impact Graph, the recovery policy and Recovery Coverage;
->   - the five agents, the policy gate and the audit log;
+>   - the six agents, the policy gate and the audit log;
 >   - the MCP server and the UI.
 >
 >   Every number on screen is computed from ticket text and data.
@@ -45,7 +45,8 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 | **Plan each recovery** | Recovery Agent | A plan per customer from their own evidence: the channel they allow, a voice update for priority customers, and a credit sized by the harm, each with its reason and the authority it needs |
 | **Act within authority** | Recovery Agent | Updates, account notes and credits up to ₹500 per customer (₹5,000 per incident) run automatically |
 | **Stop for a human** | Handoff Agent | Any credit above that becomes an approval for **one customer**, with their evidence. The approver approves, changes the amount or rejects, and exactly that amount is paid to exactly that customer |
-| **Write back** | Recovery Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and a Freshservice incident for engineering |
+| **File for engineering** | Issue Creator | Once the Investigator has ranked the causes, files the Freshservice incident with the likely cause and its factors, the impact so far, on-call, and links back; routed to the service's group, at the importance's priority. A rollback change request when a release is blamed at 80% or more, and a problem record for the post-incident review once recovered |
+| **Write back** | Recovery Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and notes on the engineering incident as things change |
 | **Alert first** | Incident Commander | A critical Freshservice alert on a service behind a tier-1 area opens an incident on its own, before anyone complains; complaints that follow join it. An alert during a complaint incident is linked to it and becomes evidence. See [Alerts](#alerts) |
 | **Decide how urgent** | Incident Commander | Sets the incident's importance, P1 to P3, from rules in `policy.json`: customers affected, money in failed payments, priority customers, a tier-1 area, a release as the likely cause. It rises as evidence arrives and never falls on its own; P1 means page on-call. See [Importance](#importance) |
 | **Page on-call** | Incident Commander | Phones whoever is on call (Freshservice on-call schedules) through Vobiz, and asks them to press 1. An unacknowledged call escalates to the next responder. See [Paging on-call](#paging-on-call) |
@@ -295,8 +296,16 @@ It reads `GET /api/freshdesk/tickets/:id`. Its README says how to run it with `f
 ![The sidebar for a confirmed customer and for a complaint that isn't verified](docs/screenshots/freshdesk-sidebar.png)
 
 **Freshservice** (`INCIDENTS=freshservice`, with `FRESHSERVICE_DOMAIN`, `FRESHSERVICE_API_KEY` and `FRESHSERVICE_REQUESTER_EMAIL`)
-- The Incident Commander files an incident when a CrisisCrew incident opens.
-- It then adds private notes: the investigation, and customer impact with coverage.
+- **The Issue Creator files it once the Investigator has ranked the causes** (each check has a deadline, so this takes seconds), so the ticket leads with what was found:
+  - the likely cause, its confidence and every factor, and the other causes considered;
+  - the suspected release (version, commit, author) or the infrastructure to look at;
+  - customer impact so far (confirmed, complained, silent, and the money in failed payments), and on-call's status, including pages made before it was filed;
+  - links to the incident and the audit log (`PUBLIC_BASE_URL`).
+- **Routing:** the group from `FRESHSERVICE_GROUPS` (`service=groupId`, `*` for the rest), priority, urgency and impact from the importance, and the tags `crisiscrew` and the product area.
+- **Follow-ups:**
+  - a **rollback change** (`POST /api/v2/changes`: emergency, open, medium risk) when a release is the likely cause at `issues.rollbackConfidence` (80%) or more, linked through `change_initiated_by_ticket`. It's a request for engineering to plan and approve; CrisisCrew never rolls anything back;
+  - a **problem** (`POST /api/v2/problems`) for the post-incident review once the incident is recovered, linked through `problem`.
+- The Incident Commander then adds private notes: customer impact with coverage, importance changes and on-call.
 - In sandbox mode, the record (`ENG-001`) is kept in memory and labeled as sandbox.
 - With the switch on, **every** incident files a real Freshservice incident, replays included.
 
@@ -344,6 +353,8 @@ flowchart LR
   RP[Replay or typed complaint] --> PA
   PA -- all four gates pass --> IC[Incident Commander]
   IC --> INV[Investigator]
+  INV -- ranked causes --> IS[Issue Creator]
+  IS -- incident, rollback change, problem --> FS[Freshservice]
   IC --> REC[Recovery Agent]
   REC -- impact graph and plan --> REC
   REC -- credit above authority --> HO[Handoff Agent]
@@ -423,7 +434,8 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 | Agent | Highest level | Tools |
 |---|---|---|
 | Pattern Agent | L0 | `search_recent_tickets`, `get_incident` |
-| Incident Commander | L1 | `open_incident`, `file_engineering_incident`, `update_engineering_incident`, `page_on_call`, `get_recovery_coverage`, `get_incident`, `search_recent_tickets` |
+| Incident Commander | L1 | `open_incident`, `update_engineering_incident`, `page_on_call`, `get_recovery_coverage`, `get_incident`, `search_recent_tickets` |
+| Issue Creator | L1 | `file_engineering_incident`, `update_engineering_incident`, `request_rollback_change`, `open_problem_record`, `get_incident`, `get_infra_health` |
 | Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_infra_health`, `get_incident` |
 | Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `send_customer_update`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
 | Handoff Agent | L3 | `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |

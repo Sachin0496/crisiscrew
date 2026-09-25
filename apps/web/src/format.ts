@@ -178,6 +178,7 @@ export const TOOL_OWNER: Record<string, string> = {
   pattern: "Pattern Agent",
   commander: "Commander",
   investigator: "Investigator",
+  issue_creator: "Issue Creator",
   recovery: "Recovery",
   handoff: "Handoff",
   operator: "MCP client",
