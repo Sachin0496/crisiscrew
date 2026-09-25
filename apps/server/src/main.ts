@@ -4,6 +4,7 @@ import {
   FreshdeskClient,
   freshdeskMcpWriter,
   freshserviceIncidents,
+  freshserviceOnCall,
   HashEmbedder,
   LocalEmbedder,
   restWriter,
@@ -61,6 +62,10 @@ function liveAdapters(): LiveAdapters {
   if (config.freshservice) {
     const { domain, apiKey, requesterEmail, workspaceId } = config.freshservice;
     live.incidents = freshserviceIncidents({ domain, apiKey, requesterEmail, ...(workspaceId !== null ? { workspaceId } : {}) });
+  }
+  if (config.oncall) {
+    const { domain, apiKey, defaultScheduleId, schedules } = config.oncall;
+    live.oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules });
   }
   if (config.vobiz && config.publicBaseUrl) {
     const { authId, authToken, from, ringTimeoutSec, timeLimitSec } = config.vobiz;

@@ -13,7 +13,8 @@
     "needsHuman": 2,
     "autoCreditInr": 4000,
     "importance": "P1",
-    "pages": true
+    "pages": true,
+    "acknowledgedBy": "Neha Kapoor"
   },
   "world": {
     "baselinePerHour": { "checkout_payments": 3 },
@@ -36,6 +37,10 @@
         ],
         "detail": "All systems operational"
       }
+    ],
+    "oncall": [
+      { "name": "Neha Kapoor", "role": "primary", "phone": "+91 90000 10001", "email": "neha.kapoor@example.com", "answers": "acknowledges" },
+      { "name": "Rohan Mehta", "role": "secondary", "phone": "+91 90000 10002", "email": "rohan.mehta@example.com", "answers": "acknowledges" }
     ],
     "customers": [
       { "ref": "c-priya", "name": "Priya K.", "email": "priya.k@example.com", "consent": { "proactive": true } },

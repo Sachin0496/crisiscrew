@@ -1,4 +1,4 @@
-import type { CallPurpose, CallView, Customer, ImportanceLevel, PaymentMethod, Ticket } from "@crisiscrew/contracts";
+import type { CallPurpose, CallView, Customer, ImportanceLevel, OnCallRole, PaymentMethod, Ticket } from "@crisiscrew/contracts";
 
 /**
  * Ports: the only way core reaches the outside world. Sandbox adapters
@@ -104,6 +104,15 @@ export interface TelephonyPort extends AdapterMode {
   onUpdate(listener: (call: CallView) => void): () => void;
 }
 
+/** Someone on call right now, with how to reach them. */
+export type Responder = { name: string; role: OnCallRole; phone?: string; email?: string };
+
+/** Who is on call for a service (Freshservice on-call schedules, or the scenario's roster). */
+export interface OnCallPort extends AdapterMode {
+  /** Everyone on call now for the service, primary first. */
+  whoIsOnCall(service: string): Promise<Responder[]>;
+}
+
 export interface CreditsPort extends AdapterMode {
   issue(customerRefs: string[], amountInrTotal: number, reference: string): Promise<{ id: string }>;
 }
@@ -131,6 +140,7 @@ export type Ports = {
   notifier: NotifierPort;
   voice: VoicePort;
   telephony: TelephonyPort;
+  oncall: OnCallPort;
   credits: CreditsPort;
   incidents: IncidentsPort;
   catalog: ServiceCatalog;

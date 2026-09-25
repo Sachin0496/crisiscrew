@@ -1,5 +1,5 @@
-import type { ImportanceLevel } from "@crisiscrew/contracts";
-import type { IncidentsPort } from "@crisiscrew/core";
+import type { ImportanceLevel, OnCallRole } from "@crisiscrew/contracts";
+import type { IncidentsPort, OnCallPort, Responder } from "@crisiscrew/core";
 import { freshworksRequest, textToHtml, type FreshworksAuth } from "./http";
 
 export type FreshserviceOptions = FreshworksAuth & {
@@ -51,6 +51,53 @@ export function freshserviceIncidents(options: FreshserviceOptions): IncidentsPo
     },
     async note(recordId, text) {
       await freshworksRequest(options, "POST", `/api/v2/tickets/${numeric(recordId)}/notes`, { body: textToHtml(text), private: true });
+    },
+  };
+}
+
+export type FreshserviceOnCallOptions = FreshworksAuth & {
+  /** The on-call schedule for services that have none of their own. */
+  defaultScheduleId: number;
+  /** service name → schedule id, for services with their own schedule. */
+  schedules?: Record<string, number>;
+};
+
+type ShiftEvent = {
+  user?: { id: number; name?: string; email?: string | null; phone?: string | null; mobile?: string | null };
+  roster_type?: string;
+};
+
+const ROLE_ORDER: Record<OnCallRole, number> = { primary: 0, secondary: 1, tertiary: 2 };
+
+/**
+ * Who's on call now, from Freshservice On-Call Management
+ * (GET /api/v2/oncall/shift-events/current?schedule_id=…). Each shift event
+ * names a user and their roster: PRIMARY, SECONDARY or TERTIARY. A person on
+ * several rosters is kept once, at their most senior place; the mobile number
+ * is preferred to the work phone.
+ */
+export function freshserviceOnCall(options: FreshserviceOnCallOptions): OnCallPort {
+  return {
+    mode: "live",
+    adapter: "freshservice",
+    async whoIsOnCall(service) {
+      const scheduleId = options.schedules?.[service] ?? options.defaultScheduleId;
+      const res = await freshworksRequest<{ shift_events?: ShiftEvent[] }>(options, "GET", `/api/v2/oncall/shift-events/current?schedule_id=${scheduleId}`);
+      const byUser = new Map<number, Responder>();
+      for (const event of res?.shift_events ?? []) {
+        const role = event.roster_type?.toLowerCase() as OnCallRole | undefined;
+        if (!event.user || !role || !(role in ROLE_ORDER)) continue;
+        const known = byUser.get(event.user.id);
+        if (known && ROLE_ORDER[known.role] <= ROLE_ORDER[role]) continue;
+        const phone = event.user.mobile || event.user.phone || undefined;
+        byUser.set(event.user.id, {
+          name: event.user.name || `Agent ${event.user.id}`,
+          role,
+          ...(phone ? { phone } : {}),
+          ...(event.user.email ? { email: event.user.email } : {}),
+        });
+      }
+      return [...byUser.values()].sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role]);
     },
   };
 }

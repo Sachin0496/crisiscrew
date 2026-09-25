@@ -9,6 +9,7 @@ export type PortName =
   | "orders"
   | "voice"
   | "telephony"
+  | "oncall"
   | "llm"
   | "embeddings"
   | "credits"

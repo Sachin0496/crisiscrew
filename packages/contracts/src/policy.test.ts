@@ -42,6 +42,7 @@ const base = {
     deployConfidence: 0.8,
     pageAt: "P1",
   },
+  oncall: { ackTimeoutMin: 5, maxEscalations: 2 },
   recovery: { affectedLookbackMin: 30, creditInr: { standard: 200, high: 1000 }, highValueInr: 10000 },
 };
 

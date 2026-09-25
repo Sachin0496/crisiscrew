@@ -61,6 +61,16 @@ const PORTS: Record<PortName, PortSpec> = {
         ? `Vobiz: calls from ${c.vobiz.from}, with callbacks to ${c.publicBaseUrl}/api/webhooks/vobiz`
         : "Calls are simulated: they ring, and are answered, missed or busy, the same way on every replay",
   },
+  oncall: {
+    env: "ONCALL",
+    options: ["sandbox", "freshservice"],
+    wired: ["sandbox", "freshservice"],
+    mode: (v) => (v === "freshservice" ? "live" : "sandbox"),
+    detail: (v, c) =>
+      v === "freshservice" && c.oncall
+        ? `Freshservice on-call (${c.oncall.domain}): schedule ${c.oncall.defaultScheduleId}${Object.keys(c.oncall.schedules).length ? ` and ${Object.keys(c.oncall.schedules).length} per service` : ""}`
+        : "The scenario's on-call roster",
+  },
   voice: { env: "VOICE", options: ["off", "elevenlabs"], wired: ["off"], mode: () => "off", detail: () => "Voice scripts are prepared; no audio is generated" },
   llm: { env: "LLM", options: ["template", "anthropic"], wired: ["template"], mode: () => "off", detail: () => "Fixed templates; no language model is called" },
   embeddings: {
@@ -89,6 +99,8 @@ export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmai
 
 export type VobizConfig = { authId: string; authToken: string; from: string; ringTimeoutSec: number; timeLimitSec: number };
 
+export type OnCallConfig = { domain: string; apiKey: string; defaultScheduleId: number; schedules: Record<string, number> };
+
 export type Config = {
   port: number;
   publicBaseUrl: string | null;
@@ -104,6 +116,9 @@ export type Config = {
   freshdesk: FreshdeskConfig | null;
   freshservice: FreshserviceConfig | null;
   vobiz: VobizConfig | null;
+  oncall: OnCallConfig | null;
+  /** Lets a Freshservice workflow acknowledge a page: POST /api/webhooks/freshservice/acknowledge with X-CrisisCrew-Secret. */
+  freshserviceWebhookSecret: string | null;
 };
 
 type Env = Record<string, string | undefined>;
@@ -186,6 +201,28 @@ function vobizConfig(env: Env): VobizConfig {
   };
 }
 
+function oncallConfig(env: Env): OnCallConfig {
+  const missing = ["FRESHSERVICE_DOMAIN", "FRESHSERVICE_API_KEY", "FRESHSERVICE_ONCALL_SCHEDULE_ID"].filter((k) => !text(env, k));
+  if (missing.length > 0) throw new ConfigError(`ONCALL=freshservice needs ${missing.join(", ")}; see .env.example`);
+  const id = (key: string, value: string) => {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n <= 0) throw new ConfigError(`${key} must be a schedule id (a whole number), got "${value}"`);
+    return n;
+  };
+  const schedules: Record<string, number> = {};
+  for (const pair of (text(env, "FRESHSERVICE_ONCALL_SCHEDULES") ?? "").split(",").map((p) => p.trim()).filter(Boolean)) {
+    const [service, schedule] = pair.split("=").map((p) => p.trim());
+    if (!service || !schedule) throw new ConfigError(`FRESHSERVICE_ONCALL_SCHEDULES takes service=scheduleId pairs, got "${pair}"`);
+    schedules[service] = id("FRESHSERVICE_ONCALL_SCHEDULES", schedule);
+  }
+  return {
+    domain: domain(env, "FRESHSERVICE_DOMAIN", "freshservice.com"),
+    apiKey: text(env, "FRESHSERVICE_API_KEY")!,
+    defaultScheduleId: id("FRESHSERVICE_ONCALL_SCHEDULE_ID", text(env, "FRESHSERVICE_ONCALL_SCHEDULE_ID")!),
+    schedules,
+  };
+}
+
 /** Reads and validates configuration from environment variables. See .env.example. */
 export function loadConfig(env: Env): Config {
   const switches = {} as Record<PortName, string>;
@@ -221,6 +258,8 @@ export function loadConfig(env: Env): Config {
     freshdesk: switches.tickets === "freshdesk" ? freshdeskConfig(env) : null,
     freshservice: switches.incidents === "freshservice" ? freshserviceConfig(env) : null,
     vobiz: switches.telephony === "vobiz" ? vobizConfig(env) : null,
+    oncall: switches.oncall === "freshservice" ? oncallConfig(env) : null,
+    freshserviceWebhookSecret: text(env, "FRESHSERVICE_WEBHOOK_SECRET"),
   };
 }
 

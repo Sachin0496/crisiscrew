@@ -47,6 +47,7 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 | **Stop for a human** | Handoff Agent | Any credit above that becomes an approval for **one customer**, with their evidence. The approver approves, changes the amount or rejects, and exactly that amount is paid to exactly that customer |
 | **Write back** | Recovery Agent, Incident Commander | Private notes and replies on the customer's Freshdesk ticket, an outcome note once their recovery is settled, and a Freshservice incident for engineering |
 | **Decide how urgent** | Incident Commander | Sets the incident's importance, P1 to P3, from rules in `policy.json`: customers affected, money in failed payments, priority customers, a tier-1 area, a release as the likely cause. It rises as evidence arrives and never falls on its own; P1 means page on-call. See [Importance](#importance) |
+| **Page on-call** | Incident Commander | Phones whoever is on call (Freshservice on-call schedules) through Vobiz, and asks them to press 1. An unacknowledged call escalates to the next responder. See [Paging on-call](#paging-on-call) |
 | **Measure** | Incident Commander | Recovery Coverage = recovered confirmed customers / confirmed customers. The incident reaches **Recovered** only at 100% |
 
 Every tool call, by an agent or an external MCP client, goes through one policy gate and lands in a hash-chained audit log.
@@ -94,6 +95,8 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
 
   customer impact: 23 affected (4 complained, 19 silent)
   INC-2026-001: importance P1, page on-call  23 customers affected (20 or more is P1)
+  INC-2026-001: on-call  page 1: Neha Kapoor (primary), calling
+  INC-2026-001: on-call  acknowledged by Neha Kapoor (pressed 1)
   recovery plan: 48 actions for 23 customers, 2 credits for a human
 
   Approval APR-001 requested for Ananya Iyer: ₹1,000
@@ -109,10 +112,10 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
   customer impact: 23 affected (5 complained, 18 silent)
 
 Summary
-  INC-2026-001: awaiting approval, P1, page on-call; root cause checkout-service v4.21.7 (97%); 8 tickets linked
+  INC-2026-001: awaiting approval, P1, on-call acknowledged by Neha Kapoor; root cause checkout-service v4.21.7 (97%); 8 tickets linked
   23 affected (8 complained, 15 silent); recovery coverage 21/23 (91%), 2 waiting for a human
   16 proactive contacts; credits ₹4,000 within authority, ₹0 approved, ₹2,000 awaiting approval
-  audit: 87 tool calls, hash chain verified
+  audit: 89 tool calls, hash chain verified
 ```
 
 Ritika was silent when the plan was made: her failed payment was already on record. When she writes in, she moves from silent to complained, and a reply on her ticket is added to her plan.
@@ -191,6 +194,19 @@ The Incident Commander decides how urgently engineering must act. The rules are 
 - **A human can overrule it:** `POST /api/incidents/:id/importance` with `{"level": "P2", "note": "..."}` (admin token). From then on the rules leave it alone.
 
 In the hero, 23 affected customers make it P1. The UPI outage stays P2: 10 customers affected and one priority customer, below the P1 thresholds.
+
+## Paging on-call
+
+When the importance says to page (P1 by default), the Incident Commander phones the on-call engineer:
+
+1. **Who:** everyone on call now for the incident's service, primary first. It comes from Freshservice On-Call Management (`GET /api/v2/oncall/shift-events/current`), or the scenario's roster in the sandbox.
+2. **The call:** through Vobiz (or the sandbox telephone). It says the incident, the area, how many customers are affected and the likely cause, then asks them to **press 1 to acknowledge**.
+3. **No acknowledgement:** a call that ends unanswered, busy, or answered without a 1 waits `oncall.ackTimeoutMin` (5 minutes), because someone may still acknowledge another way. Then the next responder is paged, up to `oncall.maxEscalations` (2) escalations.
+4. **Acknowledging another way:**
+   - an operator: `POST /api/incidents/:id/page/acknowledge` (admin);
+   - a Freshservice workflow on the incident ticket: `POST /api/webhooks/freshservice/acknowledge` with `{"ticket_id": 314, "agent_name": "..."}` and `X-CrisisCrew-Secret`.
+
+Every call is a gated, audited `page_on_call` (L1, Incident Commander only). Its outcome is a private note on the Freshservice incident, and the Incident page's **On-call** card shows each attempt. In the hero, Neha Kapoor (primary) presses 1 on the first call; a P2 incident, like the UPI outage, pages no one.
 
 ## Recovery Coverage
 
@@ -365,7 +381,7 @@ Each agent is a separate identity with an allow-list and a maximum level. The ga
 | Agent | Highest level | Tools |
 |---|---|---|
 | Pattern Agent | L0 | `search_recent_tickets`, `get_incident` |
-| Incident Commander | L1 | `open_incident`, `file_engineering_incident`, `update_engineering_incident`, `get_recovery_coverage`, `get_incident`, `search_recent_tickets` |
+| Incident Commander | L1 | `open_incident`, `file_engineering_incident`, `update_engineering_incident`, `page_on_call`, `get_recovery_coverage`, `get_incident`, `search_recent_tickets` |
 | Investigator | L0 | `get_payment_health`, `get_recent_deployments`, `get_service_status`, `get_incident` |
 | Recovery Agent | L2 | `identify_affected_customers`, `link_ticket_to_incident`, `add_ticket_note`, `draft_customer_update`, `plan_recovery`, `send_customer_update`, `add_account_note`, `issue_recovery_credit` (within authority), `get_incident`, `get_customer_impact` |
 | Handoff Agent | L3 | `request_human_approval`, `issue_recovery_credit` (with approval), `add_ticket_note`, `get_incident`, `get_customer_impact` |
@@ -412,6 +428,8 @@ MCP Inspector, Claude, or Freshservice's Agent Studio MCP Gateway can connect th
 | `POST /api/replay` | start a replay: `{"scenario": "...", "speed": 2}` |
 | `POST /api/live` | start a fresh live session |
 | `POST /api/tickets` | type a ticket: `{"customerName": "...", "body": "..."}`; a known customer's name or `customerEmail` ties it to their payments |
+| `POST /api/incidents/:id/page/acknowledge` | admin: `{"by"?: "..."}` takes the on-call page, so no one else is called |
+| `POST /api/webhooks/freshservice/acknowledge` | a Freshservice workflow: `{"ticket_id": 314, "agent_name"?: "..."}` with `X-CrisisCrew-Secret` acknowledges the page for the incident filed as that ticket |
 | `POST /api/incidents/:id/importance` | admin: `{"level": "P1", "P2" or "P3", "note"?: "..."}` sets the importance by hand; the rules then leave it alone |
 | `POST /api/telephony/test-call` | admin: place one short call to `{"to": "+91..."}` to check the phone line; its progress arrives as `call.updated` events |
 | `GET /api/calls/:id` | a call's state: queued, ringing, answered, then completed, no answer, busy or failed. Numbers are masked to the last four digits |
@@ -434,6 +452,7 @@ The `POST` routes need `ADMIN_TOKEN`, or `APPROVER_TOKEN` for approvals, when th
 | Deployments | sandbox: the scenario's releases | GitHub Deployments API (designed, not wired) | `GITHUB_*` |
 | Payment health | sandbox: the scenario's gateway status | Razorpay's public status API (designed, not wired) | `RAZORPAY_STATUS_URL` |
 | Metrics | sandbox: simulated from the scenario | none planned | none |
+| On-call schedule | sandbox: the scenario's roster | `ONCALL=freshservice`, with `FRESHSERVICE_ONCALL_SCHEDULE_ID`. **Wired; tested against a fake Freshservice** | `FRESHSERVICE_ONCALL_*` |
 | Phone calls | sandbox: calls ring, then are answered, missed or busy, the same way on every replay | `TELEPHONY=vobiz`, with an https `PUBLIC_BASE_URL` and `ADMIN_TOKEN`. **Wired; tested against a fake Vobiz** | `VOBIZ_*` |
 | Voice | off: scripts are prepared, not spoken | ElevenLabs (designed, not wired) | `ELEVENLABS_*` |
 | LLM | off: fixed templates | Claude for narratives and drafts (designed, not wired). It would never compute the numbers | `ANTHROPIC_*` |

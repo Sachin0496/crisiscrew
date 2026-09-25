@@ -4,6 +4,7 @@ import { coverageNote, importanceNote } from "../recovery/templates";
 import { carryOutDecision, requestApprovals } from "./handoff";
 import { investigate } from "./investigator";
 import type { AgentKit } from "./kit";
+import { pageIfNeeded } from "./paging";
 import { assessImpact, noteOutcomes, reconcile, startRecovery } from "./recovery";
 
 /**
@@ -79,6 +80,7 @@ export async function reassess(kit: AgentKit, incidentId: string, stage: Importa
     }
   }
   await syncEngineering(kit, incidentId);
+  await pageIfNeeded(kit, incidentId);
 }
 
 /** A human's decision on the incident's importance; the rules leave it alone from then on. */
@@ -86,6 +88,7 @@ export async function setImportanceByHuman(kit: AgentKit, incidentId: string, im
   kit.emit({ type: "incident.importance", payload: { incidentId, importance } });
   kit.setAgent("commander", "working", `${importance.by ?? "A human"} set ${incidentId} to ${importance.level}`);
   await syncEngineering(kit, incidentId);
+  await pageIfNeeded(kit, incidentId);
 }
 
 /** One full recovery pass, then the approvals it needs and the incident's status, one pass at a time per incident. */

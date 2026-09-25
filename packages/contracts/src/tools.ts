@@ -19,6 +19,7 @@ export const TOOL_NAMES = [
   "request_human_approval",
   "send_customer_update",
   "issue_recovery_credit",
+  "page_on_call",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];

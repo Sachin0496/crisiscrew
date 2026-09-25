@@ -5,6 +5,7 @@ import { Decisions } from "../components/incident/Decision";
 import { Detection } from "../components/incident/Detection";
 import { Activity, IncidentTimeline, RecentTickets } from "../components/incident/Feeds";
 import { Impact } from "../components/incident/Impact";
+import { Paging } from "../components/incident/Paging";
 import { RootCause } from "../components/incident/RootCause";
 import { IncidentSummary, ScenarioNote, Stats, Stepper } from "../components/incident/Summary";
 import { currentIncident } from "../view";
@@ -33,6 +34,7 @@ export function IncidentPage({ state, scenario, customerNames }: { state: Crisis
           {incident && <Detection state={state} />}
         </div>
         <div className="col">
+          {incident && <Paging incident={incident} />}
           <Decisions state={state} incident={incident} />
           <RecentTickets state={state} customerNames={customerNames} />
           {incident && <IncidentTimeline incident={incident} start={start} />}

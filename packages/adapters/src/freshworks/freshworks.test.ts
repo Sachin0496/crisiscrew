@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { FreshdeskClient, freshdeskIdOf, freshdeskTicketActions, freshdeskToTicketInput, restWriter, type FreshdeskTicket } from "./freshdesk";
 import { freshdeskMcpWriter, shapeTool } from "./freshdesk-mcp";
-import { freshserviceIncidents } from "./freshservice";
+import { freshserviceIncidents, freshserviceOnCall } from "./freshservice";
 import { FreshworksError, htmlToText, normalizeDomain, textToHtml } from "./http";
 
 type Call = { method: string; url: string; auth: string | null; body: unknown };
@@ -198,5 +198,34 @@ describe("Freshservice incidents", () => {
     ]);
     expect(api.calls[0]?.auth).toBe(`Basic ${Buffer.from("fs-key:X").toString("base64")}`);
     expect(port.mode).toBe("live");
+  });
+});
+
+describe("Freshservice on-call", () => {
+  const user = (id: number, name: string, phone: string | null, mobile: string | null = null) => ({ id, name, email: `${name.split(" ")[0]!.toLowerCase()}@acme.test`, phone, mobile, agent: true });
+  it("asks the service's schedule who's on call now, primary first, each person once, preferring their mobile", async () => {
+    const api = fakeApi({
+      "GET /api/v2/oncall/shift-events/current": {
+        body: {
+          shift_events: [
+            { user: user(16, "Staging Agent", null), roster_type: "SECONDARY" },
+            { user: user(47, "John Doe", "+13232323232", "+919000011111"), roster_type: "TERTIARY" },
+            { user: user(47, "John Doe", "+13232323232", "+919000011111"), roster_type: "PRIMARY" },
+            { user: user(52, "Asha Rao", "+919000022222"), roster_type: "BACKUP" },
+          ],
+        },
+      },
+    });
+    const port = freshserviceOnCall({ domain: "acme.freshservice.com", apiKey: "fs-key", defaultScheduleId: 8569, schedules: { "checkout-service": 8570 }, fetch: api.fetch });
+    expect(await port.whoIsOnCall("checkout-service")).toEqual([
+      { name: "John Doe", role: "primary", phone: "+919000011111", email: "john@acme.test" },
+      { name: "Staging Agent", role: "secondary", email: "staging@acme.test" },
+    ]);
+    await port.whoIsOnCall("auth-service");
+    expect(api.calls.map((c) => c.url)).toEqual([
+      "https://acme.freshservice.com/api/v2/oncall/shift-events/current?schedule_id=8570",
+      "https://acme.freshservice.com/api/v2/oncall/shift-events/current?schedule_id=8569",
+    ]);
+    expect(port).toMatchObject({ mode: "live", adapter: "freshservice" });
   });
 });

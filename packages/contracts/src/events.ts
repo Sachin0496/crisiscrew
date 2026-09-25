@@ -10,6 +10,7 @@ import type {
   EngineeringRecord,
   Hypothesis,
   ImportanceAssessment,
+  PagingView,
   IncidentStatus,
   IncidentView,
   Level,
@@ -40,6 +41,8 @@ export type CrisisEvent =
   | E<"incident.opened", { incident: IncidentView }>
   /** The Incident Commander's (or a human's) new importance for an incident, with its reasons. */
   | E<"incident.importance", { incidentId: string; importance: ImportanceAssessment }>
+  /** The incident's paging, whole: every call to an on-call responder and whether anyone acknowledged. */
+  | E<"paging.updated", { incidentId: string; paging: PagingView }>
   | E<"incident.status_changed", { incidentId: string; from: IncidentStatus; to: IncidentStatus; note: string }>
   | E<"agent.status", { agent: AgentId; status: AgentStatus; task?: string }>
   | E<"tool.called", { entry: AuditEntry }>

@@ -31,6 +31,11 @@ const FreshdeskWebhook = z.union([
   z.object({ freshdesk_webhook: z.object({ ticket_id: z.coerce.number().int().positive() }) }),
 ]);
 
+const AcknowledgeBody = z.object({ by: z.string().trim().min(1).max(60).optional() }).strict();
+
+/** A Freshservice workflow's webhook: the incident ticket's id, and who acknowledged. */
+const FreshserviceAck = z.object({ ticket_id: z.coerce.number().int().positive(), agent_name: z.string().trim().max(60).optional() });
+
 const ImportanceBody = z.object({ level: z.enum(["P1", "P2", "P3"]), note: z.string().trim().max(500).optional() }).strict();
 
 const TestCall = z.object({ to: z.string().trim().min(8).max(20) }).strict();
@@ -143,6 +148,36 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     // Answer at once; Freshdesk's webhook times out quickly, and ingest reads the ticket back from the API.
     void runtime.ingestFreshdesk(ticketId).catch((error) => onError?.(error));
     return c.json({ accepted: true, ticketId }, 202);
+  });
+
+  // An operator takes the page, so no one else is called.
+  app.post("/api/incidents/:id/page/acknowledge", admin, async (c) => {
+    const parsed = await body(c, AcknowledgeBody);
+    if (!parsed.ok) return parsed.response;
+    const id = c.req.param("id");
+    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
+    try {
+      await runtime.acknowledgePage(id, parsed.data.by ?? (c.req.header("x-operator-name")?.slice(0, 60) || "an operator"));
+      return c.json(runtime.state().incidents[id]!.paging);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
+    }
+  });
+
+  // Acknowledging in Freshservice: a workflow on the incident ticket posts its id here with the shared secret.
+  app.post("/api/webhooks/freshservice/acknowledge", async (c) => {
+    if (!config.freshserviceWebhookSecret) return c.json({ error: "Freshservice acknowledgements are off: set FRESHSERVICE_WEBHOOK_SECRET" }, 404);
+    if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshserviceWebhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
+    const parsed = await body(c, FreshserviceAck);
+    if (!parsed.ok) return parsed.response;
+    const incidentId = runtime.incidentForEngineering(parsed.data.ticket_id);
+    if (!incidentId) return c.json({ error: `no incident is filed as Freshservice ticket #${parsed.data.ticket_id}` }, 404);
+    try {
+      await runtime.acknowledgePage(incidentId, parsed.data.agent_name || "Freshservice");
+      return c.json({ incidentId, paging: runtime.state().incidents[incidentId]!.paging });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
+    }
   });
 
   // A human sets an incident's importance, up or down; the Commander's rules leave it alone from then on.

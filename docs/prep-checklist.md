@@ -53,6 +53,7 @@ What the team does before and at Stage 2 (Bangalore, 25–26 September 2026). Th
   |---|---|---|
   | Freshdesk | `FRESHDESK_DOMAIN`, `FRESHDESK_API_KEY` (+ `FRESHDESK_WEBHOOK_SECRET`) | **Wired:** `TICKETS=freshdesk` switches it on |
   | Freshservice | `FRESHSERVICE_DOMAIN`, `FRESHSERVICE_API_KEY`, `FRESHSERVICE_REQUESTER_EMAIL` | **Wired:** `INCIDENTS=freshservice` switches it on |
+  | Freshservice on-call | `FRESHSERVICE_ONCALL_SCHEDULE_ID` (+ `FRESHSERVICE_ONCALL_SCHEDULES`, `FRESHSERVICE_WEBHOOK_SECRET`) | **Wired:** `ONCALL=freshservice` switches it on. The API key's agent needs the "View On-call schedules" privilege |
   | ElevenLabs | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | designed, not wired |
   | Anthropic | `ANTHROPIC_API_KEY` | designed, not wired |
   | Sarvam | `SARVAM_API_KEY` | designed, not wired |
