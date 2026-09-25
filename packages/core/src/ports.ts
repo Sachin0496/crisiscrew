@@ -1,4 +1,4 @@
-import type { Customer, ImportanceLevel, PaymentMethod, Ticket } from "@crisiscrew/contracts";
+import type { CallPurpose, CallView, Customer, ImportanceLevel, PaymentMethod, Ticket } from "@crisiscrew/contracts";
 
 /**
  * Ports: the only way core reaches the outside world. Sandbox adapters
@@ -82,6 +82,28 @@ export interface VoicePort extends AdapterMode {
   synthesize(text: string): Promise<{ audioId: string | null }>;
 }
 
+export type CallRequest = {
+  /** The number to call, in E.164 format (+919876543210). */
+  to: string;
+  /** What the call says once answered. */
+  script: string;
+  purpose: CallPurpose;
+  /** Asks the callee to press a key after the script, e.g. "Press 1 to acknowledge". */
+  gather?: { prompt: string; numDigits?: number };
+  /** Ids that tie the call back to its incident, customer or action. */
+  metadata?: Record<string, string>;
+};
+
+/** Outbound phone calls (Vobiz, or its sandbox): paging on-call, and calling affected customers. */
+export interface TelephonyPort extends AdapterMode {
+  /** Places a call and returns at once; its progress arrives through onUpdate. */
+  call(request: CallRequest): Promise<{ callId: string }>;
+  /** The call as last known, or null for an unknown id. */
+  status(callId: string): Promise<CallView | null>;
+  /** Called on every state change of every call; returns a function that unsubscribes. */
+  onUpdate(listener: (call: CallView) => void): () => void;
+}
+
 export interface CreditsPort extends AdapterMode {
   issue(customerRefs: string[], amountInrTotal: number, reference: string): Promise<{ id: string }>;
 }
@@ -108,6 +130,7 @@ export type Ports = {
   ticketActions: TicketActionsPort;
   notifier: NotifierPort;
   voice: VoicePort;
+  telephony: TelephonyPort;
   credits: CreditsPort;
   incidents: IncidentsPort;
   catalog: ServiceCatalog;

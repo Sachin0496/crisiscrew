@@ -8,6 +8,7 @@ export type PortName =
   | "metrics"
   | "orders"
   | "voice"
+  | "telephony"
   | "llm"
   | "embeddings"
   | "credits"

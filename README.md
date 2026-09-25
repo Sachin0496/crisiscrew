@@ -26,10 +26,11 @@ It was built for [The Great Agent Hackathon](https://the-great-agent-hackathon.d
 > - **Wired, not yet run against a real account:**
 >   - Freshdesk: webhook or poll ingest, and private notes and replies through REST or Freshdesk's MCP server;
 >   - Freshservice: engineering incidents;
->   - the Freshdesk ticket-sidebar app.
+>   - the Freshdesk ticket-sidebar app;
+>   - Vobiz: outbound phone calls, with signed callbacks. For now only the admin's test call places one; on-call paging (#6) and customer calls (#11) will use it.
 >
 >   They switch on with keys in `.env`, and each is tested against a fake of its API. The team runs them against a trial account at the event.
-> - **Designed, not wired:** GitHub deployments, Razorpay status, ElevenLabs, Claude and the sponsor APIs.
+> - **Designed, not wired:** GitHub deployments, Razorpay status, ElevenLabs, Claude and the other sponsor APIs.
 >
 > The environment box in the UI's sidebar and `GET /api/wiring` show exactly what's live.
 
@@ -411,6 +412,9 @@ MCP Inspector, Claude, or Freshservice's Agent Studio MCP Gateway can connect th
 | `POST /api/replay` | start a replay: `{"scenario": "...", "speed": 2}` |
 | `POST /api/live` | start a fresh live session |
 | `POST /api/tickets` | type a ticket: `{"customerName": "...", "body": "..."}`; a known customer's name or `customerEmail` ties it to their payments |
+| `POST /api/telephony/test-call` | admin: place one short call to `{"to": "+91..."}` to check the phone line; its progress arrives as `call.updated` events |
+| `GET /api/calls/:id` | a call's state: queued, ringing, answered, then completed, no answer, busy or failed. Numbers are masked to the last four digits |
+| `POST /api/webhooks/vobiz/:callId/:kind` | Vobiz's callbacks (`answer`, `ring`, `hangup`, `digits`), checked against `X-Vobiz-Signature-V3` |
 | `POST /api/incidents/:id/importance` | admin: `{"level": "P1", "P2" or "P3", "note"?: "..."}` sets the importance by hand; the rules then leave it alone |
 | `POST /api/approvals/:id` | `{"decision": "approve", "reject" or "modify", "amountInr"?: 500}` for one customer's credit |
 | `GET /api/audit`, `GET /api/audit/verify` | audit entries, and the hash-chain check |
@@ -430,6 +434,7 @@ The `POST` routes need `ADMIN_TOKEN`, or `APPROVER_TOKEN` for approvals, when th
 | Deployments | sandbox: the scenario's releases | GitHub Deployments API (designed, not wired) | `GITHUB_*` |
 | Payment health | sandbox: the scenario's gateway status | Razorpay's public status API (designed, not wired) | `RAZORPAY_STATUS_URL` |
 | Metrics | sandbox: simulated from the scenario | none planned | none |
+| Phone calls | sandbox: calls ring, then are answered, missed or busy, the same way on every replay | `TELEPHONY=vobiz`, with an https `PUBLIC_BASE_URL` and `ADMIN_TOKEN`. **Wired; tested against a fake Vobiz** | `VOBIZ_*` |
 | Voice | off: scripts are prepared, not spoken | ElevenLabs (designed, not wired) | `ELEVENLABS_*` |
 | LLM | off: fixed templates | Claude for narratives and drafts (designed, not wired). It would never compute the numbers | `ANTHROPIC_*` |
 | Credits | sandbox: an in-memory ledger | Dodo Payments test mode (designed, not wired) | `DODO_PAYMENTS_*` |

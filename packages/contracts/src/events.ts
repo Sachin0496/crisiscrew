@@ -3,6 +3,7 @@ import type {
   AgentStatus,
   Approval,
   AuditEntry,
+  CallView,
   ClusterView,
   CustomerImpact,
   CustomerUpdate,
@@ -63,6 +64,8 @@ export type CrisisEvent =
   | E<"approval.decided", { approval: Approval }>
   | E<"credit.issued", { incidentId: string; customerRef: string; amountInr: number; approvalId?: string; adapter: string; creditId: string }>
   | E<"engineering.recorded", { incidentId: string; record: EngineeringRecord }>
+  /** A phone call's new state, from the telephony adapter (Vobiz, or its sandbox). */
+  | E<"call.updated", { call: CallView }>
   | E<"replay.finished", { scenarioId: string }>;
 
 export type CrisisEventType = CrisisEvent["type"];
