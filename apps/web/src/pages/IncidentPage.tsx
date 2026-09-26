@@ -34,7 +34,7 @@ export function IncidentPage({ state, scenario, customerNames }: { state: Crisis
           {incident && <Detection state={state} compact />}
         </div>
         <div className="col">
-          {incident && <Paging incident={incident} />}
+          {incident && <Paging incident={incident} calls={state.calls} />}
           <Alerts state={state} />
           <Decisions state={state} incident={incident} />
           <Recovery state={state} incident={incident} />

@@ -1,5 +1,5 @@
 import { serveStatic } from "@hono/node-server/serve-static";
-import { VOBIZ_CALLBACKS, type VobizCallback } from "@crisiscrew/adapters";
+import { postMonitoringAlert, VOBIZ_CALLBACKS, type VobizCallback } from "@crisiscrew/adapters";
 import { DecisionBody, impactGraph, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
 import { describeWorkflows } from "@crisiscrew/core";
 import { timingSafeEqual } from "node:crypto";
@@ -28,9 +28,19 @@ const ManualTicket = z.object({
 }).strict();
 
 /** Freshdesk's automation rule posts {"ticket_id": 123}; its simple mode nests the fields under "freshdesk_webhook". */
+// The automation rule may send the ticket's fields too ({{ticket.subject}}, {{ticket.description}}, {{ticket.requester.email}}, …); then it isn't read back.
+const PushedTicket = z.object({
+  ticket_id: z.coerce.number().int().positive(),
+  subject: z.string().max(500).optional(),
+  description: z.string().max(20_000).optional(),
+  requester_email: z.string().max(200).optional(),
+  requester_name: z.string().max(200).optional(),
+  source: z.string().max(40).optional(),
+});
 const FreshdeskWebhook = z.union([
-  z.object({ ticket_id: z.coerce.number().int().positive() }),
-  z.object({ freshdesk_webhook: z.object({ ticket_id: z.coerce.number().int().positive() }) }),
+  PushedTicket,
+  // Freshdesk's simple layout nests the fields.
+  z.object({ freshdesk_webhook: PushedTicket }),
 ]);
 
 /** An alert posted by hand (a demo, or a monitoring tool CrisisCrew doesn't read directly). */
@@ -55,7 +65,13 @@ const FreshserviceAck = z.object({ ticket_id: z.coerce.number().int().positive()
 
 const ImportanceBody = z.object({ level: z.enum(["P1", "P2", "P3"]), note: z.string().trim().max(500).optional() }).strict();
 
-const TestCall = z.object({ to: z.string().trim().min(8).max(20) }).strict();
+// talk: the call is a conversation (streamed and voiced by Sarvam when VOBIZ_VOICE=sarvam) that repeats back what it heard.
+const TestCall = z.object({ to: z.string().trim().min(8).max(20), talk: z.boolean().optional() }).strict();
+
+/** The test call's conversation: it says back what it heard, so the whole voice path is checked, then hangs up. */
+const echoDialog = {
+  respond: (utterance: string) => ({ say: `I heard: ${utterance}. Your line and the voice agent both work. Goodbye.`, end: true }),
+};
 
 const TEST_CALL_SCRIPT = "This is a test call from CrisisCrew. Your phone line is set up to receive incident calls.";
 
@@ -111,8 +127,46 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
       uptimeSec: Math.round((Date.now() - startedAt) / 1000),
       session: runtime.state().session,
       auth: { admin: config.adminToken !== null, approver: config.approverToken !== null },
+      demo: { freshdeskTickets: config.demo.tickets?.count ?? null, freshserviceAlert: config.demo.alert?.service ?? null, filing: runtime.demoFiling },
     }),
   );
+
+  // Real-mode demo: file the live world's tickets in Freshdesk, as its customers would.
+  app.post("/api/demo/freshdesk-tickets", adminLimit, admin, (c) => {
+    if (!config.demo.tickets) return c.json({ error: "Filing demo tickets needs TICKETS=freshdesk against a real Freshdesk" }, 404);
+    try {
+      return c.json(runtime.fileDemoTickets({ ...config.demo.tickets, ingest: config.freshdesk?.ingest ?? "poll" }), 202);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
+    }
+  });
+
+  // Real-mode demo: play the monitoring tool, and post a critical alert to Freshservice Alert Management.
+  app.post("/api/demo/freshservice-alert", adminLimit, admin, async (c) => {
+    const alert = config.demo.alert;
+    if (!alert) return c.json({ error: "Firing a demo alert needs FRESHSERVICE_ALERT_WEBHOOK_URL and FRESHSERVICE_ALERT_WEBHOOK_KEY" }, 404);
+    try {
+      await postMonitoringAlert(alert, {
+        resource: alert.service,
+        node: `${alert.service}-prod`,
+        metric_name: "http_5xx_rate",
+        metric_value: "3.4%",
+        severity: "critical",
+        message: `${alert.service} 5xx error rate at 3.4%, above the 1% threshold`,
+        description: `Payment API errors on ${alert.service} jumped after the last release. Fired from the CrisisCrew demo.`,
+        tags: [`service:${alert.service}`],
+      });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
+    }
+    // Alert Management files it a few seconds after accepting it; read it back then rather than waiting for the next poll.
+    if (config.alerts) {
+      for (const delay of [5_000, 12_000]) {
+        setTimeout(() => runtime.pollFreshserviceAlerts().catch((error) => onError?.(error)), delay);
+      }
+    }
+    return c.json({ fired: true, service: alert.service }, 202);
+  });
 
   app.get("/api/wiring", (c) => c.json(wiringReport(config)));
   app.get("/api/state", (c) => c.json(runtime.state()));
@@ -166,9 +220,11 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshdesk.webhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
     const parsed = await body(c, FreshdeskWebhook);
     if (!parsed.ok) return parsed.response;
-    const ticketId = "ticket_id" in parsed.data ? parsed.data.ticket_id : parsed.data.freshdesk_webhook.ticket_id;
-    // Answer at once; Freshdesk's webhook times out quickly, and ingest reads the ticket back from the API.
-    void runtime.ingestFreshdesk(ticketId).catch((error) => onError?.(error));
+    const sent = "ticket_id" in parsed.data ? parsed.data : parsed.data.freshdesk_webhook;
+    const ticketId = sent.ticket_id;
+    // Answer at once; Freshdesk's webhook times out quickly. A ticket sent with its text is ingested as sent; otherwise it's read back from the API.
+    const pushed = sent.description?.trim() && sent.requester_email ? sent : null;
+    void (pushed ? runtime.ingestFreshdeskPushed(pushed) : runtime.ingestFreshdesk(ticketId)).catch((error) => onError?.(error));
     return c.json({ accepted: true, ticketId }, 202);
   });
 
@@ -192,6 +248,14 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   });
 
   // An operator takes the page, so no one else is called.
+  // An operator asks for a call to the primary on-call engineer now; it briefs them on the incident, and they can acknowledge by voice.
+  app.post("/api/incidents/:id/page", adminLimit, admin, async (c) => {
+    const id = c.req.param("id");
+    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
+    const result = await runtime.pageNow(id, c.req.header("x-operator-name")?.slice(0, 60) || "an operator");
+    return result.ok ? c.json(result, 202) : c.json({ error: result.reason ?? "the call was not placed" }, 409);
+  });
+
   app.post("/api/incidents/:id/page/acknowledge", adminLimit, admin, async (c) => {
     const parsed = await body(c, AcknowledgeBody);
     if (!parsed.ok) return parsed.response;
@@ -231,6 +295,15 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json(await runtime.setImportance(id, parsed.data.level, by, parsed.data.note || undefined));
   });
 
+  // A Vobiz application's answer URL (calls into the number or a SIP endpoint). CrisisCrew only places calls, so it says so and hangs up.
+  app.post("/api/webhooks/vobiz/app/answer", webhookLimit, (c) =>
+    c.body(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Speak>This number places CrisisCrew incident calls and does not take calls. Goodbye.</Speak><Hangup/></Response>`,
+      200,
+      { "content-type": "application/xml; charset=utf-8" },
+    ),
+  );
+
   // Vobiz fetches what a call says and reports its progress here. Each callback is signed with the account's auth token.
   app.post("/api/webhooks/vobiz/:callId/:kind", webhookLimit, async (c) => {
     const vobiz = runtime.vobiz;
@@ -256,8 +329,9 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
         to: parsed.data.to,
         script: TEST_CALL_SCRIPT,
         purpose: "oncall",
-        gather: { prompt: "Press 1 to confirm you can hear this." },
+        gather: { prompt: parsed.data.talk ? "Say something, and I'll repeat what I heard." : "Press 1 to confirm you can hear this." },
         metadata: { test: "true" },
+        ...(parsed.data.talk ? { dialog: echoDialog } : {}),
       });
       return c.json({ callId, status: runtime.state().calls[callId] ?? null }, 202);
     } catch (error) {

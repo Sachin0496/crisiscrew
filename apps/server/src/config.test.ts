@@ -32,7 +32,8 @@ describe("loadConfig", () => {
 
   it("switches Freshdesk on with its keys, and refuses without them", () => {
     const keys = { TICKETS: "freshdesk", FRESHDESK_DOMAIN: "https://Acme.freshdesk.com/", FRESHDESK_API_KEY: "fd-key", FRESHDESK_WEBHOOK_SECRET: "s" };
-    expect(loadConfig(keys).freshdesk).toEqual({ domain: "acme.freshdesk.com", apiKey: "fd-key", webhookSecret: "s", ingest: "webhook", pollSeconds: 15, actions: "rest" });
+    expect(loadConfig(keys).freshdesk).toEqual({ domain: "acme.freshdesk.com", apiKey: "fd-key", webhookSecret: "s", ingest: "webhook", pollSeconds: 15, actions: "rest", labels: false });
+    expect(loadConfig({ ...keys, FRESHDESK_LABELS: "on" }).freshdesk?.labels).toBe(true);
     expect(() => loadConfig({ TICKETS: "freshdesk" })).toThrow("TICKETS=freshdesk needs FRESHDESK_DOMAIN and FRESHDESK_API_KEY; see .env.example");
     expect(() => loadConfig({ ...keys, FRESHDESK_WEBHOOK_SECRET: "" })).toThrow(/FRESHDESK_INGEST=webhook needs FRESHDESK_WEBHOOK_SECRET/);
     expect(loadConfig({ ...keys, FRESHDESK_WEBHOOK_SECRET: "", FRESHDESK_INGEST: "poll", FRESHDESK_ACTIONS: "mcp" }).freshdesk).toMatchObject({ ingest: "poll", actions: "mcp" });
@@ -68,12 +69,54 @@ describe("loadConfig", () => {
       timeLimitSec: 300,
       apiBase: "https://api.vobiz.ai",
       callbackBaseUrl: "https://crisis.example.com",
+      sarvam: null,
+      recordCalls: false,
+      allowedNumbers: [],
     });
     expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "live", adapter: "vobiz" });
     expect(() => loadConfig({ ...keys, VOBIZ_AUTH_TOKEN: "", VOBIZ_FROM_NUMBER: "" })).toThrow("TELEPHONY=vobiz needs VOBIZ_AUTH_TOKEN, VOBIZ_FROM_NUMBER; see .env.example");
     expect(() => loadConfig({ ...keys, PUBLIC_BASE_URL: "http://localhost:8787" })).toThrow(/PUBLIC_BASE_URL.*https/);
     expect(() => loadConfig({ ...keys, ADMIN_TOKEN: "" })).toThrow(/ADMIN_TOKEN/);
     expect(() => loadConfig({ ...keys, VOBIZ_FROM_NUMBER: "reception" })).toThrow(/E\.164/);
+  });
+
+  it("runs the mock Fix Agent beside real integrations, and only with apps/mock's services", () => {
+    const real = { INTEGRATIONS: "real", TICKETS: "sandbox", INCIDENTS: "sandbox", ONCALL: "sandbox", ALERTS: "sandbox", TELEPHONY: "sandbox", AUTOFIX: "mock" };
+    expect(loadConfig(real).autofix).toMatchObject({ githubBase: "http://localhost:8791", googleBase: "http://localhost:8792", slackBase: "http://localhost:8793" });
+    expect(() => loadConfig({ AUTOFIX: "mock" })).toThrow(/AUTOFIX=mock needs INTEGRATIONS=mock or real/);
+  });
+
+  it("offers the real-mode demo triggers only when their services are wired", () => {
+    const fd = { TICKETS: "freshdesk", FRESHDESK_DOMAIN: "acme", FRESHDESK_API_KEY: "k", FRESHDESK_INGEST: "poll" };
+    expect(loadConfig({}).demo).toEqual({ tickets: null, alert: null });
+    expect(loadConfig(fd).demo.tickets).toEqual({ count: 17, gapMs: 4000 });
+    expect(loadConfig({ ...fd, DEMO_TICKETS: "10", DEMO_TICKET_GAP_MS: "2000" }).demo.tickets).toEqual({ count: 10, gapMs: 2000 });
+    const alert = { FRESHSERVICE_ALERT_WEBHOOK_URL: "https://acme.alerts.freshservice.com/integrations/1/alerts", FRESHSERVICE_ALERT_WEBHOOK_KEY: "auth-key abc" };
+    expect(loadConfig(alert).demo.alert).toEqual({ url: alert.FRESHSERVICE_ALERT_WEBHOOK_URL, key: "abc", service: "checkout-service" });
+    expect(() => loadConfig({ FRESHSERVICE_ALERT_WEBHOOK_URL: alert.FRESHSERVICE_ALERT_WEBHOOK_URL })).toThrow(/go together/);
+    expect(() => loadConfig({ ...alert, FRESHSERVICE_ALERT_WEBHOOK_URL: "https://evil.example.com/x" })).toThrow(/alerts\.freshservice\.com/);
+    expect(loadConfig({ CLASSIFIER: "laya-sim" }).switches.classifier).toBe("laya-sim");
+  });
+
+  it("voices on-call pages with Sarvam when asked, and calls only allowed numbers", () => {
+    const keys = {
+      TELEPHONY: "vobiz",
+      VOBIZ_AUTH_ID: "MA123",
+      VOBIZ_AUTH_TOKEN: "tok",
+      VOBIZ_FROM_NUMBER: "+918065551234",
+      PUBLIC_BASE_URL: "https://crisis.example.com",
+      ADMIN_TOKEN: "admin",
+      APPROVER_TOKEN: "approver",
+      VOBIZ_VOICE: "sarvam",
+      SARVAM_API_KEY: "sk",
+      VOBIZ_ALLOWED_NUMBERS: "+91 98450 12345, +919876543210",
+    };
+    expect(loadConfig(keys).vobiz).toMatchObject({ sarvam: { apiKey: "sk", speaker: "priya", pace: 1.1 }, recordCalls: false, allowedNumbers: ["+91 98450 12345", "+919876543210"] });
+    expect(loadConfig({ ...keys, VOBIZ_RECORD_CALLS: "on", SARVAM_PACE: "1.3" }).vobiz).toMatchObject({ sarvam: { pace: 1.3 }, recordCalls: true });
+    expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")?.detail).toMatch(/Sarvam.*only 2 allowed numbers/);
+    expect(() => loadConfig({ ...keys, SARVAM_API_KEY: "" })).toThrow(/VOBIZ_VOICE=sarvam needs SARVAM_API_KEY/);
+    expect(() => loadConfig({ ...keys, VOBIZ_VOICE: "elevenlabs" })).toThrow(/VOBIZ_VOICE must be one of vobiz, sarvam/);
+    expect(() => loadConfig({ ...keys, VOBIZ_ALLOWED_NUMBERS: "me" })).toThrow(/VOBIZ_ALLOWED_NUMBERS/);
   });
 
   it("reads Freshservice on-call schedules, per service or by default, and names what's missing", () => {
@@ -83,7 +126,10 @@ describe("loadConfig", () => {
       apiKey: "fs",
       defaultScheduleId: 8569,
       schedules: { "checkout-service": 8570, "auth-service": 8571 },
+      names: {},
     });
+    expect(loadConfig({ ...keys, FRESHSERVICE_ONCALL_NAMES: "Nakul@Example.com=Meenakshi" }).oncall?.names).toEqual({ "nakul@example.com": "Meenakshi" });
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_NAMES: "Meenakshi" })).toThrow(/email=Name/);
     expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "live", adapter: "freshservice" });
     expect(() => loadConfig({ ONCALL: "freshservice", FRESHSERVICE_DOMAIN: "acme" })).toThrow("ONCALL=freshservice needs FRESHSERVICE_API_KEY, FRESHSERVICE_ONCALL_SCHEDULE_ID; see .env.example");
     expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULE_ID: "weekly" })).toThrow(/schedule id/);

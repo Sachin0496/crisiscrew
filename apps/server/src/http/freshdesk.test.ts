@@ -34,6 +34,7 @@ const COMPLAINTS: Record<number, { email: string; name: string; text: string }> 
 /** A fake Freshdesk: serves the complaints above and records every note and reply written back. */
 function fakeFreshdesk(createdAt = () => new Date().toISOString()) {
   const writes: { kind: "note" | "reply"; ticketId: number; body: string }[] = [];
+  const labels: { ticketId: number; type?: string; tags: string[] }[] = [];
   const ticket = (id: number): FreshdeskTicket => {
     const c = COMPLAINTS[id]!;
     return { id, subject: null, description_text: c.text, source: 2, created_at: createdAt(), requester: { id: 9000 + id, name: c.name, email: c.email } };
@@ -45,6 +46,10 @@ function fakeFreshdesk(createdAt = () => new Date().toISOString()) {
     const one = url.pathname.match(/^\/api\/v2\/tickets\/(\d+)$/);
     if (method === "GET" && one) return COMPLAINTS[Number(one[1])] ? reply(ticket(Number(one[1]))) : reply({ description: "not found" }, 404);
     if (method === "GET" && url.pathname === "/api/v2/tickets") return reply(Object.keys(COMPLAINTS).map((id) => ticket(Number(id))));
+    if (method === "PUT" && one) {
+      labels.push({ ticketId: Number(one[1]), ...(JSON.parse(String(init?.body)) as { type?: string; tags: string[] }) });
+      return reply({ id: Number(one[1]) });
+    }
     const write = url.pathname.match(/^\/api\/v2\/tickets\/(\d+)\/(notes|reply)$/);
     if (method === "POST" && write) {
       writes.push({ kind: write[2] === "notes" ? "note" : "reply", ticketId: Number(write[1]), body: (JSON.parse(String(init?.body)) as { body: string }).body });
@@ -52,14 +57,14 @@ function fakeFreshdesk(createdAt = () => new Date().toISOString()) {
     }
     return reply({ description: "unexpected" }, 404);
   });
-  return { writes, fetch: fetch as unknown as typeof globalThis.fetch };
+  return { writes, labels, fetch, fetchFn: fetch as unknown as typeof globalThis.fetch };
 }
 
-async function setup(options: { freshdesk?: boolean; createdAt?: () => string } = {}) {
+async function setup(options: { freshdesk?: boolean; createdAt?: () => string; labels?: boolean } = {}) {
   const fake = fakeFreshdesk(options.createdAt);
   const env = options.freshdesk === false ? {} : { TICKETS: "freshdesk", FRESHDESK_DOMAIN: "acme", FRESHDESK_API_KEY: "fd-key", FRESHDESK_WEBHOOK_SECRET: "hook-secret" };
   const config = loadConfig({ SANDBOX_LATENCY_MS: "0", ...env });
-  const client = new FreshdeskClient({ domain: "acme.freshdesk.com", apiKey: "fd-key", fetch: fake.fetch });
+  const client = new FreshdeskClient({ domain: "acme.freshdesk.com", apiKey: "fd-key", fetch: fake.fetchFn });
   const scenarios = loadScenarios();
   scenarios.set("freshdesk-live", pastWorld());
   const runtime = new Runtime({
@@ -68,7 +73,7 @@ async function setup(options: { freshdesk?: boolean; createdAt?: () => string } 
     embedder: new CachedEmbedder({ modelId: DEFAULT_EMBEDDING_MODEL, dir: EMBEDDING_CACHE_DIR, inner: null }),
     latencyMs: 0,
     liveWorld: "freshdesk-live",
-    ...(options.freshdesk === false ? {} : { live: { freshdesk: { client, writer: restWriter(client) } } }),
+    ...(options.freshdesk === false ? {} : { live: { freshdesk: { client, writer: restWriter(client), labels: options.labels ?? false } } }),
   });
   await runtime.start();
   return { app: createApp({ runtime, config }), runtime, fake };
@@ -92,6 +97,18 @@ describe("Freshdesk webhook", () => {
     // Freshdesk's simple mode nests the fields; it's accepted too.
     expect((await app.request("/api/webhooks/freshdesk", hook({ freshdesk_webhook: { ticket_id: "102" } }, "hook-secret"))).status).toBe(202);
     await vi.waitFor(() => expect(runtime.state().ticketOrder).toHaveLength(2));
+  });
+
+  it("ingests a ticket the automation rule sent with its fields, without reading it back, and labels it in Freshdesk", async () => {
+    const { app, runtime, fake } = await setup({ labels: true });
+    const body = { ticket_id: "105", description: "<div>Every payment method fails when I try to check out.</div>", requester_email: "judge@example.org", requester_name: "A Judge", source: "Chat" };
+    // Freshdesk's simple layout nests the fields under freshdesk_webhook.
+    expect((await app.request("/api/webhooks/freshdesk", hook({ freshdesk_webhook: body }, "hook-secret"))).status).toBe(202);
+    await vi.waitFor(() => expect(fake.labels).toHaveLength(1));
+    const view = runtime.state().tickets[runtime.state().ticketOrder[0]!]!;
+    expect(view.ticket).toMatchObject({ externalId: "freshdesk:105", customerName: "A Judge", channel: "chat", body: "Every payment method fails when I try to check out." });
+    expect(fake.fetch.mock.calls.some(([url, init]) => (init?.method ?? "GET") === "GET" && String(url).includes("/tickets/105"))).toBe(false);
+    expect(fake.labels[0]).toMatchObject({ ticketId: 105, type: "Incident", tags: expect.arrayContaining(["crisiscrew", "ticket-failure", "area-checkout-payments"]) });
   });
 
   it("refuses a missing or wrong secret and a body without a ticket id, and is off without Freshdesk", async () => {

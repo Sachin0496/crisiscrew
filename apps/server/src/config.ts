@@ -32,7 +32,7 @@ function ticketsDetail(value: string, config: Config): string {
   if (value !== "freshdesk" || !freshdesk) return "Scenario replay and tickets typed into the UI";
   const ingest = freshdesk.ingest === "webhook" ? "webhook ingest" : `polled every ${freshdesk.pollSeconds} s`;
   const writes = freshdesk.actions === "mcp" ? "Freshdesk's MCP server" : "the REST API";
-  return `${named("Freshdesk", config)} (${freshdesk.domain}): ${ingest}; notes and replies through ${writes}. Replays and typed tickets stay in the sandbox`;
+  return `${named("Freshdesk", config)} (${freshdesk.domain}): ${ingest}; notes and replies through ${writes}${freshdesk.labels ? "; each ticket's classification is set as its type and tags" : ""}. Replays and typed tickets stay in the sandbox`;
 }
 
 const PORTS: Record<PortName, PortSpec> = {
@@ -64,7 +64,7 @@ const PORTS: Record<PortName, PortSpec> = {
     mode: (v, c) => external(v === "vobiz", c),
     detail: (v, c) =>
       v === "vobiz" && c.vobiz
-        ? `${named("Vobiz", c)}: calls from ${c.vobiz.from}, with callbacks to ${c.vobiz.callbackBaseUrl}/api/webhooks/vobiz`
+        ? `${named("Vobiz", c)}: calls from ${c.vobiz.from}, with callbacks to ${c.vobiz.callbackBaseUrl}/api/webhooks/vobiz${c.vobiz.sarvam ? "; on-call pages stream both ways, voiced by Sarvam (saaras:v3 hears, bulbul:v3 speaks)" : ""}${c.vobiz.allowedNumbers.length ? `; only ${c.vobiz.allowedNumbers.length} allowed ${c.vobiz.allowedNumbers.length === 1 ? "number" : "numbers"}` : ""}`
         : "Calls are simulated: they ring, and are answered, missed or busy, the same way on every replay",
   },
   oncall: {
@@ -108,11 +108,13 @@ const PORTS: Record<PortName, PortSpec> = {
   },
   classifier: {
     env: "CLASSIFIER",
-    options: ["embeddings", "laya"],
-    wired: ["embeddings", "laya"],
+    options: ["embeddings", "laya", "laya-sim"],
+    wired: ["embeddings", "laya", "laya-sim"],
     mode: () => "live",
     detail: (v, c) =>
-      v === "laya" && c.laya
+      v === "laya-sim"
+        ? "Laya (simulated): Laya's two questions, failure/question/request and the product area, answered from keyword evidence on this machine. Unsure answers leave the built-in labels in place"
+        : v === "laya" && c.laya
         ? `Laya at ${hostOf(c.laya.baseUrl)}${c.laya.model ? ` (${c.laya.model} checkpoint)` : " (its router picks the checkpoint)"}: failure, question or request, and the product area. The built-in classifier answers if Laya doesn't`
         : "Built in: each ticket is labeled failure, question or request against the embedding prototypes",
   },
@@ -159,6 +161,8 @@ export type FreshdeskConfig = {
   ingest: "webhook" | "poll";
   pollSeconds: number;
   actions: "rest" | "mcp";
+  /** FRESHDESK_LABELS=on: each classified ticket gets its type and tags set in Freshdesk. */
+  labels: boolean;
 };
 
 export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null; groups: Record<string, number> };
@@ -173,6 +177,12 @@ export type VobizConfig = {
   apiBase: string;
   /** Where Vobiz calls back: PUBLIC_BASE_URL, or this server on localhost for the mock. */
   callbackBaseUrl: string;
+  /** VOBIZ_VOICE=sarvam: conversational calls stream their audio and Sarvam hears and speaks them. Null: Vobiz's own voice. */
+  sarvam: { apiKey: string; speaker: string; pace: number } | null;
+  /** VOBIZ_RECORD_CALLS=on: each streamed call is saved, both sides mixed, as data/calls/<callId>.wav. */
+  recordCalls: boolean;
+  /** VOBIZ_ALLOWED_NUMBERS: when set, the only numbers CrisisCrew may call. */
+  allowedNumbers: string[];
 };
 
 /**
@@ -182,7 +192,7 @@ export type VobizConfig = {
  */
 export type IntegrationsMode = "sandbox" | "mock" | "real";
 
-export type OnCallConfig = { domain: string; apiKey: string; defaultScheduleId: number; schedules: Record<string, number> };
+export type OnCallConfig = { domain: string; apiKey: string; defaultScheduleId: number; schedules: Record<string, number>; names: Record<string, string> };
 
 export type AlertsConfig = {
   domain: string;
@@ -248,6 +258,16 @@ export type Config = {
   infra: InfraConfig | null;
   /** Lets a Freshservice workflow acknowledge a page: POST /api/webhooks/freshservice/acknowledge with X-CrisisCrew-Secret. */
   freshserviceWebhookSecret: string | null;
+  /**
+   * The demo triggers for a real-mode run. tickets: file the live world's
+   * tickets in Freshdesk (needs TICKETS=freshdesk). alert: post a critical
+   * alert to a Freshservice Alert Management webhook integration (needs
+   * FRESHSERVICE_ALERT_WEBHOOK_URL and _KEY).
+   */
+  demo: {
+    tickets: { count: number; gapMs: number } | null;
+    alert: { url: string; key: string; service: string } | null;
+  };
 };
 
 type Env = Record<string, string | undefined>;
@@ -295,6 +315,7 @@ function freshdeskConfig(env: Env): FreshdeskConfig {
     ingest,
     pollSeconds: Math.max(5, int(env, "FRESHDESK_POLL_SECONDS", 15)),
     actions: oneOf(env, "FRESHDESK_ACTIONS", ["rest", "mcp"] as const),
+    labels: oneOf(env, "FRESHDESK_LABELS", ["off", "on"] as const) === "on",
   };
 }
 
@@ -337,6 +358,9 @@ function vobizConfig(env: Env, mock: MockPortsConfig | null): VobizConfig {
       ...timing,
       apiBase: `http://localhost:${mock.vobiz}`,
       callbackBaseUrl: `http://localhost:${int(env, "PORT", 8787)}`,
+      sarvam: null,
+      recordCalls: false,
+      allowedNumbers: [],
     };
   }
   const missing = ["VOBIZ_AUTH_ID", "VOBIZ_AUTH_TOKEN", "VOBIZ_FROM_NUMBER"].filter((k) => !text(env, k));
@@ -349,6 +373,11 @@ function vobizConfig(env: Env, mock: MockPortsConfig | null): VobizConfig {
   if (!text(env, "ADMIN_TOKEN")) throw new ConfigError("TELEPHONY=vobiz needs ADMIN_TOKEN, so only an admin can place a test call");
   const from = text(env, "VOBIZ_FROM_NUMBER")!;
   if (!/^\+?[1-9]\d{7,14}$/.test(from.replace(/[\s()-]/g, ""))) throw new ConfigError("VOBIZ_FROM_NUMBER must be a phone number in E.164 format, e.g. +918065551234");
+  const voice = oneOf(env, "VOBIZ_VOICE", ["vobiz", "sarvam"] as const);
+  if (voice === "sarvam" && !text(env, "SARVAM_API_KEY")) throw new ConfigError("VOBIZ_VOICE=sarvam needs SARVAM_API_KEY; see .env.example");
+  const allowedNumbers = (text(env, "VOBIZ_ALLOWED_NUMBERS") ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+  const bad = allowedNumbers.find((n) => !/^\+?[1-9]\d{7,14}$/.test(n.replace(/[\s()-]/g, "")));
+  if (bad) throw new ConfigError(`VOBIZ_ALLOWED_NUMBERS: "${bad}" is not a phone number in E.164 format`);
   return {
     authId: text(env, "VOBIZ_AUTH_ID")!,
     authToken: text(env, "VOBIZ_AUTH_TOKEN")!,
@@ -356,6 +385,9 @@ function vobizConfig(env: Env, mock: MockPortsConfig | null): VobizConfig {
     ...timing,
     apiBase: "https://api.vobiz.ai",
     callbackBaseUrl: base.replace(/\/+$/, ""),
+    sarvam: voice === "sarvam" ? { apiKey: text(env, "SARVAM_API_KEY")!, speaker: text(env, "SARVAM_SPEAKER") ?? "priya", pace: Math.min(2, Math.max(0.5, Number(text(env, "SARVAM_PACE") ?? "1.1") || 1.1)) } : null,
+    recordCalls: voice === "sarvam" && oneOf(env, "VOBIZ_RECORD_CALLS", ["off", "on"] as const) === "on",
+    allowedNumbers,
   };
 }
 
@@ -378,7 +410,19 @@ function oncallConfig(env: Env): OnCallConfig {
     apiKey: text(env, "FRESHSERVICE_API_KEY")!,
     defaultScheduleId: id("FRESHSERVICE_ONCALL_SCHEDULE_ID", text(env, "FRESHSERVICE_ONCALL_SCHEDULE_ID")!),
     schedules,
+    names: namesOf(text(env, "FRESHSERVICE_ONCALL_NAMES")),
   };
+}
+
+/** FRESHSERVICE_ONCALL_NAMES: email=Name pairs, the name CrisisCrew uses for an on-call agent (e.g. a demo persona). */
+function namesOf(value: string | null): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const pair of (value ?? "").split(",").map((p) => p.trim()).filter(Boolean)) {
+    const [email, name] = pair.split("=").map((p) => p.trim());
+    if (!email?.includes("@") || !name) throw new ConfigError(`FRESHSERVICE_ONCALL_NAMES takes email=Name pairs, got "${pair}"`);
+    names[email.toLowerCase()] = name;
+  }
+  return names;
 }
 
 function alertsConfig(env: Env): AlertsConfig {
@@ -504,6 +548,7 @@ function withIntegrations(env: Env): { env: Env; integrations: IntegrationsMode;
       FRESHDESK_INGEST: "webhook",
       FRESHDESK_WEBHOOK_SECRET: MOCK.webhookSecret,
       FRESHDESK_ACTIONS: "rest",
+      FRESHDESK_LABELS: "off",
       FRESHSERVICE_DOMAIN: `localhost:${mock.freshservice}`,
       FRESHSERVICE_API_KEY: MOCK.freshserviceApiKey,
       FRESHSERVICE_REQUESTER_EMAIL: MOCK.requesterEmail,
@@ -552,19 +597,22 @@ export function loadConfig(input: Env): Config {
   const langsmith = switches.tracing === "langsmith" ? langsmithConfig(env) : null;
   const egress = [...new Set([laya && hostOf(laya.baseUrl), lakera && "api.lakera.ai", langsmith && hostOf(langsmith.endpoint)].filter((h): h is string => Boolean(h)))];
 
+  // The Fix Agent's GitHub, Google Docs and Slack are always apps/mock's: with INTEGRATIONS=mock, or beside the real
+  // Freshworks and Vobiz with INTEGRATIONS=real and AUTOFIX=mock (start the mock with `pnpm mock`).
+  const fixPorts = mock ?? (switches.autofix === "mock" && integrations === "real" ? mockPorts(int(env, "MOCK_PORT", MOCK.defaultPort)) : null);
   const autofix: AutofixConfig | null =
-    switches.autofix === "mock" && mock
+    switches.autofix === "mock" && fixPorts
       ? {
-          githubBase: `http://localhost:${mock.github}`,
-          googleBase: `http://localhost:${mock.google}`,
-          slackBase: `http://localhost:${mock.slack}`,
-          viewBase: `http://localhost:${mock.freshdesk}/#/docs/`,
+          githubBase: `http://localhost:${fixPorts.github}`,
+          googleBase: `http://localhost:${fixPorts.google}`,
+          slackBase: `http://localhost:${fixPorts.slack}`,
+          viewBase: `http://localhost:${fixPorts.freshdesk}/#/docs/`,
           repos: { ...MOCK.repos },
           replayFile: text(env, "AUTOFIX_REPLAY") ?? "apps/mock/fixtures/checkout-service.opencode.json",
           workspaceRoot: text(env, "AUTOFIX_WORKSPACES") ?? "data/workspaces",
         }
       : null;
-  if (switches.autofix === "mock" && !mock) throw new ConfigError("AUTOFIX=mock needs INTEGRATIONS=mock: the Fix Agent's mock services come with the other mocks");
+  if (switches.autofix === "mock" && !fixPorts) throw new ConfigError("AUTOFIX=mock needs INTEGRATIONS=mock or real: the Fix Agent's GitHub, Google Docs and Slack come from apps/mock");
 
   return {
     integrations,
@@ -594,6 +642,21 @@ export function loadConfig(input: Env): Config {
     alerts: switches.alerts === "freshservice" ? alertsConfig(env) : null,
     infra: switches.infra === "mcp" ? infraConfig(env) : null,
     freshserviceWebhookSecret: text(env, "FRESHSERVICE_WEBHOOK_SECRET"),
+    demo: demoConfig(env, switches, mock),
+  };
+}
+
+function demoConfig(env: Env, switches: Record<PortName, string>, mock: MockPortsConfig | null): Config["demo"] {
+  const alertUrl = text(env, "FRESHSERVICE_ALERT_WEBHOOK_URL");
+  const alertKey = text(env, "FRESHSERVICE_ALERT_WEBHOOK_KEY");
+  if (Boolean(alertUrl) !== Boolean(alertKey)) throw new ConfigError("FRESHSERVICE_ALERT_WEBHOOK_URL and FRESHSERVICE_ALERT_WEBHOOK_KEY go together; see .env.example");
+  if (alertUrl && !/^https:\/\/[a-z0-9-]+\.alerts\.freshservice\.com\//i.test(alertUrl)) {
+    throw new ConfigError("FRESHSERVICE_ALERT_WEBHOOK_URL must be the https://<account>.alerts.freshservice.com/integrations/… endpoint of a webhook integration");
+  }
+  return {
+    // The mock cockpit files its own tickets; this trigger is for a real Freshdesk.
+    tickets: switches.tickets === "freshdesk" && !mock ? { count: Math.max(1, int(env, "DEMO_TICKETS", 17)), gapMs: Math.max(500, int(env, "DEMO_TICKET_GAP_MS", 4000)) } : null,
+    alert: alertUrl && alertKey && !mock ? { url: alertUrl, key: alertKey.replace(/^auth-key\s+/i, ""), service: text(env, "DEMO_ALERT_SERVICE") ?? "checkout-service" } : null,
   };
 }
 

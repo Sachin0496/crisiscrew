@@ -60,10 +60,16 @@ importers:
       hono:
         specifier: ^4.13.8
         version: 4.13.8
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
       zod:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -112,7 +118,7 @@ importers:
         version: 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)
       langsmith:
         specifier: ^0.10.5
-        version: 0.10.5
+        version: 0.10.5(ws@8.21.3)
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -130,10 +136,10 @@ importers:
         version: link:../contracts
       '@langchain/core':
         specifier: ^1.2.12
-        version: 1.2.12
+        version: 1.2.12(ws@8.21.3)
       '@langchain/langgraph':
         specifier: ^1.4.18
-        version: 1.4.18(@langchain/core@1.2.12)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)
+        version: 1.4.18(@langchain/core@1.2.12(ws@8.21.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -664,6 +670,9 @@ packages:
 
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@vitejs/plugin-react@6.1.1':
     resolution: {integrity: sha512-yxLaQV9gkhS8ezJqCM6+ndU7mDY6gqAg75NQ+0IjwEI8IYOmQCgkRwHKVSfWXW076DsqMo0Dk+0FK1U+M5RgFw==}
@@ -1480,6 +1489,18 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
+  ws@8.21.3:
+    resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   zod-to-json-schema@3.25.2:
     resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
     peerDependencies:
@@ -1708,12 +1729,12 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@langchain/core@1.2.12':
+  '@langchain/core@1.2.12(ws@8.21.3)':
     dependencies:
       '@cfworker/json-schema': 4.1.1
       '@standard-schema/spec': 1.1.0
       js-tiktoken: 1.0.21
-      langsmith: 0.10.5
+      langsmith: 0.10.5(ws@8.21.3)
       mustache: 4.2.0
       p-queue: 6.6.2
       zod: 4.6.5
@@ -1724,13 +1745,13 @@ snapshots:
       - openai
       - ws
 
-  '@langchain/langgraph-checkpoint@1.1.5(@langchain/core@1.2.12)':
+  '@langchain/langgraph-checkpoint@1.1.5(@langchain/core@1.2.12(ws@8.21.3))':
     dependencies:
-      '@langchain/core': 1.2.12
+      '@langchain/core': 1.2.12(ws@8.21.3)
 
-  '@langchain/langgraph-sdk@1.12.0(@langchain/core@1.2.12)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@langchain/langgraph-sdk@1.12.0(@langchain/core@1.2.12(ws@8.21.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@langchain/core': 1.2.12
+      '@langchain/core': 1.2.12(ws@8.21.3)
       '@langchain/protocol': 0.0.19
       '@types/json-schema': 7.0.15
       p-queue: 9.3.3
@@ -1739,11 +1760,11 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
 
-  '@langchain/langgraph@1.4.18(@langchain/core@1.2.12)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)':
+  '@langchain/langgraph@1.4.18(@langchain/core@1.2.12(ws@8.21.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)':
     dependencies:
-      '@langchain/core': 1.2.12
-      '@langchain/langgraph-checkpoint': 1.1.5(@langchain/core@1.2.12)
-      '@langchain/langgraph-sdk': 1.12.0(@langchain/core@1.2.12)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@langchain/core': 1.2.12(ws@8.21.3)
+      '@langchain/langgraph-checkpoint': 1.1.5(@langchain/core@1.2.12(ws@8.21.3))
+      '@langchain/langgraph-sdk': 1.12.0(@langchain/core@1.2.12(ws@8.21.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@langchain/protocol': 0.0.19
       '@standard-schema/spec': 1.1.0
       zod: 4.6.5
@@ -1870,6 +1891,10 @@ snapshots:
   '@types/react@19.3.0':
     dependencies:
       csstype: 3.2.3
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 24.13.6
 
   '@vitejs/plugin-react@6.1.1(vite@8.3.0(@types/node@24.13.6)(esbuild@0.28.2)(tsx@4.23.15))':
     dependencies:
@@ -2202,9 +2227,11 @@ snapshots:
 
   json-schema-typed@8.0.2: {}
 
-  langsmith@0.10.5:
+  langsmith@0.10.5(ws@8.21.3):
     dependencies:
       p-queue: 6.6.2
+    optionalDependencies:
+      ws: 8.21.3
 
   lightningcss-android-arm64@1.33.0:
     optional: true
@@ -2635,6 +2662,8 @@ snapshots:
       stackback: 0.0.2
 
   wrappy@1.0.2: {}
+
+  ws@8.21.3: {}
 
   zod-to-json-schema@3.25.2(zod@4.6.5):
     dependencies:

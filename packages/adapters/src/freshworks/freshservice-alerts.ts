@@ -77,3 +77,34 @@ export function freshserviceAlertToInput(alert: FreshserviceAlert, rules: readon
     ...(Number.isNaN(resolved) ? {} : { resolvedAt: resolved }),
   };
 }
+
+/** What a monitoring tool posts to a Freshservice Alert Management webhook integration, in the fields the integration maps. */
+export type MonitoringAlert = {
+  resource: string;
+  node?: string;
+  metric_name: string;
+  metric_value?: string;
+  severity: "critical" | "warning" | "ok";
+  message: string;
+  description?: string;
+  timestamp?: string;
+  tags?: string[];
+};
+
+/**
+ * Posts one alert to a webhook integration (https://<account>.alerts.freshservice.com/integrations/<id>/alerts),
+ * as a monitoring tool would. The integration's key goes in "Authorization: auth-key <key>". Freshservice
+ * answers 202 and files the alert in Alert Management a few seconds later.
+ */
+export async function postMonitoringAlert(endpoint: { url: string; key: string; fetch?: typeof fetch }, alert: MonitoringAlert): Promise<void> {
+  const res = await (endpoint.fetch ?? fetch)(endpoint.url, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `auth-key ${endpoint.key}` },
+    body: JSON.stringify({ timestamp: new Date().toISOString(), ...alert }),
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Freshservice Alert Management answered ${res.status}${text ? `: ${text.slice(0, 200)}` : ""}`);
+  }
+}

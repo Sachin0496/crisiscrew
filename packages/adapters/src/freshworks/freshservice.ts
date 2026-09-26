@@ -108,6 +108,8 @@ export type FreshserviceOnCallOptions = FreshworksAuth & {
   defaultScheduleId: number;
   /** service name → schedule id, for services with their own schedule. */
   schedules?: Record<string, number>;
+  /** agent email (lowercase) → the name CrisisCrew uses for them, on calls and everywhere else. */
+  names?: Record<string, string>;
 };
 
 type ShiftEvent = {
@@ -139,7 +141,7 @@ export function freshserviceOnCall(options: FreshserviceOnCallOptions): OnCallPo
         if (known && ROLE_ORDER[known.role] <= ROLE_ORDER[role]) continue;
         const phone = event.user.mobile || event.user.phone || undefined;
         byUser.set(event.user.id, {
-          name: event.user.name || `Agent ${event.user.id}`,
+          name: (event.user.email && options.names?.[event.user.email.toLowerCase()]) || event.user.name || `Agent ${event.user.id}`,
           role,
           ...(phone ? { phone } : {}),
           ...(event.user.email ? { email: event.user.email } : {}),

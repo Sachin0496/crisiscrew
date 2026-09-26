@@ -1,7 +1,9 @@
 import type { CallState } from "@crisiscrew/contracts";
 import type { CallRequest, TelephonyPort } from "@crisiscrew/core";
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { CallBook, e164, isFinal } from "./calls";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { CallBook, e164, isFinal, maskNumber } from "./calls";
+import { wavOf, type CallAnswerer, type CallSpeech } from "./sarvam";
+import { streamConversation, type StreamSocket } from "./stream";
 
 export type VobizOptions = {
   authId: string;
@@ -14,6 +16,18 @@ export type VobizOptions = {
   ringTimeoutSec?: number;
   /** Hang up an answered call after this many seconds. */
   timeLimitSec?: number;
+  /**
+   * The voice of conversational calls (the on-call page). When set, such a
+   * call streams its audio both ways over a WebSocket and this port hears and
+   * speaks each turn; otherwise Vobiz's own Speak and speech Gather do.
+   */
+  speech?: CallSpeech;
+  /** Streamed calls only: answers the callee's open questions from the dialog's facts (Sarvam's chat model). */
+  answer?: CallAnswerer;
+  /** Streamed calls only: the whole call, both sides mixed, as a WAV file once it ends. */
+  onRecording?: (callId: string, wav: Buffer) => void;
+  /** When non-empty, the only numbers a call may go to; any other is refused before dialling. */
+  allowedNumbers?: readonly string[];
   /** Injected in tests; the global fetch otherwise. */
   fetch?: typeof fetch;
   timeoutMs?: number;
@@ -33,7 +47,16 @@ export type VobizTelephony = TelephonyPort & {
   verifySignature(url: string, header: (name: string) => string | undefined): boolean;
   /** The public URL of one callback, as Vobiz is told to call it and as it signs it. */
   callbackUrl(callId: string, kind: VobizCallback): string;
+  /**
+   * Opens the audio stream of a streamed call, once, for the socket Vobiz
+   * connected with the call's own token. Returns what to do with each
+   * message and with the close, or null for an unknown call or a wrong token.
+   */
+  openStream(callId: string, token: string, socket: StreamSocket): { receive(data: string): void; close(): void } | null;
 };
+
+/** The path Vobiz opens a streamed call's WebSocket on: /api/webhooks/vobiz/:callId/stream?token=… */
+export const VOBIZ_STREAM_PATH = /^\/api\/webhooks\/vobiz\/([^/]+)\/stream$/;
 
 export class VobizError extends Error {
   override name = "VobizError";
@@ -45,7 +68,18 @@ export class VobizError extends Error {
   }
 }
 
-type Placed = { script: string; gather?: CallRequest["gather"]; dialog?: CallRequest["dialog"]; requestUuid?: string; callUuid?: string };
+type Placed = {
+  script: string;
+  gather?: CallRequest["gather"];
+  dialog?: CallRequest["dialog"];
+  requestUuid?: string;
+  callUuid?: string;
+  /** A streamed call's secret: the WebSocket must present it. */
+  streamToken?: string;
+  streamOpened?: boolean;
+  /** The opening, synthesized while the phone rings. */
+  openingAudio?: Promise<Buffer>;
+};
 
 const xmlReply = (text: string) => `<?xml version="1.0" encoding="UTF-8"?><Response><Speak>${xml(text)}</Speak><Hangup/></Response>`;
 
@@ -92,6 +126,14 @@ function listen(say: string, digitsUrl: string): string {
   return `<Gather action="${xml(digitsUrl)}" method="POST" inputType="dtmf speech" numDigits="1" executionTimeout="15" speechEndTimeout="auto" language="en-IN"><Speak>${xml(say)}</Speak></Gather><Speak>I'll leave it there. Goodbye.</Speak><Hangup/>`;
 }
 
+/** What a streamed call says first: the script, then the question. */
+const openingOf = (script: string, gather: CallRequest["gather"] | undefined) => `${script} ${gather?.prompt ?? ""}`.trim();
+
+/** A streamed call's XML: the audio goes both ways over the WebSocket until the call ends. */
+export function streamXml(wsUrl: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-l16;rate=16000">${xml(wsUrl)}</Stream></Response>`;
+}
+
 /** A conversational call's XML: the opening script then the first question, or one reply; the last reply hangs up. */
 export function conversationXml(parts: { script?: string; say: string; end?: boolean }, digitsUrl: string): string {
   const open = parts.script ? `<Speak>${xml(parts.script)}</Speak>` : "";
@@ -112,8 +154,9 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
   const base = options.publicBaseUrl.replace(/\/+$/, "");
   const api = `${(options.apiBase ?? "https://api.vobiz.ai").replace(/\/+$/, "")}/api/v1/Account/${encodeURIComponent(options.authId)}`;
   const from = e164(options.from);
+  const allowed = new Set((options.allowedNumbers ?? []).map(e164));
 
-  async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  async function request<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
     const doFetch = options.fetch ?? fetch;
     let res: Response;
     try {
@@ -146,6 +189,7 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
   }
 
   const callbackUrl = (callId: string, kind: VobizCallback) => `${base}/api/webhooks/vobiz/${encodeURIComponent(callId)}/${kind}`;
+  const streamUrl = (callId: string, token: string) => `${base.replace(/^http/, "ws")}/api/webhooks/vobiz/${encodeURIComponent(callId)}/stream?token=${token}`;
 
   function sign(key: string, message: string): Buffer {
     return createHmac("sha256", key).update(message).digest();
@@ -158,8 +202,16 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
 
     async call({ to, script, purpose, gather, metadata, dialog }) {
       const number = e164(to);
+      if (allowed.size > 0 && !allowed.has(number)) throw new VobizError(0, `${maskNumber(number)} is not on VOBIZ_ALLOWED_NUMBERS, so it was not called`);
       const callId = `CALL-${randomUUID()}`;
-      placed.set(callId, { script, ...(gather ? { gather } : {}), ...(dialog ? { dialog } : {}) });
+      const streamed = Boolean(dialog && options.speech);
+      placed.set(callId, { script, ...(gather ? { gather } : {}), ...(dialog ? { dialog } : {}), ...(streamed ? { streamToken: randomBytes(24).toString("base64url") } : {}) });
+      if (streamed) {
+        // Synthesize the opening while the phone rings, so it plays the moment the call is answered.
+        const audio = options.speech!.say(openingOf(script, gather));
+        audio.catch(() => {}); // a failure here is retried when the stream opens
+        placed.get(callId)!.openingAudio = audio;
+      }
       book.open(callId, number, purpose, metadata);
       try {
         const created = await request<{ request_uuid?: string; message?: string }>("POST", "/Call/", {
@@ -171,7 +223,9 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
           ring_method: "POST",
           hangup_url: callbackUrl(callId, "hangup"),
           hangup_method: "POST",
-          hangup_on_ring: options.ringTimeoutSec ?? 30,
+          // ring_timeout stops an unanswered call ringing. (hangup_on_ring would hang up that long after ringing
+          // starts, answered or not, which cut every call short.) time_limit caps the answered call.
+          ring_timeout: options.ringTimeoutSec ?? 30,
           time_limit: options.timeLimitSec ?? 300,
         });
         if (created?.request_uuid) placed.get(callId)!.requestUuid = created.request_uuid;
@@ -220,6 +274,7 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
           return null;
         case "answer":
           book.update(callId, { state: "answered" });
+          if (info.streamToken) return streamXml(streamUrl(callId, info.streamToken));
           if (info.dialog) {
             book.line(callId, "agent", `${info.script} ${info.gather?.prompt ?? ""}`);
             return conversationXml({ script: info.script, say: info.gather?.prompt ?? "Are you there?" }, callbackUrl(callId, "digits"));
@@ -251,6 +306,33 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
           return null;
         }
       }
+    },
+
+    openStream(callId, token, socket) {
+      const info = placed.get(callId);
+      const expected = info?.streamToken;
+      if (!info || !expected || info.streamOpened || !options.speech || !info.dialog) return null;
+      const given = Buffer.from(token);
+      if (given.length !== expected.length || !timingSafeEqual(given, Buffer.from(expected))) return null;
+      info.streamOpened = true;
+      const dialog = info.dialog;
+      return streamConversation({
+        socket,
+        speech: options.speech,
+        opening: openingOf(info.script, info.gather),
+        ...(info.openingAudio ? { openingAudio: info.openingAudio } : {}),
+        respond: (utterance) => dialog.respond(utterance),
+        ...(options.answer && dialog.facts ? { answer: options.answer, facts: () => dialog.facts!() } : {}),
+        onLine: (speaker, text) => book.line(callId, speaker, text),
+        // The same signal as pressing 1: the engine sees the digit and marks the page acknowledged.
+        onAcknowledge: () => book.update(callId, { digits: `${book.get(callId)?.digits ?? ""}1` }),
+        hangup: async () => {
+          if (info.callUuid) await request("DELETE", `/Call/${encodeURIComponent(info.callUuid)}/`);
+          else socket.close();
+        },
+        onError: (error) => console.error(`[vobiz] ${callId}: ${error instanceof Error ? error.message : String(error)}`),
+        ...(options.onRecording ? { onRecording: (pcm: Buffer) => options.onRecording!(callId, wavOf(pcm)) } : {}),
+      });
     },
 
     verifySignature(url, header) {

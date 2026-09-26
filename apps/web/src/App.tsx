@@ -1,7 +1,7 @@
 import type { WiringReport } from "@crisiscrew/contracts";
 import { CircleAlert, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, type DirectoryEntry, type PolicyView, type ScenarioSummary } from "./api";
+import { api, type DirectoryEntry, type Health, type PolicyView, type ScenarioSummary } from "./api";
 import { AppHeader, SPEEDS } from "./components/AppHeader";
 import { Sidebar } from "./components/Sidebar";
 import { STATUS_LABELS } from "./format";
@@ -23,6 +23,7 @@ export function App() {
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [theme, setTheme] = useState<Theme>(storedTheme);
   const [wiring, setWiring] = useState<WiringReport | null>(null);
+  const [demo, setDemo] = useState<Health["demo"]>(undefined);
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [policy, setPolicy] = useState<PolicyView | null>(null);
   const [scenarioId, setScenarioId] = useState("checkout-v4.21.7");
@@ -49,6 +50,7 @@ export function App() {
 
   useEffect(() => {
     api.wiring().then(setWiring, () => undefined);
+    api.health().then((h) => setDemo(h.demo), () => undefined);
     api.scenarios().then(setScenarios, () => undefined);
     api.policy().then(setPolicy, () => undefined);
   }, []);
@@ -75,12 +77,12 @@ export function App() {
 
   const customerNames = directory.map((c) => c.name);
 
-  const run = async (action: () => Promise<unknown>) => {
+  const run = async (action: () => Promise<unknown>, to: Route = "incident") => {
     setBusy(true);
     setError(null);
     try {
       await action();
-      if (route !== "incident") window.location.hash = routeHref("incident");
+      if (route !== to) window.location.hash = routeHref(to);
       else window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -120,6 +122,10 @@ export function App() {
           onSpeed={setSpeed}
           onRun={() => run(() => api.replay(scenarioId, speed))}
           onLive={() => run(() => api.live())}
+          demo={demo}
+          onFileTickets={() => run(() => api.demoTickets(), "tickets")}
+          onFireAlert={() => run(() => api.demoAlert())}
+          onCallOnCall={(id) => run(() => api.pageNow(id))}
         />
         <main id="content">
           {route === "incident" && <IncidentPage state={state} scenario={scenario} customerNames={customerNames} />}

@@ -289,7 +289,7 @@ export function vobizApi(store: Store, phone: Phone): Hono {
       answerUrl: body.answer_url,
       ringUrl: str(body.ring_url),
       hangupUrl: str(body.hangup_url),
-      ringTimeoutSec: typeof body.hangup_on_ring === "number" ? body.hangup_on_ring : 30,
+      ringTimeoutSec: typeof body.ring_timeout === "number" ? body.ring_timeout : typeof body.hangup_on_ring === "number" ? body.hangup_on_ring : 30,
     });
     return c.json({ api_id: randomUUID(), message: "call fired", request_uuid: call.requestUuid }, 201);
   });

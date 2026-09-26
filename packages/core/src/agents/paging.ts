@@ -71,10 +71,22 @@ export async function onPageCall(kit: AgentKit, call: CallView): Promise<void> {
   patchAttempt(kit, incidentId, attempt, { state, ...(call.reason ? { reason: call.reason } : {}) });
   await noteEngineering(kit, incidentId, pageNote({ ...entry, state, ...(call.reason ? { reason: call.reason } : {}) }));
 
+  // An operator's call is one call: whoever asked for it decides what happens next.
+  if (call.metadata?.manual === "true") return;
   await kit.sleep(kit.policy.oncall.ackTimeoutMin * 60_000);
   const paging = kit.state().incidents[incidentId]?.paging;
   if (!paging || paging.status !== "paging" || paging.attempts.length !== attempt) return;
   await page(kit, incidentId, attempt + 1);
+}
+
+/** An operator asks for a call to the primary on-call engineer now, whatever the importance; it briefs them on the incident. */
+export async function pageByOperator(kit: AgentKit, incidentId: string, by: string): Promise<{ ok: boolean; reason?: string; callId?: string }> {
+  const made = kit.state().incidents[incidentId]?.paging?.attempts.length ?? 0;
+  kit.setAgent("commander", "working", `${by} asked for a call to on-call about ${incidentId}`);
+  const r = await kit.gate.call("commander", "page_on_call", { incidentId, attempt: made + 1, manual: true });
+  if (!r.ok) return { ok: false, ...(r.reason ? { reason: r.reason } : {}) };
+  const result = r.result as { paged?: false; reason?: string; callId?: string };
+  return result.paged === false ? { ok: false, ...(result.reason ? { reason: result.reason } : {}) } : { ok: true, ...(result.callId ? { callId: result.callId } : {}) };
 }
 
 /** An operator acknowledges the page, in CrisisCrew or through Freshservice. Paging stops. */

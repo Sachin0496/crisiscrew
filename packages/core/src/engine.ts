@@ -23,7 +23,7 @@ import {
 } from "@crisiscrew/contracts";
 import { handleLateTicket, onAlertLinked, runAlertIncident, runIncident, setImportanceByHuman, settleDecision } from "./agents/commander";
 import { onCustomerCall } from "./agents/calls";
-import { acknowledgeByOperator, onPageCall } from "./agents/paging";
+import { acknowledgeByOperator, onPageCall, pageByOperator } from "./agents/paging";
 import { onCodingEvent } from "./agents/fixer";
 import type { AgentKit } from "./agents/kit";
 import type { EventBus } from "./bus";
@@ -240,6 +240,14 @@ export class CrisisEngine {
     this.track(run);
     await run;
     return importance;
+  }
+
+  /** An operator asks for a call to the primary on-call engineer now; the call briefs them on the incident. */
+  async pageNow(incidentId: string, by: string): Promise<{ ok: boolean; reason?: string; callId?: string }> {
+    if (!this.view.incidents[incidentId]) throw new Error(`no incident ${incidentId}`);
+    const run = pageByOperator(this.kit, incidentId, by);
+    this.track(run);
+    return run;
   }
 
   /** An operator acknowledges an incident's page, here or in Freshservice; no one else is called. */

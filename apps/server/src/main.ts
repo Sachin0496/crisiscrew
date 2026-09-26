@@ -16,6 +16,10 @@ import {
   LayaClassifier,
   LocalEmbedder,
   restWriter,
+  sarvamAnswerer,
+  sarvamSpeech,
+  simulatedLaya,
+  VOBIZ_STREAM_PATH,
   vobizTelephony,
   githubCodeHost,
   gitWorkspace,
@@ -26,8 +30,10 @@ import {
 } from "@crisiscrew/adapters";
 import { MOCK } from "@crisiscrew/contracts";
 import { heuristicGuard, type Embedder, type PromptGuard, type TicketClassifier, type TraceSink } from "@crisiscrew/core";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import type { Server } from "node:http";
+import { WebSocketServer } from "ws";
+import { isAbsolute, join, relative } from "node:path";
 import { ConfigError, loadConfig, wiringReport, type Config } from "./config";
 import { createApp } from "./http/app";
 import { DATA_DIR, EMBEDDING_CACHE_DIR, REPO_ROOT } from "./paths";
@@ -60,7 +66,7 @@ function embedder(): Embedder {
 function liveAdapters(): LiveAdapters {
   const live: LiveAdapters = {};
   if (config.freshdesk) {
-    const { domain, apiKey, actions } = config.freshdesk;
+    const { domain, apiKey, actions, labels } = config.freshdesk;
     const client = new FreshdeskClient({ domain, apiKey });
     if (actions === "mcp") {
       const writer = freshdeskMcpWriter({ domain, apiKey });
@@ -69,9 +75,9 @@ function liveAdapters(): LiveAdapters {
         () => console.log(`[crisiscrew] connected to Freshdesk's MCP server at https://${domain}/mcp`),
         (error) => console.error(`[crisiscrew] Freshdesk MCP server: ${error instanceof Error ? error.message : String(error)}`),
       );
-      live.freshdesk = { client, writer };
+      live.freshdesk = { client, writer, labels };
     } else {
-      live.freshdesk = { client, writer: restWriter(client) };
+      live.freshdesk = { client, writer: restWriter(client), labels };
     }
   }
   if (config.freshservice) {
@@ -84,12 +90,42 @@ function liveAdapters(): LiveAdapters {
     live.alerts = { client: new FreshserviceAlertsClient({ domain, apiKey }), rules };
   }
   if (config.oncall) {
-    const { domain, apiKey, defaultScheduleId, schedules } = config.oncall;
-    live.oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules });
+    const { domain, apiKey, defaultScheduleId, schedules, names } = config.oncall;
+    const oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules, names });
+    live.oncall = oncall;
+    // Ask once now: Freshservice's on-call API is slow on its first call, and this shows at startup who a page would ring.
+    oncall.whoIsOnCall("").then(
+      (responders) =>
+        console.log(
+          `[crisiscrew] Freshservice on-call now: ${responders.map((r) => `${r.name} (${r.role}${r.phone ? `, ••••${r.phone.replace(/\D/g, "").slice(-4)}` : ", no phone"})`).join(", ") || "nobody on shift"}`,
+        ),
+      (error) => console.error(`[crisiscrew] Freshservice on-call: ${error instanceof Error ? error.message : String(error)}`),
+    );
   }
   if (config.vobiz) {
-    const { authId, authToken, from, ringTimeoutSec, timeLimitSec, apiBase, callbackBaseUrl } = config.vobiz;
-    live.telephony = vobizTelephony({ authId, authToken, from, publicBaseUrl: callbackBaseUrl, apiBase, ringTimeoutSec, timeLimitSec });
+    const { authId, authToken, from, ringTimeoutSec, timeLimitSec, apiBase, callbackBaseUrl, sarvam, allowedNumbers, recordCalls } = config.vobiz;
+    const callsDir = join(DATA_DIR, "calls");
+    live.telephony = vobizTelephony({
+      authId,
+      authToken,
+      from,
+      publicBaseUrl: callbackBaseUrl,
+      apiBase,
+      ringTimeoutSec,
+      timeLimitSec,
+      allowedNumbers,
+      ...(sarvam ? { speech: sarvamSpeech({ apiKey: sarvam.apiKey, speaker: sarvam.speaker, pace: sarvam.pace }), answer: sarvamAnswerer({ apiKey: sarvam.apiKey }) } : {}),
+      ...(recordCalls
+        ? {
+            onRecording: (callId: string, wav: Buffer) => {
+              mkdirSync(callsDir, { recursive: true });
+              const file = join(callsDir, `${callId}.wav`);
+              writeFileSync(file, wav);
+              console.log(`[crisiscrew] call recording: ${relative(REPO_ROOT, file)} (${((wav.length - 44) / 32_000).toFixed(1)} s)`);
+            },
+          }
+        : {}),
+    });
   }
   if (config.autofix) {
     const a = config.autofix;
@@ -120,6 +156,7 @@ function promptGuard(): PromptGuard {
 }
 
 function classifier(): TicketClassifier | null {
+  if (config.switches.classifier === "laya-sim") return simulatedLaya();
   if (!config.laya) return null;
   const { baseUrl, apiKey, model } = config.laya;
   const options = { baseUrl, ...(apiKey ? { apiKey } : {}), ...(model ? { model } : {}), fetch: egress };
@@ -187,7 +224,7 @@ const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
       .join("\n") || "               Freshworks adapters are off (sandbox); switch them on in .env.",
     `  Tokens       admin ${config.adminToken ? "set" : "not set (open, local demo)"}, approver ${config.approverToken ? "set" : "not set (open, local demo)"}`,
     `  Workflows    LangGraph; traces at ${base}/#/traces${config.langsmith ? ` and in LangSmith project "${config.langsmith.project}"` : ""}`,
-    `  Guardrails   prompt guard: ${config.lakera ? "Lakera + built-in rules" : "built-in rules"}; classifier: ${config.laya ? `Laya at ${config.laya.baseUrl}` : "built-in"}${config.egress.length ? `; egress allow-list: ${config.egress.join(", ")}` : ""}`,
+    `  Guardrails   prompt guard: ${config.lakera ? "Lakera + built-in rules" : "built-in rules"}; classifier: ${config.laya ? `Laya at ${config.laya.baseUrl}` : config.switches.classifier === "laya-sim" ? "Laya (simulated)" : "built-in"}${config.egress.length ? `; egress allow-list: ${config.egress.join(", ")}` : ""}`,
   ];
   if (config.freshdesk?.ingest === "webhook") lines.push(`  Freshdesk    webhook: POST ${base}/api/webhooks/freshdesk with header X-CrisisCrew-Secret`);
   if (config.vobiz) lines.push(`  Vobiz        callbacks: ${config.vobiz.callbackBaseUrl}/api/webhooks/vobiz/:callId/:kind (signed); test call: POST ${base}/api/telephony/test-call`);
@@ -198,6 +235,27 @@ const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
   }
   console.log(lines.join("\n"));
 });
+
+// A streamed call's audio: Vobiz opens a WebSocket to the URL its answer XML named, with the call's own token.
+if (config.vobiz?.sarvam) {
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
+  (server as Server).on("upgrade", (req, socket, head) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const callId = VOBIZ_STREAM_PATH.exec(url.pathname)?.[1];
+    const vobiz = runtime.vobiz;
+    if (!callId || !vobiz) return socket.destroy();
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      const conversation = vobiz.openStream(decodeURIComponent(callId), url.searchParams.get("token") ?? "", {
+        send: (data) => ws.readyState === ws.OPEN && ws.send(data),
+        close: () => ws.close(),
+      });
+      if (!conversation) return ws.close(1008, "unknown call or wrong token");
+      ws.on("message", (data) => conversation.receive(data.toString()));
+      ws.on("close", () => conversation.close());
+      ws.on("error", (error) => console.error("[crisiscrew] Vobiz stream:", error.message));
+    });
+  });
+}
 
 // The poll fallback for Freshdesk ingest: one poll at a time, errors reported, never fatal.
 if (config.freshdesk?.ingest === "poll") {

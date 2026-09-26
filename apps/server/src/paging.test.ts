@@ -42,6 +42,21 @@ async function run(scenario: Scenario, policy: Policy = loadPolicy()) {
   return { engine, ports, state, incident, pages };
 }
 
+describe("an operator's call to on-call", () => {
+  it("calls the primary again after an acknowledged page, briefs them, and doesn't escalate", async () => {
+    const { engine, ports } = await run(hero);
+    const result = await engine.pageNow(engine.snapshot().incidentOrder[0]!, "Demo operator");
+    await engine.whenIdle();
+    expect(result).toMatchObject({ ok: true, callId: expect.any(String) });
+    const incident = engine.snapshot().incidents[engine.snapshot().incidentOrder[0]!]!;
+    expect(incident.paging?.attempts.map((a) => [a.attempt, a.responder])).toEqual([[1, "Neha Kapoor"], [2, "Neha Kapoor"]]);
+    expect(ports.record.calls.at(-1)?.script).toMatch(/^Hi Neha, CrisisCrew here, with a P1 incident/);
+    const pages = engine.audit.entries().filter((e) => e.tool === "page_on_call");
+    expect(pages.map((p) => p.decision)).toEqual(["allowed", "allowed"]);
+    expect(pages.at(-1)?.argsSummary).toContain('"manual":true');
+  });
+});
+
 describe("paging on-call", () => {
   it("pages the hero's primary on-call engineer exactly once, after the incident opens, and records the acknowledgement", async () => {
     const { incident, pages, ports, state } = await run(hero);
@@ -57,7 +72,7 @@ describe("paging on-call", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ state: "completed", digits: "1", metadata: { incidentId: incident!.id, attempt: "1" } });
     expect(ports.record.calls[0]?.script).toBe(
-      "Hi Neha. This is CrisisCrew with a P1 incident, INC 2026 001. Checkout and payments is failing. 23 customers are affected. The likely cause is checkout-service v4.21.7, at 97 percent confidence.",
+      "Hi Neha, CrisisCrew here, with a P1 incident, INC 2026 001. Checkout and payments is failing for 23 customers. Likely cause: checkout-service v4.21.7, 97 percent.",
     );
     // The page came before the ticket was filed, so its outcome is in the ticket's description.
     expect(ports.record.incidents[0]?.description).toContain("On-call: acknowledged by Neha Kapoor.\n  - On-call page 1: Neha Kapoor (primary), acknowledged by pressing 1.");

@@ -1,6 +1,9 @@
 import {
   createSandboxPorts,
   freshdeskTicketActions,
+  FRESHDESK_SOURCES,
+  FreshworksError,
+  freshdeskLabels,
   freshdeskToTicketInput,
   type FreshdeskClient,
   type FreshdeskTicket,
@@ -36,7 +39,7 @@ import { scenarioAlerts, scenarioTickets } from "./scenarios";
 /** Live Freshworks adapters, layered over the sandbox world when their switches are on. */
 export type LiveAdapters = {
   /** TICKETS=freshdesk: reads Freshdesk tickets, and writes notes and replies for them. */
-  freshdesk?: { client: FreshdeskClient; writer: FreshdeskWriter };
+  freshdesk?: { client: FreshdeskClient; writer: FreshdeskWriter; /** Set each classified ticket's type and tags in Freshdesk. */ labels?: boolean };
   /** INCIDENTS=freshservice: files engineering incidents in Freshservice. */
   incidents?: IncidentsPort;
   /** TELEPHONY=vobiz: places real phone calls. */
@@ -81,6 +84,22 @@ export type DirectoryEntry = Pick<Customer, "ref" | "name" | "email" | "tier">;
  */
 export const LIVE_WORLD_LEAD_MS = 2 * 60_000;
 
+/**
+ * Retries a Freshworks call that hit the plan's rate limit (429), after the
+ * wait Freshworks asks for, up to three times. For the demo ticket filer
+ * only: it runs in the background, so waiting is fine there.
+ */
+async function withRateLimitRetry<T>(call: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await call();
+    } catch (error) {
+      if (!(error instanceof FreshworksError) || error.status !== 429 || attempt >= 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, ((error.retryAfterSec ?? 10) + 1) * 1000));
+    }
+  }
+}
+
 export type FreshdeskIngest =
   | { status: "ingested"; ticket: Ticket; matched: boolean }
   | { status: "duplicate" | "too_old" | "empty"; freshdeskId: number };
@@ -103,6 +122,8 @@ export class Runtime {
   private seenExternal = new Set<string>();
   private lastPoll: Date | null = null;
   private lastAlertPoll: Date | null = null;
+  /** The demo tickets being filed in Freshdesk, while a run is under way. */
+  private filing: { filed: number; total: number; failed: number } | null = null;
 
   constructor(private readonly options: RuntimeOptions) {}
 
@@ -160,6 +181,78 @@ export class Runtime {
   }
 
   /**
+   * A ticket Freshdesk's automation rule pushed with its fields in the body:
+   * ingested as sent, without reading it back, which saves one API call per
+   * ticket against Freshdesk's rate limit. The webhook secret vouches for it.
+   */
+  async ingestFreshdeskPushed(pushed: { ticket_id: number; subject?: string; description?: string; requester_email?: string; requester_name?: string; source?: string }): Promise<FreshdeskIngest> {
+    if (!this.options.live?.freshdesk) throw new Error("Freshdesk ingest is off: set TICKETS=freshdesk");
+    const key = `freshdesk:${pushed.ticket_id}`;
+    if (this.seenExternal.has(key)) return { status: "duplicate", freshdeskId: pushed.ticket_id };
+    this.seenExternal.add(key);
+    const source = Number(pushed.source) || FRESHDESK_SOURCES[(pushed.source ?? "").toLowerCase() as keyof typeof FRESHDESK_SOURCES] || (/chat/i.test(pushed.source ?? "") ? 7 : 2);
+    return this.ingestFreshdeskTicket({
+      id: pushed.ticket_id,
+      subject: pushed.subject ?? null,
+      description: pushed.description ?? null,
+      source,
+      created_at: new Date().toISOString(),
+      requester: { id: 0, name: pushed.requester_name ?? null, email: pushed.requester_email ?? null },
+    });
+  }
+
+  /**
+   * Files the live world's tickets in the real Freshdesk, one every gapMs, as
+   * its customers would, and ingests each from Freshdesk's answer (no read
+   * back, which keeps within Freshdesk's API rate limit). The poll sees them
+   * too, and skips them as already seen. Returns at once; the tickets arrive
+   * over the next count × gapMs.
+   */
+  fileDemoTickets(options: { count: number; gapMs: number; ingest: "webhook" | "poll" }): { total: number } {
+    const freshdesk = this.options.live?.freshdesk;
+    if (!freshdesk) throw new Error("Freshdesk is off: set TICKETS=freshdesk");
+    if (this.filing) throw new Error(`already filing: ${this.filing.filed} of ${this.filing.total} tickets are in Freshdesk`);
+    const world = this.scenario(this.options.liveWorld);
+    const customers = new Map(world.world.customers.map((c) => [c.ref, c]));
+    const tickets = world.tickets.slice(0, options.count);
+    const run = { filed: 0, total: tickets.length, failed: 0 };
+    this.filing = run;
+    void (async () => {
+      for (const [i, t] of tickets.entries()) {
+        if (i > 0) await new Promise((resolve) => setTimeout(resolve, options.gapMs));
+        const customer = customers.get(t.customerRef);
+        const name = customer?.name ?? `Shopper ${t.customerRef}`;
+        // Every requester gets a reserved example.com address, so Freshdesk's notifications go nowhere.
+        const email = customer?.email ?? `${name.toLowerCase().replace(/[^a-z]+/g, ".").replace(/^\.|\.$/g, "")}@example.com`;
+        const subject = t.subject ?? (t.body.length <= 80 ? t.body : `${t.body.slice(0, 77)}…`);
+        try {
+          const created = await withRateLimitRetry(() => freshdesk.client.createTicket({ email, name, subject, description: t.body, source: FRESHDESK_SOURCES[t.channel] }));
+          run.filed += 1;
+          // With webhook ingest, Freshdesk's automation rule pushes the ticket to CrisisCrew: Freshdesk is the trigger.
+          if (options.ingest === "webhook") continue;
+          this.seenExternal.add(`freshdesk:${created.id}`);
+          await this.ingestFreshdeskTicket({
+            ...created,
+            subject,
+            description_text: t.body,
+            requester: { id: created.requester_id ?? 0, name, email },
+          });
+        } catch (error) {
+          run.failed += 1;
+          this.options.onError?.(new Error(`demo ticket ${i + 1} of ${tickets.length}: ${error instanceof Error ? error.message : String(error)}`));
+        }
+      }
+      this.filing = null;
+    })();
+    return { total: tickets.length };
+  }
+
+  /** The demo tickets being filed, or null when no run is under way. */
+  get demoFiling(): { filed: number; total: number; failed: number } | null {
+    return this.filing ? { ...this.filing } : null;
+  }
+
+  /**
    * The poll fallback: ingests Freshdesk tickets created since the session
    * started that haven't been seen yet. Returns how many were ingested.
    */
@@ -192,6 +285,10 @@ export class Runtime {
   /** Places a call through the current session's telephony port (Vobiz or the sandbox). */
   placeCall(request: CallRequest): Promise<{ callId: string }> {
     return this.currentPorts().telephony.call(request);
+  }
+
+  pageNow(incidentId: string, by: string): Promise<{ ok: boolean; reason?: string; callId?: string }> {
+    return this.current().pageNow(incidentId, by);
   }
 
   acknowledgePage(incidentId: string, by: string): Promise<void> {
@@ -273,6 +370,10 @@ export class Runtime {
     const input = freshdeskToTicketInput(t, customer);
     if (!input) return { status: "empty", freshdeskId: t.id };
     const ticket = await this.current().ingest(input, "freshdesk");
+    const freshdesk = this.options.live?.freshdesk;
+    const signal = this.current().snapshot().tickets[ticket.id]?.signal;
+    // The classification, recorded on the Freshdesk ticket where agents see it. A failure here never stops the ingest.
+    if (freshdesk?.labels && signal) void freshdesk.client.label(t.id, freshdeskLabels(signal)).catch((error) => this.options.onError?.(error));
     return { status: "ingested", ticket, matched: customer !== null };
   }
 
