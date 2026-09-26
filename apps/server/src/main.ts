@@ -29,10 +29,10 @@ import {
 } from "@crisiscrew/adapters";
 import { MOCK } from "@crisiscrew/contracts";
 import { heuristicGuard, type Embedder, type PromptGuard, type TicketClassifier, type TraceSink } from "@crisiscrew/core";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { WebSocketServer } from "ws";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { ConfigError, loadConfig, wiringReport, type Config } from "./config";
 import { createApp } from "./http/app";
 import { DATA_DIR, EMBEDDING_CACHE_DIR, REPO_ROOT } from "./paths";
@@ -102,7 +102,8 @@ function liveAdapters(): LiveAdapters {
     );
   }
   if (config.vobiz) {
-    const { authId, authToken, from, ringTimeoutSec, timeLimitSec, apiBase, callbackBaseUrl, sarvam, allowedNumbers } = config.vobiz;
+    const { authId, authToken, from, ringTimeoutSec, timeLimitSec, apiBase, callbackBaseUrl, sarvam, allowedNumbers, recordCalls } = config.vobiz;
+    const callsDir = join(DATA_DIR, "calls");
     live.telephony = vobizTelephony({
       authId,
       authToken,
@@ -112,7 +113,17 @@ function liveAdapters(): LiveAdapters {
       ringTimeoutSec,
       timeLimitSec,
       allowedNumbers,
-      ...(sarvam ? { speech: sarvamSpeech({ apiKey: sarvam.apiKey, speaker: sarvam.speaker }) } : {}),
+      ...(sarvam ? { speech: sarvamSpeech({ apiKey: sarvam.apiKey, speaker: sarvam.speaker, pace: sarvam.pace }) } : {}),
+      ...(recordCalls
+        ? {
+            onRecording: (callId: string, wav: Buffer) => {
+              mkdirSync(callsDir, { recursive: true });
+              const file = join(callsDir, `${callId}.wav`);
+              writeFileSync(file, wav);
+              console.log(`[crisiscrew] call recording: ${relative(REPO_ROOT, file)} (${((wav.length - 44) / 32_000).toFixed(1)} s)`);
+            },
+          }
+        : {}),
     });
   }
   if (config.autofix) {

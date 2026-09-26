@@ -650,3 +650,10 @@ button.side-row:hover { background: var(--surface-hover); color: var(--text); }
 .col .composer-row { flex-wrap: wrap; }
 .col .composer-row .input.message { flex: 1 1 100%; }
 .col .composer-row .input.name { flex: 1; width: auto; }
+
+/* The on-call page's conversation, as it happens */
+.call-transcript { border-top: 1px solid var(--border); padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; }
+.call-transcript p { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.45; max-width: 92%; }
+.call-transcript p.agent { background: var(--surface-2, rgba(37, 99, 235, 0.08)); align-self: flex-start; }
+.call-transcript p.callee { background: rgba(22, 163, 74, 0.1); align-self: flex-end; }
+.call-transcript .speaker { font-weight: 600; }

@@ -1,4 +1,4 @@
-import type { IncidentView, PageAttemptState, PagingView } from "@crisiscrew/contracts";
+import type { CallView, IncidentView, PageAttemptState, PagingView } from "@crisiscrew/contracts";
 import { PhoneCall } from "lucide-react";
 import { clock, type Tone } from "../../format";
 import { Badge, Card, Empty } from "../ui";
@@ -20,7 +20,7 @@ const ATTEMPT: Record<PageAttemptState, { label: string; tone: Tone }> = {
 };
 
 /** Paging the on-call engineer: each call, in escalation order, and who took it. Only shown once importance calls for a page. */
-export function Paging({ incident }: { incident: IncidentView }) {
+export function Paging({ incident, calls = {} }: { incident: IncidentView; calls?: Record<string, CallView> }) {
   const paging = incident.paging;
   if (!paging) {
     if (!incident.importance?.page) return null;
@@ -65,6 +65,23 @@ export function Paging({ incident }: { incident: IncidentView }) {
           </tbody>
         </table>
       )}
+      {paging.attempts.map((a) => {
+        const lines = a.callId ? (calls[a.callId]?.transcript ?? []) : [];
+        if (lines.length === 0) return null;
+        const who = a.responder.split(/\s+/)[0];
+        return (
+          <div key={`t${a.attempt}`} className="call-transcript" aria-label={`Call ${a.attempt} transcript`}>
+            {lines.map((line, i) => (
+              <p key={i} className={line.speaker === "agent" ? "agent" : "callee"}>
+                <span className="speaker">{line.speaker === "agent" ? "CrisisCrew" : who}</span>
+                <span className="mono muted"> {clock(line.at)}</span>
+                <br />
+                {line.text}
+              </p>
+            ))}
+          </div>
+        );
+      })}
     </Card>
   );
 }

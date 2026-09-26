@@ -178,7 +178,9 @@ export type VobizConfig = {
   /** Where Vobiz calls back: PUBLIC_BASE_URL, or this server on localhost for the mock. */
   callbackBaseUrl: string;
   /** VOBIZ_VOICE=sarvam: conversational calls stream their audio and Sarvam hears and speaks them. Null: Vobiz's own voice. */
-  sarvam: { apiKey: string; speaker: string } | null;
+  sarvam: { apiKey: string; speaker: string; pace: number } | null;
+  /** VOBIZ_RECORD_CALLS=on: each streamed call is saved, both sides mixed, as data/calls/<callId>.wav. */
+  recordCalls: boolean;
   /** VOBIZ_ALLOWED_NUMBERS: when set, the only numbers CrisisCrew may call. */
   allowedNumbers: string[];
 };
@@ -357,6 +359,7 @@ function vobizConfig(env: Env, mock: MockPortsConfig | null): VobizConfig {
       apiBase: `http://localhost:${mock.vobiz}`,
       callbackBaseUrl: `http://localhost:${int(env, "PORT", 8787)}`,
       sarvam: null,
+      recordCalls: false,
       allowedNumbers: [],
     };
   }
@@ -382,7 +385,8 @@ function vobizConfig(env: Env, mock: MockPortsConfig | null): VobizConfig {
     ...timing,
     apiBase: "https://api.vobiz.ai",
     callbackBaseUrl: base.replace(/\/+$/, ""),
-    sarvam: voice === "sarvam" ? { apiKey: text(env, "SARVAM_API_KEY")!, speaker: text(env, "SARVAM_SPEAKER") ?? "priya" } : null,
+    sarvam: voice === "sarvam" ? { apiKey: text(env, "SARVAM_API_KEY")!, speaker: text(env, "SARVAM_SPEAKER") ?? "priya", pace: Math.min(2, Math.max(0.5, Number(text(env, "SARVAM_PACE") ?? "1.1") || 1.1)) } : null,
+    recordCalls: voice === "sarvam" && oneOf(env, "VOBIZ_RECORD_CALLS", ["off", "on"] as const) === "on",
     allowedNumbers,
   };
 }

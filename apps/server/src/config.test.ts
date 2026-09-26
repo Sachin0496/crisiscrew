@@ -70,6 +70,7 @@ describe("loadConfig", () => {
       apiBase: "https://api.vobiz.ai",
       callbackBaseUrl: "https://crisis.example.com",
       sarvam: null,
+      recordCalls: false,
       allowedNumbers: [],
     });
     expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "live", adapter: "vobiz" });
@@ -104,7 +105,8 @@ describe("loadConfig", () => {
       SARVAM_API_KEY: "sk",
       VOBIZ_ALLOWED_NUMBERS: "+91 98450 12345, +919876543210",
     };
-    expect(loadConfig(keys).vobiz).toMatchObject({ sarvam: { apiKey: "sk", speaker: "priya" }, allowedNumbers: ["+91 98450 12345", "+919876543210"] });
+    expect(loadConfig(keys).vobiz).toMatchObject({ sarvam: { apiKey: "sk", speaker: "priya", pace: 1.1 }, recordCalls: false, allowedNumbers: ["+91 98450 12345", "+919876543210"] });
+    expect(loadConfig({ ...keys, VOBIZ_RECORD_CALLS: "on", SARVAM_PACE: "1.3" }).vobiz).toMatchObject({ sarvam: { pace: 1.3 }, recordCalls: true });
     expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")?.detail).toMatch(/Sarvam.*only 2 allowed numbers/);
     expect(() => loadConfig({ ...keys, SARVAM_API_KEY: "" })).toThrow(/VOBIZ_VOICE=sarvam needs SARVAM_API_KEY/);
     expect(() => loadConfig({ ...keys, VOBIZ_VOICE: "elevenlabs" })).toThrow(/VOBIZ_VOICE must be one of vobiz, sarvam/);

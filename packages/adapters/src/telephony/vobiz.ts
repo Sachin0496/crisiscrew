@@ -2,7 +2,7 @@ import type { CallState } from "@crisiscrew/contracts";
 import type { CallRequest, TelephonyPort } from "@crisiscrew/core";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { CallBook, e164, isFinal, maskNumber } from "./calls";
-import type { CallSpeech } from "./sarvam";
+import { wavOf, type CallSpeech } from "./sarvam";
 import { streamConversation, type StreamSocket } from "./stream";
 
 export type VobizOptions = {
@@ -22,6 +22,8 @@ export type VobizOptions = {
    * speaks each turn; otherwise Vobiz's own Speak and speech Gather do.
    */
   speech?: CallSpeech;
+  /** Streamed calls only: the whole call, both sides mixed, as a WAV file once it ends. */
+  onRecording?: (callId: string, wav: Buffer) => void;
   /** When non-empty, the only numbers a call may go to; any other is refused before dialling. */
   allowedNumbers?: readonly string[];
   /** Injected in tests; the global fetch otherwise. */
@@ -324,6 +326,7 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
           else socket.close();
         },
         onError: (error) => console.error(`[vobiz] ${callId}: ${error instanceof Error ? error.message : String(error)}`),
+        ...(options.onRecording ? { onRecording: (pcm: Buffer) => options.onRecording!(callId, wavOf(pcm)) } : {}),
       });
     },
 

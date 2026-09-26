@@ -167,6 +167,31 @@ describe("streamed call conversation", () => {
   });
 });
 
+describe("streamed call recording", () => {
+  it("mixes the callee's audio with each agent line where it played, once, when the stream closes", async () => {
+    const recordings: Buffer[] = [];
+    const convo = streamConversation({
+      socket: { send: () => {}, close: () => {} },
+      speech: fakeSpeech(),
+      opening: "Hello",
+      respond: () => ({ say: "ok" }),
+      onLine: () => {},
+      onAcknowledge: () => {},
+      hangup: async () => {},
+      onRecording: (pcm) => recordings.push(pcm),
+    });
+    convo.receive(JSON.stringify({ event: "start", start: { streamId: "s1" } }));
+    await flush();
+    convo.receive(media(silence(50))); // 1 s of the callee's line
+    convo.close();
+    convo.close();
+    expect(recordings).toHaveLength(1);
+    // The opening (5 frames of quiet tone) starts at 0, inside the second of callee audio.
+    expect(recordings[0]!.length).toBe(FRAME * 50);
+    expect(recordings[0]!.readInt16LE(2)).not.toBe(0);
+  });
+});
+
 describe("Sarvam speech", () => {
   it("round-trips PCM through a WAV header", () => {
     const pcm = tone(3);

@@ -14,6 +14,8 @@ export type SarvamSpeechOptions = {
   apiKey: string;
   /** A bulbul:v3 voice, e.g. priya, rahul, anand. */
   speaker?: string;
+  /** Speaking rate, 0.5 to 2.0; 1 is bulbul's normal pace. */
+  pace?: number;
   /** Injected in tests; the global fetch otherwise. */
   fetch?: typeof fetch;
   timeoutMs?: number;
@@ -98,7 +100,7 @@ export function sarvamSpeech(options: SarvamSpeechOptions): CallSpeech {
       const res = await doFetch(`${api}/text-to-speech`, {
         method: "POST",
         headers: { "api-subscription-key": options.apiKey, "content-type": "application/json" },
-        body: JSON.stringify({ text, target_language_code: "en-IN", model: "bulbul:v3", speaker: options.speaker ?? "priya", speech_sample_rate: SPEECH_RATE }),
+        body: JSON.stringify({ text, target_language_code: "en-IN", model: "bulbul:v3", speaker: options.speaker ?? "priya", speech_sample_rate: SPEECH_RATE, ...(options.pace ? { pace: options.pace } : {}) }),
         signal: timeout(),
       });
       const json = await read<{ audios?: string[] }>(res, "text to speech");

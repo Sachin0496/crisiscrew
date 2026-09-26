@@ -20,6 +20,8 @@ export type StreamConversationOptions = {
   /** Hangs the call up, once the last reply has played. */
   hangup(): Promise<void>;
   onError?(error: unknown): void;
+  /** When set, the whole call (both sides, mixed) is handed over as 16 kHz PCM once the stream closes. */
+  onRecording?(pcm: Buffer): void;
 };
 
 /** A spoken turn needs this many 20 ms frames above the noise to start: 80 ms, or 400 ms to interrupt the agent. */
@@ -82,6 +84,13 @@ export function streamConversation(options: StreamConversationOptions) {
   let spoken: Buffer[] = [];
   let carry = Buffer.alloc(0);
 
+  // The recording: the callee's audio as it arrives (Vobiz streams silence too, so it keeps time), and each
+  // agent line placed where it started playing, cut short where the callee talked over it.
+  const heardAudio: Buffer[] = [];
+  let heardBytes = 0;
+  const agentAudio: { at: number; pcm: Buffer }[] = [];
+  const agentEnd = () => agentAudio.reduce((end, a) => Math.max(end, a.at + a.pcm.length), 0);
+
   const send = (message: object) => {
     try {
       socket.send(JSON.stringify(message));
@@ -91,6 +100,7 @@ export function streamConversation(options: StreamConversationOptions) {
   };
 
   function play(pcm: Buffer, hangUp = false): void {
+    if (options.onRecording) agentAudio.push({ at: Math.max(heardBytes, agentEnd()), pcm });
     for (let i = 0; i < pcm.length; i += CHUNK_BYTES) {
       send({ event: "playAudio", streamId, media: { contentType: "audio/x-l16", sampleRate: SPEECH_RATE, payload: pcm.subarray(i, i + CHUNK_BYTES).toString("base64") } });
     }
@@ -137,6 +147,8 @@ export function streamConversation(options: StreamConversationOptions) {
   function bargeIn(): void {
     if (!speaking) return;
     send({ event: "clearAudio", streamId });
+    const last = agentAudio.at(-1);
+    if (last && last.at + last.pcm.length > heardBytes) last.pcm = last.pcm.subarray(0, Math.max(0, heardBytes - last.at));
     interrupted = lastSaid;
     speaking = false;
     hangUpAfterPlayback = false;
@@ -190,7 +202,12 @@ export function streamConversation(options: StreamConversationOptions) {
           return;
         case "media": {
           if (!msg.media?.payload || ended) return;
-          carry = Buffer.concat([carry, Buffer.from(msg.media.payload, "base64")]);
+          const chunk = Buffer.from(msg.media.payload, "base64");
+          if (options.onRecording) {
+            heardAudio.push(chunk);
+            heardBytes += chunk.length;
+          }
+          carry = Buffer.concat([carry, chunk]);
           while (carry.length >= FRAME_BYTES) {
             frame(carry.subarray(0, FRAME_BYTES));
             carry = carry.subarray(FRAME_BYTES);
@@ -211,7 +228,19 @@ export function streamConversation(options: StreamConversationOptions) {
     },
     /** The socket closed: nothing more to say. */
     close(): void {
+      if (ended && !options.onRecording) return;
       ended = true;
+      if (!options.onRecording || (heardBytes === 0 && agentAudio.length === 0)) return;
+      const mix = Buffer.alloc(Math.max(heardBytes, agentEnd()) & ~1);
+      Buffer.concat(heardAudio).copy(mix);
+      for (const { at, pcm } of agentAudio) {
+        for (let i = 0; i + 1 < pcm.length && at + i + 1 < mix.length; i += 2) {
+          mix.writeInt16LE(Math.max(-32768, Math.min(32767, mix.readInt16LE(at + i) + pcm.readInt16LE(i))), at + i);
+        }
+      }
+      const recorded = options.onRecording;
+      options.onRecording = undefined; // once
+      recorded(mix);
     },
   };
 }

@@ -240,11 +240,12 @@ export function importanceNote(importance: ImportanceAssessment): string {
 export function pageScript(incident: IncidentView, responder?: string): string {
   const confirmed = incident.impact?.customers.filter((c) => c.confidence === "confirmed").length ?? 0;
   const id = incident.id.replace(/-/g, " ");
+  // Short on purpose: a page is heard on a phone, often half awake, and the engineer can ask for more.
+  const area = SURFACE_LABELS[incident.surface].replace("&", "and").toLowerCase();
   return [
-    `${responder ? `Hi ${responder.split(/\s+/)[0]}. ` : ""}This is CrisisCrew with a ${incident.importance?.level ?? ""} incident, ${id}.`,
-    `${SURFACE_LABELS[incident.surface].replace("&", "and")} is failing.`,
-    confirmed > 0 ? `${confirmed} ${confirmed === 1 ? "customer is" : "customers are"} affected.` : "",
-    incident.rootCause ? `The likely cause is ${incident.rootCause.label}, at ${Math.round(incident.rootCause.confidence * 100)} percent confidence.` : "",
+    `${responder ? `Hi ${responder.split(/\s+/)[0]}, ` : ""}CrisisCrew here, with a ${incident.importance?.level ?? ""} incident, ${id}.`,
+    confirmed > 0 ? `${area[0]!.toUpperCase()}${area.slice(1)} is failing for ${confirmed} ${confirmed === 1 ? "customer" : "customers"}.` : `${area[0]!.toUpperCase()}${area.slice(1)} is failing.`,
+    incident.rootCause ? `Likely cause: ${incident.rootCause.label}, ${Math.round(incident.rootCause.confidence * 100)} percent.` : "",
   ]
     .filter(Boolean)
     .join(" ");
