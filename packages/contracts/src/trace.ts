@@ -83,7 +83,7 @@ export type TraceSummary = {
 
 export type TraceDetail = { trace: TraceSummary; spans: Span[] };
 
-/** A workflow's LangGraph structure, read from the compiled graph, for drawing it. */
+/** Observable agent stages and handoffs inside a workflow, for drawing its runtime map. */
 export type WorkflowGraph = {
   name: WorkflowName;
   title: string;

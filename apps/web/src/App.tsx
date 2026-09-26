@@ -80,7 +80,7 @@ export function App() {
     setError(null);
     try {
       await action();
-      if (route !== "incident") window.location.hash = routeHref("incident");
+      if (route !== "incident" && route !== "traces") window.location.hash = routeHref("incident");
       else window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

@@ -118,7 +118,7 @@ export async function reconcile(kit: AgentKit, incidentId: string, options: { as
   const customers = new Map((incident.impact?.customers ?? []).map((c) => [c.ref, c]));
   const todo = incident.actions.filter((a) => a.status === "planned" && (a.kind === "credit" || a.kind === "account_note") && a.level !== null && a.level <= 2);
   if (todo.length > 0) kit.setAgent("recovery", "working", `Carrying out ${todo.length} credits and notes within my authority`);
-  await inBatches(todo, 5, (action) => carryOut(kit, action, customers.get(action.customerRef)));
+  if (todo.length > 0) await kit.tracer.span({ name: "act_within_authority", kind: "node", actor: "recovery" }, () => inBatches(todo, 5, (action) => carryOut(kit, action, customers.get(action.customerRef))));
 
   const after = kit.state().incidents[incidentId]!;
   const outreach = after.actions.filter((a) => OUTREACH_KINDS.includes(a.kind) && a.status === "planned").length;

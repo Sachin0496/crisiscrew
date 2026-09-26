@@ -339,28 +339,33 @@ export class CrisisEngine {
       (verdict) => ({ status: verdict.flagged ? "flagged" : "ok", ...(verdict.flagged ? { reason: verdict.reasons.join(", ") } : {}), output: verdict }),
     );
     if (screened.flagged) this.emit({ type: "guard.flagged", payload: { flag: { at: this.deps.clock.now(), source: "ticket", ref: ticket.id, verdict: screened, excerpt: text.slice(0, 160) } } });
-    let verdict;
-    let fallback: string | undefined;
-    if (this.deps.classifier) {
-      const classifier = this.deps.classifier;
-      const answer = await this.tracer.span(
-        { name: classifier.adapter, kind: "classifier", actor: "pattern", input: { text } },
-        async () => {
-          let timeout: ReturnType<typeof setTimeout> | undefined;
-          try {
-            const deadline = new Promise<never>((_, reject) => {
-              timeout = setTimeout(() => reject(new Error("classifier timed out")), this.deps.policy.classifier.timeoutMs);
-            });
-            return { verdict: await Promise.race([classifier.classify(text), deadline]) };
-          } catch (error) { return { fallback: error instanceof Error ? error.message : String(error) }; }
-          finally { if (timeout) clearTimeout(timeout); }
-        },
-        (answer) => answer.verdict ? { output: answer.verdict } : { status: "warning", reason: answer.fallback },
-      );
-      verdict = answer.verdict;
-      fallback = answer.fallback;
-    }
-    const result = await this.pattern.ingest(ticket, verdict, this.deps.policy.classifier);
+    const fallback = await this.tracer.span({ name: "classify_ticket", kind: "node", actor: "pattern" }, async () => {
+      let verdict;
+      let classifierFallback: string | undefined;
+      if (this.deps.classifier) {
+        const classifier = this.deps.classifier;
+        const answer = await this.tracer.span(
+          { name: classifier.adapter, kind: "classifier", actor: "pattern", input: { text } },
+          async () => {
+            let timeout: ReturnType<typeof setTimeout> | undefined;
+            try {
+              const deadline = new Promise<never>((_, reject) => {
+                timeout = setTimeout(() => reject(new Error("classifier timed out")), this.deps.policy.classifier.timeoutMs);
+              });
+              return { verdict: await Promise.race([classifier.classify(text), deadline]) };
+            } catch (error) { return { fallback: error instanceof Error ? error.message : String(error) }; }
+            finally { if (timeout) clearTimeout(timeout); }
+          },
+          (answer) => answer.verdict ? { output: answer.verdict } : { status: "warning", reason: answer.fallback },
+        );
+        verdict = answer.verdict;
+        classifierFallback = answer.fallback;
+      }
+      await this.pattern.read(ticket);
+      if (verdict) this.pattern.applyVerdict(ticket.id, verdict, this.deps.policy.classifier);
+      return classifierFallback;
+    });
+    const result = await this.tracer.span({ name: "correlate_reports", kind: "node", actor: "pattern" }, async () => this.pattern.correlate(ticket.id));
     this.pattern.noteGuard(ticket.id, { flagged: screened.flagged, reasons: screened.reasons });
     if (fallback && this.deps.classifier) this.pattern.noteFallback(ticket.id, this.deps.classifier.adapter, fallback);
     result.signal = this.pattern.signalOf(ticket.id)!;

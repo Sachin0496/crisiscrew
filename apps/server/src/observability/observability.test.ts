@@ -68,22 +68,24 @@ describe("agent workflow traces", () => {
     const recovery = traces.find((t) => t.workflow === "recovery_pass")!;
     const recoveryDetail = await get<TraceDetail>(app, `/api/traces/${recovery.id}`);
     const recoveryById = new Map(recoveryDetail.spans.map((s) => [s.id, s]));
-    expect(recoveryDetail.spans.filter((s) => s.kind === "node").map((s) => s.name)).toEqual(expect.arrayContaining(["plan_recovery", "reach_out", "request_approvals", "write_back", "settle"]));
+    expect(recoveryDetail.spans.filter((s) => s.kind === "node").map((s) => s.name)).toEqual(expect.arrayContaining(["prepare_recovery", "act_within_authority", "reach_out", "request_approvals", "write_back", "settle"]));
     const credit = recoveryDetail.spans.find((s) => s.name === "issue_recovery_credit")!;
-    expect(recoveryById.get(credit.parentId!)?.name).toBe("plan_recovery");
+    expect(recoveryById.get(credit.parentId!)?.name).toBe("act_within_authority");
     expect(credit.meta).toMatchObject({ decision: "allowed", level: 2 });
     expect(recovery).toMatchObject({ parentTraceId: detail.trace.id });
   });
 
-  it("describes the five workflow graphs used by the current incident flow", async () => {
+  it("describes the agent stages inside each workflow", async () => {
     const { app } = await setup();
     const workflows = await get<WorkflowGraph[]>(app, "/api/workflows");
-    expect(workflows.map((w) => w.name)).toEqual(["ticket", "incident", "recovery_pass", "late_ticket", "decision"]);
+    expect(workflows.map((w) => w.name)).toEqual(["ticket", "incident", "late_ticket", "recovery_pass", "decision"]);
     const incident = workflows.find((w) => w.name === "incident")!;
     const from = (id: string) => incident.edges.filter((e) => e.from === id).map((e) => `${e.to}${e.conditional ? "?" : ""}`);
-    expect(from("__start__")).toEqual(["respond"]);
-    expect(from("respond")).toEqual(["__end__"]);
-    expect(incident.nodes.find((n) => n.id === "respond")).toMatchObject({ actor: "commander", label: "respond" });
+    expect(from("__start__")).toEqual(["open_incident"]);
+    expect(from("open_incident")).toEqual(["investigate", "assess_impact"]);
+    expect(from("recover")).toEqual(["__end__"]);
+    expect(incident.nodes.find((n) => n.id === "investigate")).toMatchObject({ actor: "investigator", label: "Investigate cause" });
+    expect(workflows.find((w) => w.name === "recovery_pass")?.nodes.filter((n) => n.kind === "node")).toHaveLength(8);
   });
 
   it("pinpoints a refused MCP call: its own trace, marked for attention, with the refusal as the first problem", async () => {

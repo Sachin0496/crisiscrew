@@ -532,8 +532,9 @@ button.side-row:hover { background: var(--surface-hover); color: var(--text); }
 .wf-actor { font-size: 11px; fill: var(--text-3); }
 .wf-node.skipped { opacity: 0.45; }
 .wf-node.skipped rect { stroke-dasharray: 4 3; }
+.wf-node.pending rect { stroke-dasharray: 4 3; }
 .wf-node.ok rect { stroke: var(--text-3); }
-.wf-node.running rect { stroke: var(--accent); stroke-width: 1.5; }
+.wf-node.running rect { stroke: var(--accent); stroke-width: 2; fill: var(--accent-soft); }
 .wf-node.problem-danger rect { stroke: var(--danger); stroke-width: 2; fill: var(--danger-soft); }
 .wf-node.problem-warning rect { stroke: var(--warning); stroke-width: 2; fill: var(--warning-soft); }
 .wf-node.clickable { cursor: pointer; }
@@ -546,6 +547,66 @@ button.side-row:hover { background: var(--surface-hover); color: var(--text); }
 .wf-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin-top: 12px; font-size: 12px; color: var(--text-2); }
 .wf-legend i { display: inline-block; width: 22px; height: 0; border-top: 1.5px solid var(--text-3); vertical-align: middle; margin-right: 6px; }
 .wf-legend i.dashed { border-top-style: dashed; }
+.workflow-card .card-header { flex-wrap: wrap; }
+.workflow-card .card-actions { width: 100%; min-width: 0; margin-left: 0; }
+.workflow-card .segmented { display: flex; flex-wrap: wrap; width: 100%; }
+.workflow-card .segmented button { white-space: nowrap; }
+.runtime-workflow-map { display: grid; gap: 14px; }
+.runtime-progress { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); }
+.runtime-progress.active { border-color: var(--accent-border); background: var(--accent-soft); }
+.runtime-progress strong { font-size: 13px; color: var(--text); }
+.runtime-progress > span { font-size: 12px; color: var(--text-2); }
+.runtime-progress-steps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.runtime-progress-steps a { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 8px; border: 1px solid var(--accent-border); border-radius: var(--radius-sm); background: var(--surface); font-size: 11px; color: var(--accent-text); }
+.runtime-entry, .runtime-services { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); }
+.runtime-entry > div, .runtime-services > div:not(.runtime-services-foot) { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.runtime-entry strong, .runtime-services strong, .runtime-route-label strong { font-size: 12px; font-weight: 600; color: var(--text); }
+.runtime-entry span:not(.runtime-arrow), .runtime-services span:not(.runtime-arrow), .runtime-route-label span { font-size: 11px; color: var(--text-3); line-height: 1.4; }
+.runtime-arrow { flex: none; color: var(--text-4); font-size: 18px; }
+.runtime-lane { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.runtime-lane.active { border-color: var(--accent-border); }
+.runtime-lane-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--surface-muted); }
+.runtime-lane.active .runtime-lane-head { background: var(--accent-soft); }
+.runtime-lane-head > div { flex: 1; min-width: 0; }
+.runtime-lane-run { max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: auto; font-size: 11px; color: var(--text-3); }
+.runtime-lane-run.active { color: var(--accent-text); font-weight: 600; }
+.runtime-lane-number { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; color: var(--accent); background: var(--surface); border: 1px solid var(--border-strong); font-size: 12px; font-weight: 600; }
+.runtime-lane h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.runtime-lane p { margin: 2px 0 0; font-size: 11px; line-height: 1.4; color: var(--text-3); }
+.runtime-lane .wf-map { padding: 8px 10px 16px; }
+.runtime-lane .wf-map svg { max-width: none; }
+.runtime-compact-map { display: none; }
+.runtime-route-heading { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-3); }
+.runtime-route-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 10px; }
+.runtime-route { display: flex; flex-direction: column; min-width: 0; gap: 8px; }
+.runtime-route-label { display: grid; gap: 3px; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius); }
+.runtime-route .runtime-lane { flex: 1; }
+.runtime-route .runtime-lane .wf-map { display: none; }
+.runtime-route .runtime-compact-map { display: grid; }
+.runtime-no-incident { padding: 0 0 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); }
+.runtime-no-incident .runtime-route-label { margin: -1px -1px 0; }
+.runtime-no-incident p { padding: 8px 12px; font-size: 12px; line-height: 1.5; color: var(--text-3); }
+.runtime-compact-map { gap: 4px; padding: 12px; }
+.runtime-stage { display: grid; justify-items: center; gap: 6px; }
+.runtime-stage-arrow { color: var(--text-4); font-size: 16px; line-height: 1; }
+.runtime-stage-label { font-size: 11px; color: var(--text-3); }
+.runtime-stage-nodes { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; width: 100%; }
+.runtime-step { display: grid; gap: 3px; width: 100%; min-width: 0; padding: 9px 10px; text-align: left; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); }
+.runtime-step strong { font-size: 12px; font-weight: 500; color: var(--text); }
+.runtime-step span { font-size: 11px; color: var(--text-3); }
+.runtime-step.skipped { opacity: 0.45; border-style: dashed; }
+.runtime-step.pending { border-style: dashed; }
+.runtime-step.ok { border-color: var(--text-3); }
+.runtime-step.running { border-color: var(--accent); border-width: 2px; background: var(--accent-soft); }
+.runtime-step.problem-danger { border-color: var(--danger); background: var(--danger-soft); }
+.runtime-step.problem-warning { border-color: var(--warning); background: var(--warning-soft); }
+button.runtime-step { cursor: pointer; }
+button.runtime-step:hover, button.runtime-step:focus-visible { border-color: var(--accent); outline: none; }
+.runtime-join { display: flex; flex-wrap: wrap; gap: 8px; }
+.runtime-join span { padding: 7px 10px; border-radius: var(--radius); background: var(--surface-muted); font-size: 11px; color: var(--text-2); }
+.runtime-join b { color: var(--accent); font-weight: 600; }
+.runtime-services { flex-wrap: wrap; }
+.runtime-services-foot { flex: 0 0 100%; padding-top: 9px; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.4; color: var(--text-3); }
 .traces-grid { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 20px; align-items: start; }
 .run-list { list-style: none; margin: 0; padding: 0; max-height: 680px; overflow: auto; }
 .run { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 16px; border-bottom: 1px solid var(--border); color: inherit; }
@@ -613,6 +674,10 @@ button.side-row:hover { background: var(--surface-hover); color: var(--text); }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
+  .runtime-lane .wf-map { display: none; }
+  .runtime-compact-map { display: grid; }
+  .runtime-route-grid { grid-template-columns: minmax(0, 1fr); }
+  .runtime-lane-run { max-width: 100%; flex: 0 0 100%; margin-left: 34px; }
   .shell { grid-template-columns: 64px minmax(0, 1fr); }
   .brand-text, .nav-item span:not(.nav-alert), .nav-meta, .env-sub, .env-title span, .side-row span:not(.dot) { display: none; }
   .env-title svg:last-child { display: none; }
@@ -623,6 +688,8 @@ button.side-row:hover { background: var(--surface-hover); color: var(--text); }
   .popover { position: fixed; left: 76px; bottom: 16px; }
 }
 @media (max-width: 640px) {
+  .runtime-entry, .runtime-services { flex-direction: column; align-items: stretch; }
+  .runtime-arrow { align-self: center; transform: rotate(90deg); }
   .topbar { height: auto; flex-wrap: wrap; padding: 10px 14px; }
   .toolbar { margin-left: 0; flex-wrap: wrap; }
   .page { padding: 16px 14px; }

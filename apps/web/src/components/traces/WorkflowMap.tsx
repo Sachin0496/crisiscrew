@@ -2,9 +2,9 @@ import type { WorkflowGraph } from "@crisiscrew/contracts";
 import type { KeyboardEvent } from "react";
 import { ACTOR_LABELS, isProblemStatus, layout, SPAN_STATUS, type NodeState } from "../../traces";
 
-const NODE_W = 168;
+const NODE_W = 144;
 const NODE_H = 48;
-const GAP_X = 30;
+const GAP_X = 22;
 const TERMINAL_W = 26;
 const ROW_H = 66;
 const PAD = 14;
@@ -15,15 +15,16 @@ type Props = {
   /** Which nodes ran in the selected trace; empty when no trace of this workflow is open. */
   states: Record<string, NodeState>;
   showRuns: boolean;
+  inProgress?: boolean;
   onNode: (spanId: string) => void;
 };
 
 /**
- * One workflow entry point: nodes in columns by their longest path from Start.
+ * One workflow's traced runtime stages, arranged by their path from Start.
  * With a trace open, the nodes it ran are marked, and a node
  * with a problem anywhere under it is ringed in red or amber.
  */
-export function WorkflowMap({ graph, states, showRuns, onNode }: Props) {
+export function WorkflowMap({ graph, states, showRuns, inProgress = false, onNode }: Props) {
   const { at, cols, maxRows } = layout(graph);
   const terminal = new Set(graph.nodes.filter((n) => n.kind !== "node").map((n) => n.id));
   // Columns holding only Start or End are narrow.
@@ -86,7 +87,7 @@ export function WorkflowMap({ graph, states, showRuns, onNode }: Props) {
             );
           }
           const problem = showRuns && st?.worst && isProblemStatus(st.worst) ? SPAN_STATUS[st.worst].tone : null;
-          const state = !showRuns ? "idle" : !st?.ran ? "skipped" : st.worst === "running" ? "running" : problem ? `problem-${problem}` : "ok";
+          const state = !showRuns ? "idle" : !st?.ran ? inProgress ? "pending" : "skipped" : st.active ? "running" : problem ? `problem-${problem}` : "ok";
           const clickable = showRuns && st?.spanId;
           return (
             <g

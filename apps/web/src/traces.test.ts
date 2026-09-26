@@ -1,6 +1,6 @@
 import type { Span, TraceDetail, TraceSummary, WorkflowGraph } from "@crisiscrew/contracts";
 import { describe, expect, it } from "vitest";
-import { defaultTrace, duration, layout, nodeStates, spanRows, timing } from "./traces";
+import { defaultTrace, duration, latestWorkflowActivity, layout, nodeStates, spanRows, timing } from "./traces";
 
 const span = (id: string, parentId: string | null, over: Partial<Span> = {}): Span => ({
   id,
@@ -87,6 +87,45 @@ describe("graph", () => {
     expect(states.open_incident).toMatchObject({ ran: true, worst: "ok" });
     expect(states.investigate).toMatchObject({ ran: true, worst: "flagged", spanId: "n2" });
     expect(states.recover).toMatchObject({ ran: false, worst: null });
+  });
+
+  it("shows a running node and prefers its trace over a newer completed run", () => {
+    const detail = (id: string, startedAt: number, active: boolean): TraceDetail => ({
+      trace: { id, startedAt, ...(active ? {} : { endedAt: startedAt + 1 }) } as TraceSummary,
+      spans: [
+        span(`${id}-root`, null, { kind: "workflow", name: "incident" }),
+        span(`${id}-node`, `${id}-root`, { name: "open_incident", status: active ? "running" : "ok" }),
+      ],
+    });
+    const current = latestWorkflowActivity([detail("running", 10, true), detail("done", 20, false)], incidentGraph);
+    expect(current?.detail.trace.id).toBe("running");
+    expect(current?.states.open_incident).toMatchObject({ ran: true, active: true, worst: "running" });
+  });
+
+  it("lights up nested runtime stages and leaves End pending until the trace finishes", () => {
+    const graph: WorkflowGraph = {
+      name: "recovery_pass", title: "Recovery pass", description: "",
+      nodes: ["__start__", "identify_affected_customers", "plan_recovery", "reach_out", "__end__"].map((id) => ({
+        id, label: id, actor: "recovery", description: "", kind: id.startsWith("__") ? (id === "__start__" ? "start" : "end") : "node",
+      })),
+      edges: [],
+    };
+    const detail: TraceDetail = {
+      trace: { id: "recovery", startedAt: 0 } as TraceSummary,
+      spans: [
+        span("root", null, { kind: "workflow", name: "recovery_pass", status: "running", endedAt: undefined }),
+        span("wrapper", "root", { name: "recover", status: "running", endedAt: undefined }),
+        span("prepare", "wrapper", { name: "prepare_recovery", status: "running", endedAt: undefined }),
+        span("identify", "prepare", { kind: "tool", name: "identify_affected_customers" }),
+        span("plan", "prepare", { kind: "tool", name: "plan_recovery", status: "running", endedAt: undefined }),
+      ],
+    };
+    const states = nodeStates(detail, graph);
+    expect(states.identify_affected_customers).toMatchObject({ ran: true, spanId: "identify" });
+    expect(states.plan_recovery).toMatchObject({ ran: true, active: true, spanId: "plan" });
+    expect(states.reach_out?.ran).toBe(false);
+    expect(states.__start__?.ran).toBe(true);
+    expect(states.__end__?.ran).toBe(false);
   });
 });
 
