@@ -111,7 +111,7 @@ async function recover(kit: AgentKit, incidentId: string): Promise<void> {
     "recover",
     { label: "Recover customers", actor: "recovery", description: "Plan, carry out, communicate, request approvals and settle coverage." },
     async () => {
-      await kit.tracer.span({ name: "plan_recovery", kind: "node", actor: "recovery" }, () => reconcile(kit, incidentId, { assessFirst: true }));
+      await kit.tracer.span({ name: "prepare_recovery", kind: "node", actor: "recovery" }, () => reconcile(kit, incidentId, { assessFirst: true }));
       await kit.tracer.span({ name: "reach_out", kind: "node", actor: "handoff" }, () => reachOut(kit, incidentId));
       await kit.tracer.span({ name: "request_approvals", kind: "node", actor: "handoff" }, () => requestApprovals(kit, incidentId));
       await kit.tracer.span({ name: "write_back", kind: "node", actor: "handoff" }, () => noteOutcomes(kit, incidentId, "handoff"));
@@ -180,24 +180,24 @@ async function openAndRun(kit: AgentKit, opening: Opening, onOpened: () => void)
  */
 export async function handleLateTicket(kit: AgentKit, incidentId: string, ticketId: string): Promise<void> {
   kit.setAgent("recovery", "working", `Linking ${ticketId} to ${incidentId}`);
-  await kit.gate.call("recovery", "link_ticket_to_incident", { incidentId, ticketId });
+  await kit.tracer.span({ name: "link_ticket_to_incident", kind: "node", actor: "recovery" }, () => kit.gate.call("recovery", "link_ticket_to_incident", { incidentId, ticketId }));
   if (kit.draftFor(incidentId)) {
-    await recover(kit, incidentId);
+    await kit.tracer.span({ name: "start_recovery_pass", kind: "node", actor: "recovery" }, () => recover(kit, incidentId));
     return;
   }
-  await kit.serial(incidentId, async () => {
+  await kit.tracer.span({ name: "update_impact", kind: "node", actor: "recovery" }, () => kit.serial(incidentId, async () => {
     await assessImpact(kit, incidentId);
     await reassess(kit, incidentId, "impact");
-  });
+  }));
   kit.setAgent("recovery", "idle", `Linked ${ticketId}; waiting for the root cause`);
 }
 
 /** Carries out a human decision, writes the outcome to the customer's ticket, and recomputes the incident's status. */
 export async function settleDecision(kit: AgentKit, approval: Approval): Promise<void> {
   await kit.serial(approval.incidentId, async () => {
-    await carryOutDecision(kit, approval);
-    await noteOutcomes(kit, approval.incidentId, "handoff");
-    await settle(kit, approval.incidentId);
+    await kit.tracer.span({ name: "carry_out_decision", kind: "node", actor: "handoff" }, () => carryOutDecision(kit, approval));
+    await kit.tracer.span({ name: "write_back", kind: "node", actor: "handoff" }, () => noteOutcomes(kit, approval.incidentId, "handoff"));
+    await kit.tracer.span({ name: "settle", kind: "node", actor: "commander" }, () => settle(kit, approval.incidentId));
   });
 }
 

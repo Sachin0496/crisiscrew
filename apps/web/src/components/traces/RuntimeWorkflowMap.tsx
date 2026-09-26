@@ -12,7 +12,7 @@ type Props = {
   onNode: (traceId: string, spanId: string) => void;
 };
 
-/** The runtime handoffs around the five compiled LangGraph workflows. */
+/** The runtime handoffs and traced agent stages inside the five workflows. */
 export function RuntimeWorkflowMap({ graphs, details, traces, replayFinished, replaying, onNode }: Props) {
   const graph = (name: WorkflowName) => graphs.find((item) => item.name === name);
   const activity = new Map(graphs.map((workflow) => [workflow.name, latestWorkflowActivity(details, workflow)]));
@@ -68,20 +68,27 @@ export function RuntimeWorkflowMap({ graphs, details, traces, replayFinished, re
 
       {lane("ticket", 1, "Screen untrusted text, classify the ticket, then correlate it with recent reports.")}
 
-      <div className="runtime-branches" aria-label="Ticket intake outcomes">
-        <div><strong>Incident gates pass ↓</strong><span>Start incident response</span></div>
-        <div><strong>Matches an open incident ↓</strong><span>Run the late complaint workflow</span></div>
-        <div><strong>No incident</strong><span>Record why; keep correlating new tickets</span></div>
+      <div className="runtime-route-heading">Ticket intake chooses one path ↓</div>
+      <div className="runtime-route-grid" aria-label="Ticket intake outcomes">
+        <div className="runtime-route">
+          <div className="runtime-route-label"><strong>Incident gates pass</strong><span>Open a new incident</span></div>
+          {lane("incident", 2, "Investigation and impact assessment run in parallel. Engineering filing and recovery follow.")}
+        </div>
+        <div className="runtime-route">
+          <div className="runtime-route-label"><strong>Matches an open incident</strong><span>Join its customer recovery</span></div>
+          {lane("late_ticket", 3, "A new complaint joins an existing incident. Reassess impact or run recovery again.")}
+        </div>
+        <div className="runtime-route runtime-no-incident">
+          <div className="runtime-route-label"><strong>No incident</strong><span>Keep watching incoming reports</span></div>
+          <p>Record why the gates did not pass, then wait for the next ticket. The incident and recovery paths do not run.</p>
+        </div>
       </div>
-
-      {lane("incident", 2, "The Commander opens the incident. Investigation, impact assessment and engineering filing run in parallel before recovery.")}
-      {lane("late_ticket", 3, "A new complaint joins an existing incident. Run recovery if it has started; otherwise reassess impact.")}
 
       <div className="runtime-join" aria-label="Recovery pass triggers">
         <span>Incident response <b>↓</b> recovery pass</span>
         <span>Late complaint <b>↓</b> recovery pass when recovery is underway</span>
       </div>
-      {lane("recovery_pass", 4, "Reassess each customer, plan missing actions, act within authority, write back, request approvals and settle.")}
+      {lane("recovery_pass", 4, "Reassess each customer, plan missing actions, act within authority, contact customers, request approvals and settle coverage.")}
 
       <div className="runtime-join" aria-label="Human approval handoff">
         <span>Credit above agent authority <b>→</b> one approval per customer <b>→</b> human decision</span>
@@ -133,7 +140,6 @@ function CompactWorkflowMap({ graph, states, showRuns, inProgress, onNode }: { g
           </div>
         );
       })}
-      {graph.name === "recovery_pass" && <p className="runtime-compact-note">Conditional shortcut: if no recovery plan can be made, continue from Plan recovery to Ask a human, then Settle.</p>}
     </div>
   );
 }

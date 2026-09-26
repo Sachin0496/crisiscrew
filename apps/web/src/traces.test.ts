@@ -101,6 +101,32 @@ describe("graph", () => {
     expect(current?.detail.trace.id).toBe("running");
     expect(current?.states.open_incident).toMatchObject({ ran: true, active: true, worst: "running" });
   });
+
+  it("lights up nested runtime stages and leaves End pending until the trace finishes", () => {
+    const graph: WorkflowGraph = {
+      name: "recovery_pass", title: "Recovery pass", description: "",
+      nodes: ["__start__", "identify_affected_customers", "plan_recovery", "reach_out", "__end__"].map((id) => ({
+        id, label: id, actor: "recovery", description: "", kind: id.startsWith("__") ? (id === "__start__" ? "start" : "end") : "node",
+      })),
+      edges: [],
+    };
+    const detail: TraceDetail = {
+      trace: { id: "recovery", startedAt: 0 } as TraceSummary,
+      spans: [
+        span("root", null, { kind: "workflow", name: "recovery_pass", status: "running", endedAt: undefined }),
+        span("wrapper", "root", { name: "recover", status: "running", endedAt: undefined }),
+        span("prepare", "wrapper", { name: "prepare_recovery", status: "running", endedAt: undefined }),
+        span("identify", "prepare", { kind: "tool", name: "identify_affected_customers" }),
+        span("plan", "prepare", { kind: "tool", name: "plan_recovery", status: "running", endedAt: undefined }),
+      ],
+    };
+    const states = nodeStates(detail, graph);
+    expect(states.identify_affected_customers).toMatchObject({ ran: true, spanId: "identify" });
+    expect(states.plan_recovery).toMatchObject({ ran: true, active: true, spanId: "plan" });
+    expect(states.reach_out?.ran).toBe(false);
+    expect(states.__start__?.ran).toBe(true);
+    expect(states.__end__?.ran).toBe(false);
+  });
 });
 
 describe("helpers", () => {

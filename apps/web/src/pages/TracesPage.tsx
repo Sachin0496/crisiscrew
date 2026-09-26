@@ -134,7 +134,7 @@ export function TracesPage({ state, wiring, traceId }: { state: CrisisState; wir
           <span className="trace-sink">{langsmith ? <Badge tone="success">Also in LangSmith</Badge> : <span className="muted">Local traces · set TRACING=langsmith to send them to LangSmith</span>}</span>
         </div>
         <p className="page-lede">
-          Each agent workflow is a LangGraph graph. Every run is a trace of its nodes, and of every tool call, guard check and classifier call inside them.
+          Follow the agent stages inside each workflow, including tool calls, guard checks and classifier calls.
           Anything refused, flagged or failed is marked, and the trace opens at the first problem.
         </p>
       </div>
@@ -158,7 +158,7 @@ export function TracesPage({ state, wiring, traceId }: { state: CrisisState; wir
       <Card
         title="Workflow map"
         className="workflow-card"
-        subtitle={tab === "overview" ? "The complete runtime handoffs and all five compiled LangGraph workflows" : graph ? graph.description : "The LangGraph workflows, read from the compiled graphs"}
+        subtitle={tab === "overview" ? "Agent stages and handoffs across all five workflows" : graph ? graph.description : "Traced agent stages"}
         actions={
           <Segmented
             label="Workflow"

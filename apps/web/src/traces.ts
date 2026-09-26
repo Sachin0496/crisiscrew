@@ -95,29 +95,32 @@ export function duration(ms: number | undefined): string {
 export type NodeState = { ran: boolean; runs: number; worst: SpanStatus | null; active?: boolean; spanId?: string };
 
 /**
- * Which of a workflow's nodes ran in this trace and whether anything under
- * them went wrong: for the graph on the Traces page. A workflow can appear
- * as the trace itself or nested inside it (the recovery pass inside an
- * incident), so every span of that workflow counts.
+ * Which observable stages ran inside a workflow and whether their work had
+ * a problem. The compiled graph has one wrapper node, so the map follows
+ * its nested agent, tool and guard spans instead.
  */
 export function nodeStates(detail: TraceDetail | null, graph: WorkflowGraph): Record<string, NodeState> {
   const states: Record<string, NodeState> = Object.fromEntries(graph.nodes.map((n) => [n.id, { ran: false, runs: 0, worst: null }]));
   if (!detail) return states;
   const rows = spanRows(detail.spans);
-  const containers = new Set(detail.spans.filter((s) => s.kind === "workflow" && s.name === graph.name).map((s) => s.id));
-  for (const row of rows) {
-    const s = row.span;
-    if (s.kind !== "node" || !s.parentId || !containers.has(s.parentId) || !states[s.name]) continue;
-    const st = states[s.name]!;
-    st.ran = true;
-    st.runs += 1;
-    if (s.status === "running") st.active = true;
-    st.worst = worse(st.worst, row.worst);
-    // Point at the run that went wrong, or the last run.
-    if (!st.spanId || isProblemStatus(row.worst)) st.spanId = s.id;
+  const containers = detail.spans.filter((s) => s.kind === "workflow" && s.name === graph.name);
+  const containerIds = new Set(containers.map((s) => s.id));
+  for (const node of graph.nodes.filter((n) => n.kind === "node")) {
+    const matching = rows.filter((row) => row.span.name === node.id && row.ancestors.some((id) => containerIds.has(id)));
+    // A named stage can wrap a tool with the same name. Show the stage once.
+    const preferred = matching.some((row) => row.span.kind === "node") ? matching.filter((row) => row.span.kind === "node") : matching;
+    const st = states[node.id]!;
+    for (const row of preferred) {
+      st.ran = true;
+      st.runs += 1;
+      if (row.span.status === "running") st.active = true;
+      st.worst = worse(st.worst, row.worst);
+      if (!st.spanId || isProblemStatus(row.worst)) st.spanId = row.span.id;
+    }
   }
-  if (containers.size > 0) {
-    for (const id of ["__start__", "__end__"]) if (states[id]) states[id] = { ...states[id]!, ran: true, runs: 1, worst: "ok" };
+  if (containers.length > 0) {
+    states.__start__ = { ran: true, runs: 1, worst: "ok" };
+    states.__end__ = { ran: containers.every((s) => Boolean(s.endedAt)), runs: 1, worst: "ok" };
   }
   return states;
 }

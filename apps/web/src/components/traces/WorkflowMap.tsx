@@ -2,9 +2,9 @@ import type { WorkflowGraph } from "@crisiscrew/contracts";
 import type { KeyboardEvent } from "react";
 import { ACTOR_LABELS, isProblemStatus, layout, SPAN_STATUS, type NodeState } from "../../traces";
 
-const NODE_W = 168;
+const NODE_W = 144;
 const NODE_H = 48;
-const GAP_X = 30;
+const GAP_X = 22;
 const TERMINAL_W = 26;
 const ROW_H = 66;
 const PAD = 14;
@@ -20,7 +20,7 @@ type Props = {
 };
 
 /**
- * One workflow entry point: nodes in columns by their longest path from Start.
+ * One workflow's traced runtime stages, arranged by their path from Start.
  * With a trace open, the nodes it ran are marked, and a node
  * with a problem anywhere under it is ringed in red or amber.
  */
