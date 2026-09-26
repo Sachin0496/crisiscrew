@@ -1,4 +1,4 @@
-import type { Channel, Customer, Ticket, TicketInput } from "@crisiscrew/contracts";
+import type { Channel, Customer, SignalView, Ticket, TicketInput } from "@crisiscrew/contracts";
 import type { TicketActionsPort } from "@crisiscrew/core";
 import { freshworksRequest, htmlToText, originOf, textToHtml, type FreshworksAuth } from "./http";
 
@@ -65,6 +65,11 @@ export class FreshdeskClient {
     await freshworksRequest(this.auth, "POST", `/api/v2/tickets/${ticketId}/reply`, { body: textToHtml(text) });
   }
 
+  /** Records CrisisCrew's classification on the ticket: its type and tags, where agents see them in Freshdesk. */
+  async label(ticketId: number, labels: { type?: string; tags: string[] }): Promise<void> {
+    await freshworksRequest(this.auth, "PUT", `/api/v2/tickets/${ticketId}`, { ...(labels.type ? { type: labels.type } : {}), tags: labels.tags });
+  }
+
   ticketUrl(ticketId: number): string {
     return `${originOf(this.auth.domain)}/a/tickets/${ticketId}`;
   }
@@ -102,6 +107,18 @@ export function freshdeskToTicketInput(t: FreshdeskTicket, customer: Pick<Custom
     body,
     externalId: `${FRESHDESK_PREFIX}${t.id}`,
   };
+}
+
+/**
+ * How a classified ticket is labeled in Freshdesk: a failure report is an
+ * Incident, a question a Question, a refund request a Refund (other requests
+ * keep their type); tags say the label, the product area and who decided.
+ */
+export function freshdeskLabels(signal: Pick<SignalView, "ticketType" | "isFailure" | "surface" | "classifier">): { type?: string; tags: string[] } {
+  const kind = signal.ticketType ?? (signal.isFailure ? "failure" : "request");
+  const type = kind === "failure" ? "Incident" : kind === "question" ? "Question" : signal.surface === "refunds_billing" ? "Refund" : undefined;
+  const by = signal.classifier?.source === "laya" ? (signal.classifier.model === "simulated" ? "laya-simulated" : "laya") : "embeddings";
+  return { ...(type ? { type } : {}), tags: ["crisiscrew", `ticket-${kind}`, `area-${signal.surface.replace(/_/g, "-")}`, `classified-by-${by}`] };
 }
 
 /** Where notes and replies for Freshdesk tickets go: the REST API or Freshdesk's MCP server. */

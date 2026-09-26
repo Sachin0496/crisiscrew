@@ -46,3 +46,16 @@ describe("Freshservice Alert Management webhook", () => {
     await expect(postMonitoringAlert({ url: "https://acme.alerts.freshservice.com/integrations/1/alerts", key: "bad", fetch }, { resource: "x", metric_name: "m", severity: "critical", message: "m" })).rejects.toThrow(/401.*not authorized/);
   });
 });
+
+describe("Freshdesk labels", () => {
+  it("records the classification as the ticket's type and tags", async () => {
+    const { freshdeskLabels } = await import("../freshworks/freshdesk");
+    expect(freshdeskLabels({ ticketType: "failure", isFailure: true, surface: "checkout_payments", classifier: { source: "laya", model: "simulated", ticketType: "failure" } })).toEqual({
+      type: "Incident",
+      tags: ["crisiscrew", "ticket-failure", "area-checkout-payments", "classified-by-laya-simulated"],
+    });
+    expect(freshdeskLabels({ ticketType: "question", isFailure: false, surface: "delivery_orders" }).type).toBe("Question");
+    expect(freshdeskLabels({ ticketType: "request", isFailure: false, surface: "refunds_billing" }).type).toBe("Refund");
+    expect(freshdeskLabels({ ticketType: "request", isFailure: false, surface: "other" }).type).toBeUndefined();
+  });
+});

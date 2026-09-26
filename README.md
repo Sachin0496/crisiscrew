@@ -343,7 +343,8 @@ Freshdesk is the customer signal layer; Freshservice and engineering systems are
 - **Ingest:**
   - **Webhook (`FRESHDESK_INGEST=webhook`):** an automation rule on ticket creation calls `POST {PUBLIC_BASE_URL}/api/webhooks/freshdesk`. The body is `{"ticket_id": {{ticket.id}}}`, with the header `X-CrisisCrew-Secret: <FRESHDESK_WEBHOOK_SECRET>`. CrisisCrew answers 202, then reads the ticket back with `GET /api/v2/tickets/:id?include=requester`.
   - **Poll (`FRESHDESK_INGEST=poll`):** reads new tickets every 15 seconds and needs no public URL.
-  - Either way, each ticket is ingested once.
+  - Either way, each ticket is ingested once. A webhook that also sends the ticket's subject, description and requester is ingested as sent, without a read-back.
+- **Classification in Freshdesk (`FRESHDESK_LABELS=on`):** each classified ticket gets its type (Incident, Question or Refund) and tags (`ticket-failure`, `area-checkout-payments`, `classified-by-laya-simulated`), so agents see the Pattern Agent's call on the ticket itself.
 - **Matching:** the requester's email is matched to a customer in the orders data. A requester who can't be matched is a real complaint with no payment evidence, so they're *not verified*.
 - **Write-back:**
   - a private note linking the ticket to the incident;

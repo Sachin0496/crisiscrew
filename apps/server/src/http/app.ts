@@ -28,9 +28,19 @@ const ManualTicket = z.object({
 }).strict();
 
 /** Freshdesk's automation rule posts {"ticket_id": 123}; its simple mode nests the fields under "freshdesk_webhook". */
+// The automation rule may send the ticket's fields too ({{ticket.subject}}, {{ticket.description}}, {{ticket.requester.email}}, …); then it isn't read back.
+const PushedTicket = z.object({
+  ticket_id: z.coerce.number().int().positive(),
+  subject: z.string().max(500).optional(),
+  description: z.string().max(20_000).optional(),
+  requester_email: z.string().max(200).optional(),
+  requester_name: z.string().max(200).optional(),
+  source: z.string().max(40).optional(),
+});
 const FreshdeskWebhook = z.union([
-  z.object({ ticket_id: z.coerce.number().int().positive() }),
-  z.object({ freshdesk_webhook: z.object({ ticket_id: z.coerce.number().int().positive() }) }),
+  PushedTicket,
+  // Freshdesk's simple layout nests the fields.
+  z.object({ freshdesk_webhook: PushedTicket }),
 ]);
 
 /** An alert posted by hand (a demo, or a monitoring tool CrisisCrew doesn't read directly). */
@@ -125,7 +135,7 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   app.post("/api/demo/freshdesk-tickets", adminLimit, admin, (c) => {
     if (!config.demo.tickets) return c.json({ error: "Filing demo tickets needs TICKETS=freshdesk against a real Freshdesk" }, 404);
     try {
-      return c.json(runtime.fileDemoTickets(config.demo.tickets), 202);
+      return c.json(runtime.fileDemoTickets({ ...config.demo.tickets, ingest: config.freshdesk?.ingest ?? "poll" }), 202);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
     }
@@ -210,9 +220,11 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     if (!sameSecret(c.req.header("x-crisiscrew-secret") ?? "", config.freshdesk.webhookSecret)) return c.json({ error: "X-CrisisCrew-Secret is missing or wrong" }, 401);
     const parsed = await body(c, FreshdeskWebhook);
     if (!parsed.ok) return parsed.response;
-    const ticketId = "ticket_id" in parsed.data ? parsed.data.ticket_id : parsed.data.freshdesk_webhook.ticket_id;
-    // Answer at once; Freshdesk's webhook times out quickly, and ingest reads the ticket back from the API.
-    void runtime.ingestFreshdesk(ticketId).catch((error) => onError?.(error));
+    const sent = "ticket_id" in parsed.data ? parsed.data : parsed.data.freshdesk_webhook;
+    const ticketId = sent.ticket_id;
+    // Answer at once; Freshdesk's webhook times out quickly. A ticket sent with its text is ingested as sent; otherwise it's read back from the API.
+    const pushed = sent.description?.trim() && sent.requester_email ? sent : null;
+    void (pushed ? runtime.ingestFreshdeskPushed(pushed) : runtime.ingestFreshdesk(ticketId)).catch((error) => onError?.(error));
     return c.json({ accepted: true, ticketId }, 202);
   });
 

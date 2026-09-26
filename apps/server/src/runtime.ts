@@ -3,6 +3,7 @@ import {
   freshdeskTicketActions,
   FRESHDESK_SOURCES,
   FreshworksError,
+  freshdeskLabels,
   freshdeskToTicketInput,
   type FreshdeskClient,
   type FreshdeskTicket,
@@ -38,7 +39,7 @@ import { scenarioAlerts, scenarioTickets } from "./scenarios";
 /** Live Freshworks adapters, layered over the sandbox world when their switches are on. */
 export type LiveAdapters = {
   /** TICKETS=freshdesk: reads Freshdesk tickets, and writes notes and replies for them. */
-  freshdesk?: { client: FreshdeskClient; writer: FreshdeskWriter };
+  freshdesk?: { client: FreshdeskClient; writer: FreshdeskWriter; /** Set each classified ticket's type and tags in Freshdesk. */ labels?: boolean };
   /** INCIDENTS=freshservice: files engineering incidents in Freshservice. */
   incidents?: IncidentsPort;
   /** TELEPHONY=vobiz: places real phone calls. */
@@ -180,13 +181,34 @@ export class Runtime {
   }
 
   /**
+   * A ticket Freshdesk's automation rule pushed with its fields in the body:
+   * ingested as sent, without reading it back, which saves one API call per
+   * ticket against Freshdesk's rate limit. The webhook secret vouches for it.
+   */
+  async ingestFreshdeskPushed(pushed: { ticket_id: number; subject?: string; description?: string; requester_email?: string; requester_name?: string; source?: string }): Promise<FreshdeskIngest> {
+    if (!this.options.live?.freshdesk) throw new Error("Freshdesk ingest is off: set TICKETS=freshdesk");
+    const key = `freshdesk:${pushed.ticket_id}`;
+    if (this.seenExternal.has(key)) return { status: "duplicate", freshdeskId: pushed.ticket_id };
+    this.seenExternal.add(key);
+    const source = Number(pushed.source) || FRESHDESK_SOURCES[(pushed.source ?? "").toLowerCase() as keyof typeof FRESHDESK_SOURCES] || (/chat/i.test(pushed.source ?? "") ? 7 : 2);
+    return this.ingestFreshdeskTicket({
+      id: pushed.ticket_id,
+      subject: pushed.subject ?? null,
+      description: pushed.description ?? null,
+      source,
+      created_at: new Date().toISOString(),
+      requester: { id: 0, name: pushed.requester_name ?? null, email: pushed.requester_email ?? null },
+    });
+  }
+
+  /**
    * Files the live world's tickets in the real Freshdesk, one every gapMs, as
    * its customers would, and ingests each from Freshdesk's answer (no read
    * back, which keeps within Freshdesk's API rate limit). The poll sees them
    * too, and skips them as already seen. Returns at once; the tickets arrive
    * over the next count × gapMs.
    */
-  fileDemoTickets(options: { count: number; gapMs: number }): { total: number } {
+  fileDemoTickets(options: { count: number; gapMs: number; ingest: "webhook" | "poll" }): { total: number } {
     const freshdesk = this.options.live?.freshdesk;
     if (!freshdesk) throw new Error("Freshdesk is off: set TICKETS=freshdesk");
     if (this.filing) throw new Error(`already filing: ${this.filing.filed} of ${this.filing.total} tickets are in Freshdesk`);
@@ -205,8 +227,10 @@ export class Runtime {
         const subject = t.subject ?? (t.body.length <= 80 ? t.body : `${t.body.slice(0, 77)}…`);
         try {
           const created = await withRateLimitRetry(() => freshdesk.client.createTicket({ email, name, subject, description: t.body, source: FRESHDESK_SOURCES[t.channel] }));
-          this.seenExternal.add(`freshdesk:${created.id}`);
           run.filed += 1;
+          // With webhook ingest, Freshdesk's automation rule pushes the ticket to CrisisCrew: Freshdesk is the trigger.
+          if (options.ingest === "webhook") continue;
+          this.seenExternal.add(`freshdesk:${created.id}`);
           await this.ingestFreshdeskTicket({
             ...created,
             subject,
@@ -342,6 +366,10 @@ export class Runtime {
     const input = freshdeskToTicketInput(t, customer);
     if (!input) return { status: "empty", freshdeskId: t.id };
     const ticket = await this.current().ingest(input, "freshdesk");
+    const freshdesk = this.options.live?.freshdesk;
+    const signal = this.current().snapshot().tickets[ticket.id]?.signal;
+    // The classification, recorded on the Freshdesk ticket where agents see it. A failure here never stops the ingest.
+    if (freshdesk?.labels && signal) void freshdesk.client.label(t.id, freshdeskLabels(signal)).catch((error) => this.options.onError?.(error));
     return { status: "ingested", ticket, matched: customer !== null };
   }
 

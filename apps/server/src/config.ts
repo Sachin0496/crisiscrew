@@ -32,7 +32,7 @@ function ticketsDetail(value: string, config: Config): string {
   if (value !== "freshdesk" || !freshdesk) return "Scenario replay and tickets typed into the UI";
   const ingest = freshdesk.ingest === "webhook" ? "webhook ingest" : `polled every ${freshdesk.pollSeconds} s`;
   const writes = freshdesk.actions === "mcp" ? "Freshdesk's MCP server" : "the REST API";
-  return `${named("Freshdesk", config)} (${freshdesk.domain}): ${ingest}; notes and replies through ${writes}. Replays and typed tickets stay in the sandbox`;
+  return `${named("Freshdesk", config)} (${freshdesk.domain}): ${ingest}; notes and replies through ${writes}${freshdesk.labels ? "; each ticket's classification is set as its type and tags" : ""}. Replays and typed tickets stay in the sandbox`;
 }
 
 const PORTS: Record<PortName, PortSpec> = {
@@ -161,6 +161,8 @@ export type FreshdeskConfig = {
   ingest: "webhook" | "poll";
   pollSeconds: number;
   actions: "rest" | "mcp";
+  /** FRESHDESK_LABELS=on: each classified ticket gets its type and tags set in Freshdesk. */
+  labels: boolean;
 };
 
 export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null; groups: Record<string, number> };
@@ -311,6 +313,7 @@ function freshdeskConfig(env: Env): FreshdeskConfig {
     ingest,
     pollSeconds: Math.max(5, int(env, "FRESHDESK_POLL_SECONDS", 15)),
     actions: oneOf(env, "FRESHDESK_ACTIONS", ["rest", "mcp"] as const),
+    labels: oneOf(env, "FRESHDESK_LABELS", ["off", "on"] as const) === "on",
   };
 }
 
@@ -529,6 +532,7 @@ function withIntegrations(env: Env): { env: Env; integrations: IntegrationsMode;
       FRESHDESK_INGEST: "webhook",
       FRESHDESK_WEBHOOK_SECRET: MOCK.webhookSecret,
       FRESHDESK_ACTIONS: "rest",
+      FRESHDESK_LABELS: "off",
       FRESHSERVICE_DOMAIN: `localhost:${mock.freshservice}`,
       FRESHSERVICE_API_KEY: MOCK.freshserviceApiKey,
       FRESHSERVICE_REQUESTER_EMAIL: MOCK.requesterEmail,

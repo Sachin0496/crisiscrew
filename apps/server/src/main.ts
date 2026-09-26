@@ -65,7 +65,7 @@ function embedder(): Embedder {
 function liveAdapters(): LiveAdapters {
   const live: LiveAdapters = {};
   if (config.freshdesk) {
-    const { domain, apiKey, actions } = config.freshdesk;
+    const { domain, apiKey, actions, labels } = config.freshdesk;
     const client = new FreshdeskClient({ domain, apiKey });
     if (actions === "mcp") {
       const writer = freshdeskMcpWriter({ domain, apiKey });
@@ -74,9 +74,9 @@ function liveAdapters(): LiveAdapters {
         () => console.log(`[crisiscrew] connected to Freshdesk's MCP server at https://${domain}/mcp`),
         (error) => console.error(`[crisiscrew] Freshdesk MCP server: ${error instanceof Error ? error.message : String(error)}`),
       );
-      live.freshdesk = { client, writer };
+      live.freshdesk = { client, writer, labels };
     } else {
-      live.freshdesk = { client, writer: restWriter(client) };
+      live.freshdesk = { client, writer: restWriter(client), labels };
     }
   }
   if (config.freshservice) {
