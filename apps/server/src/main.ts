@@ -16,6 +16,8 @@ import {
   LayaClassifier,
   LocalEmbedder,
   restWriter,
+  sarvamSpeech,
+  VOBIZ_STREAM_PATH,
   vobizTelephony,
   githubCodeHost,
   gitWorkspace,
@@ -27,6 +29,8 @@ import {
 import { MOCK } from "@crisiscrew/contracts";
 import { heuristicGuard, type Embedder, type PromptGuard, type TicketClassifier, type TraceSink } from "@crisiscrew/core";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import type { Server } from "node:http";
+import { WebSocketServer } from "ws";
 import { isAbsolute, join } from "node:path";
 import { ConfigError, loadConfig, wiringReport, type Config } from "./config";
 import { createApp } from "./http/app";
@@ -88,8 +92,18 @@ function liveAdapters(): LiveAdapters {
     live.oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules });
   }
   if (config.vobiz) {
-    const { authId, authToken, from, ringTimeoutSec, timeLimitSec, apiBase, callbackBaseUrl } = config.vobiz;
-    live.telephony = vobizTelephony({ authId, authToken, from, publicBaseUrl: callbackBaseUrl, apiBase, ringTimeoutSec, timeLimitSec });
+    const { authId, authToken, from, ringTimeoutSec, timeLimitSec, apiBase, callbackBaseUrl, sarvam, allowedNumbers } = config.vobiz;
+    live.telephony = vobizTelephony({
+      authId,
+      authToken,
+      from,
+      publicBaseUrl: callbackBaseUrl,
+      apiBase,
+      ringTimeoutSec,
+      timeLimitSec,
+      allowedNumbers,
+      ...(sarvam ? { speech: sarvamSpeech({ apiKey: sarvam.apiKey, speaker: sarvam.speaker }) } : {}),
+    });
   }
   if (config.autofix) {
     const a = config.autofix;
@@ -198,6 +212,27 @@ const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
   }
   console.log(lines.join("\n"));
 });
+
+// A streamed call's audio: Vobiz opens a WebSocket to the URL its answer XML named, with the call's own token.
+if (config.vobiz?.sarvam) {
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
+  (server as Server).on("upgrade", (req, socket, head) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const callId = VOBIZ_STREAM_PATH.exec(url.pathname)?.[1];
+    const vobiz = runtime.vobiz;
+    if (!callId || !vobiz) return socket.destroy();
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      const conversation = vobiz.openStream(decodeURIComponent(callId), url.searchParams.get("token") ?? "", {
+        send: (data) => ws.readyState === ws.OPEN && ws.send(data),
+        close: () => ws.close(),
+      });
+      if (!conversation) return ws.close(1008, "unknown call or wrong token");
+      ws.on("message", (data) => conversation.receive(data.toString()));
+      ws.on("close", () => conversation.close());
+      ws.on("error", (error) => console.error("[crisiscrew] Vobiz stream:", error.message));
+    });
+  });
+}
 
 // The poll fallback for Freshdesk ingest: one poll at a time, errors reported, never fatal.
 if (config.freshdesk?.ingest === "poll") {

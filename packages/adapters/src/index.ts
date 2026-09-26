@@ -16,6 +16,8 @@ export * from "./infra/parse";
 export * from "./sandbox/ports";
 export * from "./telephony/calls";
 export * from "./telephony/sandbox";
+export * from "./telephony/sarvam";
+export * from "./telephony/stream";
 export * from "./telephony/vobiz";
 export * from "./autofix/github";
 export * from "./autofix/google";

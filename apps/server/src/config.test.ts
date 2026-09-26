@@ -68,12 +68,34 @@ describe("loadConfig", () => {
       timeLimitSec: 300,
       apiBase: "https://api.vobiz.ai",
       callbackBaseUrl: "https://crisis.example.com",
+      sarvam: null,
+      allowedNumbers: [],
     });
     expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "live", adapter: "vobiz" });
     expect(() => loadConfig({ ...keys, VOBIZ_AUTH_TOKEN: "", VOBIZ_FROM_NUMBER: "" })).toThrow("TELEPHONY=vobiz needs VOBIZ_AUTH_TOKEN, VOBIZ_FROM_NUMBER; see .env.example");
     expect(() => loadConfig({ ...keys, PUBLIC_BASE_URL: "http://localhost:8787" })).toThrow(/PUBLIC_BASE_URL.*https/);
     expect(() => loadConfig({ ...keys, ADMIN_TOKEN: "" })).toThrow(/ADMIN_TOKEN/);
     expect(() => loadConfig({ ...keys, VOBIZ_FROM_NUMBER: "reception" })).toThrow(/E\.164/);
+  });
+
+  it("voices on-call pages with Sarvam when asked, and calls only allowed numbers", () => {
+    const keys = {
+      TELEPHONY: "vobiz",
+      VOBIZ_AUTH_ID: "MA123",
+      VOBIZ_AUTH_TOKEN: "tok",
+      VOBIZ_FROM_NUMBER: "+918065551234",
+      PUBLIC_BASE_URL: "https://crisis.example.com",
+      ADMIN_TOKEN: "admin",
+      APPROVER_TOKEN: "approver",
+      VOBIZ_VOICE: "sarvam",
+      SARVAM_API_KEY: "sk",
+      VOBIZ_ALLOWED_NUMBERS: "+91 98450 12345, +919876543210",
+    };
+    expect(loadConfig(keys).vobiz).toMatchObject({ sarvam: { apiKey: "sk", speaker: "priya" }, allowedNumbers: ["+91 98450 12345", "+919876543210"] });
+    expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")?.detail).toMatch(/Sarvam.*only 2 allowed numbers/);
+    expect(() => loadConfig({ ...keys, SARVAM_API_KEY: "" })).toThrow(/VOBIZ_VOICE=sarvam needs SARVAM_API_KEY/);
+    expect(() => loadConfig({ ...keys, VOBIZ_VOICE: "elevenlabs" })).toThrow(/VOBIZ_VOICE must be one of vobiz, sarvam/);
+    expect(() => loadConfig({ ...keys, VOBIZ_ALLOWED_NUMBERS: "me" })).toThrow(/VOBIZ_ALLOWED_NUMBERS/);
   });
 
   it("reads Freshservice on-call schedules, per service or by default, and names what's missing", () => {

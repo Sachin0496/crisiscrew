@@ -55,7 +55,13 @@ const FreshserviceAck = z.object({ ticket_id: z.coerce.number().int().positive()
 
 const ImportanceBody = z.object({ level: z.enum(["P1", "P2", "P3"]), note: z.string().trim().max(500).optional() }).strict();
 
-const TestCall = z.object({ to: z.string().trim().min(8).max(20) }).strict();
+// talk: the call is a conversation (streamed and voiced by Sarvam when VOBIZ_VOICE=sarvam) that repeats back what it heard.
+const TestCall = z.object({ to: z.string().trim().min(8).max(20), talk: z.boolean().optional() }).strict();
+
+/** The test call's conversation: it says back what it heard, so the whole voice path is checked, then hangs up. */
+const echoDialog = {
+  respond: (utterance: string) => ({ say: `I heard: ${utterance}. Your line and the voice agent both work. Goodbye.`, end: true }),
+};
 
 const TEST_CALL_SCRIPT = "This is a test call from CrisisCrew. Your phone line is set up to receive incident calls.";
 
@@ -256,8 +262,9 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
         to: parsed.data.to,
         script: TEST_CALL_SCRIPT,
         purpose: "oncall",
-        gather: { prompt: "Press 1 to confirm you can hear this." },
+        gather: { prompt: parsed.data.talk ? "Say something, and I'll repeat what I heard." : "Press 1 to confirm you can hear this." },
         metadata: { test: "true" },
+        ...(parsed.data.talk ? { dialog: echoDialog } : {}),
       });
       return c.json({ callId, status: runtime.state().calls[callId] ?? null }, 202);
     } catch (error) {

@@ -81,6 +81,10 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
 | mock | `pnpm demo:mock` | `apps/mock`: local Freshdesk, Freshservice, Vobiz, GitHub, Google Docs and Slack APIs, through the real adapters |
 | real | `pnpm start:real` | Freshdesk, Freshservice and Vobiz, with the keys in `.env` |
 
+For a real-mode demo, two scripts play the outside world:
+- `node scripts/freshdesk-seed.mjs [scenario] [--speed 3]` files the scenario's tickets in your Freshdesk, paced like the scenario, from the customers' `@example.com` addresses so CrisisCrew can match them to their payments.
+- `node scripts/fire-freshservice-alert.mjs [--severity critical]` plays the monitoring tool: it posts a checkout-service 5xx alert to your Alert Management webhook integration (`FRESHSERVICE_ALERT_WEBHOOK_URL` and `_KEY`). `--print-sample` prints the payload to paste when you create the integration.
+
 `pnpm demo:mock` starts the mock and CrisisCrew together. Open the **demo cockpit** at http://localhost:8788 and press **Start the incident**:
 1. 24 customers write in to Freshdesk. The Pattern Agent sorts them into two groups: 19 failed payments (P1) and 5 stuck deliveries (P3).
 2. For the P1, Freshservice On-Call names the engineer on duty and Vobiz rings her phone. The AI voice agent briefs her from live incident data, and the transcript runs on the phone beside the flow.
@@ -278,6 +282,10 @@ When the importance says to page (P1 by default), the Incident Commander phones 
 4. **Acknowledging another way:**
    - an operator: `POST /api/incidents/:id/page/acknowledge` (admin);
    - a Freshservice workflow on the incident ticket: `POST /api/webhooks/freshservice/acknowledge` with `{"ticket_id": 314, "agent_name": "..."}` and `X-CrisisCrew-Secret`.
+
+**Sarvam voice (`VOBIZ_VOICE=sarvam`):** the page becomes a streamed conversation. The answer XML opens a bidirectional `<Stream>` to `wss://{PUBLIC_BASE_URL}/api/webhooks/vobiz/:callId/stream?token=…` (a per-call secret), and the call's 16 kHz audio flows both ways. An energy detector finds each spoken turn; Sarvam `saaras:v3` turns it into text, the page dialog answers from live incident state (impact, cause, fix status), and `bulbul:v3` speaks the answer back. Saying "acknowledge" counts as pressing 1, talking over the agent stops it, and "bye" ends the call. Sarvam only hears and speaks: every answer still comes from what the engine knows. In English; a turn takes about 2.5 s from the end of speech to the reply.
+
+**Allowed numbers (`VOBIZ_ALLOWED_NUMBERS`):** the scenarios' on-call and customer numbers look like real Indian mobiles, so a real-mode demo should list the only numbers it may ring. Any other call is refused before dialling, and the refusal shows on the attempt.
 
 Every call is a gated, audited `page_on_call` (L1, Incident Commander only). Its outcome is a private note on the Freshservice incident, and the Incident page's **On-call** card shows each attempt. In the hero, Neha Kapoor (primary) presses 1 on the first call; a P2 incident, like the UPI outage, pages no one.
 
@@ -547,7 +555,8 @@ MCP Inspector, Claude, or Freshservice's Agent Studio MCP Gateway can connect th
 | `POST /api/incidents/:id/page/acknowledge` | admin: `{"by"?: "..."}` takes the on-call page, so no one else is called |
 | `POST /api/webhooks/freshservice/acknowledge` | a Freshservice workflow: `{"ticket_id": 314, "agent_name"?: "..."}` with `X-CrisisCrew-Secret` acknowledges the page for the incident filed as that ticket |
 | `POST /api/incidents/:id/importance` | admin: `{"level": "P1", "P2" or "P3", "note"?: "..."}` sets the importance by hand; the rules then leave it alone |
-| `POST /api/telephony/test-call` | admin: place one short call to `{"to": "+91..."}` to check the phone line; its progress arrives as `call.updated` events |
+| `POST /api/telephony/test-call` | admin: place one short call to `{"to": "+91..."}` to check the phone line; its progress arrives as `call.updated` events. `"talk": true` makes it a conversation that repeats back what it heard (streamed through Sarvam with `VOBIZ_VOICE=sarvam`) |
+| `GET /api/webhooks/vobiz/:callId/stream` | WebSocket: a streamed call's audio (`VOBIZ_VOICE=sarvam`), opened by Vobiz with the call's own token |
 | `GET /api/calls/:id` | a call's state: queued, ringing, answered, then completed, no answer, busy or failed. Numbers are masked to the last four digits |
 | `POST /api/webhooks/vobiz/:callId/:kind` | Vobiz's callbacks (`answer`, `ring`, `hangup`, `digits`), checked against `X-Vobiz-Signature-V3` |
 | `POST /api/approvals/:id` | `{"decision": "approve", "reject" or "modify", "amountInr"?: 500}` for one customer's credit |

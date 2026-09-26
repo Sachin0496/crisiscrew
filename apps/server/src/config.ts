@@ -64,7 +64,7 @@ const PORTS: Record<PortName, PortSpec> = {
     mode: (v, c) => external(v === "vobiz", c),
     detail: (v, c) =>
       v === "vobiz" && c.vobiz
-        ? `${named("Vobiz", c)}: calls from ${c.vobiz.from}, with callbacks to ${c.vobiz.callbackBaseUrl}/api/webhooks/vobiz`
+        ? `${named("Vobiz", c)}: calls from ${c.vobiz.from}, with callbacks to ${c.vobiz.callbackBaseUrl}/api/webhooks/vobiz${c.vobiz.sarvam ? "; on-call pages stream both ways, voiced by Sarvam (saaras:v3 hears, bulbul:v3 speaks)" : ""}${c.vobiz.allowedNumbers.length ? `; only ${c.vobiz.allowedNumbers.length} allowed ${c.vobiz.allowedNumbers.length === 1 ? "number" : "numbers"}` : ""}`
         : "Calls are simulated: they ring, and are answered, missed or busy, the same way on every replay",
   },
   oncall: {
@@ -173,6 +173,10 @@ export type VobizConfig = {
   apiBase: string;
   /** Where Vobiz calls back: PUBLIC_BASE_URL, or this server on localhost for the mock. */
   callbackBaseUrl: string;
+  /** VOBIZ_VOICE=sarvam: conversational calls stream their audio and Sarvam hears and speaks them. Null: Vobiz's own voice. */
+  sarvam: { apiKey: string; speaker: string } | null;
+  /** VOBIZ_ALLOWED_NUMBERS: when set, the only numbers CrisisCrew may call. */
+  allowedNumbers: string[];
 };
 
 /**
@@ -337,6 +341,8 @@ function vobizConfig(env: Env, mock: MockPortsConfig | null): VobizConfig {
       ...timing,
       apiBase: `http://localhost:${mock.vobiz}`,
       callbackBaseUrl: `http://localhost:${int(env, "PORT", 8787)}`,
+      sarvam: null,
+      allowedNumbers: [],
     };
   }
   const missing = ["VOBIZ_AUTH_ID", "VOBIZ_AUTH_TOKEN", "VOBIZ_FROM_NUMBER"].filter((k) => !text(env, k));
@@ -349,6 +355,11 @@ function vobizConfig(env: Env, mock: MockPortsConfig | null): VobizConfig {
   if (!text(env, "ADMIN_TOKEN")) throw new ConfigError("TELEPHONY=vobiz needs ADMIN_TOKEN, so only an admin can place a test call");
   const from = text(env, "VOBIZ_FROM_NUMBER")!;
   if (!/^\+?[1-9]\d{7,14}$/.test(from.replace(/[\s()-]/g, ""))) throw new ConfigError("VOBIZ_FROM_NUMBER must be a phone number in E.164 format, e.g. +918065551234");
+  const voice = oneOf(env, "VOBIZ_VOICE", ["vobiz", "sarvam"] as const);
+  if (voice === "sarvam" && !text(env, "SARVAM_API_KEY")) throw new ConfigError("VOBIZ_VOICE=sarvam needs SARVAM_API_KEY; see .env.example");
+  const allowedNumbers = (text(env, "VOBIZ_ALLOWED_NUMBERS") ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+  const bad = allowedNumbers.find((n) => !/^\+?[1-9]\d{7,14}$/.test(n.replace(/[\s()-]/g, "")));
+  if (bad) throw new ConfigError(`VOBIZ_ALLOWED_NUMBERS: "${bad}" is not a phone number in E.164 format`);
   return {
     authId: text(env, "VOBIZ_AUTH_ID")!,
     authToken: text(env, "VOBIZ_AUTH_TOKEN")!,
@@ -356,6 +367,8 @@ function vobizConfig(env: Env, mock: MockPortsConfig | null): VobizConfig {
     ...timing,
     apiBase: "https://api.vobiz.ai",
     callbackBaseUrl: base.replace(/\/+$/, ""),
+    sarvam: voice === "sarvam" ? { apiKey: text(env, "SARVAM_API_KEY")!, speaker: text(env, "SARVAM_SPEAKER") ?? "priya" } : null,
+    allowedNumbers,
   };
 }
 
