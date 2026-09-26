@@ -275,6 +275,15 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
     return c.json(await runtime.setImportance(id, parsed.data.level, by, parsed.data.note || undefined));
   });
 
+  // A Vobiz application's answer URL (calls into the number or a SIP endpoint). CrisisCrew only places calls, so it says so and hangs up.
+  app.post("/api/webhooks/vobiz/app/answer", webhookLimit, (c) =>
+    c.body(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Speak>This number places CrisisCrew incident calls and does not take calls. Goodbye.</Speak><Hangup/></Response>`,
+      200,
+      { "content-type": "application/xml; charset=utf-8" },
+    ),
+  );
+
   // Vobiz fetches what a call says and reports its progress here. Each callback is signed with the account's auth token.
   app.post("/api/webhooks/vobiz/:callId/:kind", webhookLimit, async (c) => {
     const vobiz = runtime.vobiz;
