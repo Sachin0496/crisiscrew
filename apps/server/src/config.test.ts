@@ -78,6 +78,18 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...keys, VOBIZ_FROM_NUMBER: "reception" })).toThrow(/E\.164/);
   });
 
+  it("offers the real-mode demo triggers only when their services are wired", () => {
+    const fd = { TICKETS: "freshdesk", FRESHDESK_DOMAIN: "acme", FRESHDESK_API_KEY: "k", FRESHDESK_INGEST: "poll" };
+    expect(loadConfig({}).demo).toEqual({ tickets: null, alert: null });
+    expect(loadConfig(fd).demo.tickets).toEqual({ count: 17, gapMs: 4000 });
+    expect(loadConfig({ ...fd, DEMO_TICKETS: "10", DEMO_TICKET_GAP_MS: "2000" }).demo.tickets).toEqual({ count: 10, gapMs: 2000 });
+    const alert = { FRESHSERVICE_ALERT_WEBHOOK_URL: "https://acme.alerts.freshservice.com/integrations/1/alerts", FRESHSERVICE_ALERT_WEBHOOK_KEY: "auth-key abc" };
+    expect(loadConfig(alert).demo.alert).toEqual({ url: alert.FRESHSERVICE_ALERT_WEBHOOK_URL, key: "abc", service: "checkout-service" });
+    expect(() => loadConfig({ FRESHSERVICE_ALERT_WEBHOOK_URL: alert.FRESHSERVICE_ALERT_WEBHOOK_URL })).toThrow(/go together/);
+    expect(() => loadConfig({ ...alert, FRESHSERVICE_ALERT_WEBHOOK_URL: "https://evil.example.com/x" })).toThrow(/alerts\.freshservice\.com/);
+    expect(loadConfig({ CLASSIFIER: "laya-sim" }).switches.classifier).toBe("laya-sim");
+  });
+
   it("voices on-call pages with Sarvam when asked, and calls only allowed numbers", () => {
     const keys = {
       TELEPHONY: "vobiz",

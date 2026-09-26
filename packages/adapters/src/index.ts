@@ -7,6 +7,7 @@ export * from "./freshworks/freshservice";
 export * from "./freshworks/freshservice-alerts";
 export * from "./freshworks/http";
 export * from "./classifiers/laya";
+export * from "./classifiers/laya-sim";
 export * from "./egress";
 export * from "./guards/lakera";
 export * from "./observability/langsmith";

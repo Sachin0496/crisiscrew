@@ -17,6 +17,7 @@ import {
   LocalEmbedder,
   restWriter,
   sarvamSpeech,
+  simulatedLaya,
   VOBIZ_STREAM_PATH,
   vobizTelephony,
   githubCodeHost,
@@ -89,7 +90,16 @@ function liveAdapters(): LiveAdapters {
   }
   if (config.oncall) {
     const { domain, apiKey, defaultScheduleId, schedules } = config.oncall;
-    live.oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules });
+    const oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules });
+    live.oncall = oncall;
+    // Ask once now: Freshservice's on-call API is slow on its first call, and this shows at startup who a page would ring.
+    oncall.whoIsOnCall("").then(
+      (responders) =>
+        console.log(
+          `[crisiscrew] Freshservice on-call now: ${responders.map((r) => `${r.name} (${r.role}${r.phone ? `, ••••${r.phone.replace(/\D/g, "").slice(-4)}` : ", no phone"})`).join(", ") || "nobody on shift"}`,
+        ),
+      (error) => console.error(`[crisiscrew] Freshservice on-call: ${error instanceof Error ? error.message : String(error)}`),
+    );
   }
   if (config.vobiz) {
     const { authId, authToken, from, ringTimeoutSec, timeLimitSec, apiBase, callbackBaseUrl, sarvam, allowedNumbers } = config.vobiz;
@@ -134,6 +144,7 @@ function promptGuard(): PromptGuard {
 }
 
 function classifier(): TicketClassifier | null {
+  if (config.switches.classifier === "laya-sim") return simulatedLaya();
   if (!config.laya) return null;
   const { baseUrl, apiKey, model } = config.laya;
   const options = { baseUrl, ...(apiKey ? { apiKey } : {}), ...(model ? { model } : {}), fetch: egress };
@@ -201,7 +212,7 @@ const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
       .join("\n") || "               Freshworks adapters are off (sandbox); switch them on in .env.",
     `  Tokens       admin ${config.adminToken ? "set" : "not set (open, local demo)"}, approver ${config.approverToken ? "set" : "not set (open, local demo)"}`,
     `  Workflows    LangGraph; traces at ${base}/#/traces${config.langsmith ? ` and in LangSmith project "${config.langsmith.project}"` : ""}`,
-    `  Guardrails   prompt guard: ${config.lakera ? "Lakera + built-in rules" : "built-in rules"}; classifier: ${config.laya ? `Laya at ${config.laya.baseUrl}` : "built-in"}${config.egress.length ? `; egress allow-list: ${config.egress.join(", ")}` : ""}`,
+    `  Guardrails   prompt guard: ${config.lakera ? "Lakera + built-in rules" : "built-in rules"}; classifier: ${config.laya ? `Laya at ${config.laya.baseUrl}` : config.switches.classifier === "laya-sim" ? "Laya (simulated)" : "built-in"}${config.egress.length ? `; egress allow-list: ${config.egress.join(", ")}` : ""}`,
   ];
   if (config.freshdesk?.ingest === "webhook") lines.push(`  Freshdesk    webhook: POST ${base}/api/webhooks/freshdesk with header X-CrisisCrew-Secret`);
   if (config.vobiz) lines.push(`  Vobiz        callbacks: ${config.vobiz.callbackBaseUrl}/api/webhooks/vobiz/:callId/:kind (signed); test call: POST ${base}/api/telephony/test-call`);

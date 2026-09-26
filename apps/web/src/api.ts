@@ -7,6 +7,8 @@ export type Health = {
   version: string;
   session: CrisisState["session"];
   auth: { admin: boolean; approver: boolean };
+  /** Real-mode demo triggers: how many tickets the Freshdesk button files, and the service the alert button fires on; null when off. */
+  demo?: { freshdeskTickets: number | null; freshserviceAlert: string | null; filing: { filed: number; total: number; failed: number } | null };
 };
 
 export type ScenarioSummary = { id: string; title: string; purpose: string; speed: number; expected: Expected; tickets: number };
@@ -79,6 +81,8 @@ export const api = {
   customers: () => get<DirectoryEntry[]>("/api/customers"),
   replay: (scenario: string, speed: number) => post<{ sessionId: string }>("/api/replay", { scenario, speed }, "admin"),
   live: () => post<{ sessionId: string }>("/api/live", {}, "admin"),
+  demoTickets: () => post<{ total: number }>("/api/demo/freshdesk-tickets", {}, "admin"),
+  demoAlert: () => post<{ fired: boolean; service: string }>("/api/demo/freshservice-alert", {}, "admin"),
   addTicket: (ticket: { customerName: string; channel: string; body: string }) => post<Ticket>("/api/tickets", ticket, "admin"),
   decide: (approvalId: string, body: DecisionBody) => post<Approval>(`/api/approvals/${approvalId}`, body, "approver"),
 };

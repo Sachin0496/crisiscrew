@@ -8,7 +8,9 @@
 //   node scripts/fire-freshservice-alert.mjs [--severity critical|warning|resolved] [--service checkout-service] [--print-sample]
 //
 // Needs FRESHSERVICE_ALERT_WEBHOOK_URL and FRESHSERVICE_ALERT_WEBHOOK_KEY (the
-// endpoint URL and authentication key the integration shows). Run with
+// endpoint URL and authentication key the integration shows; the key is sent
+// as "Authorization: auth-key <key>"). The UI's "Fire Freshservice alert"
+// button does the same from the server. Run with
 // --print-sample to get the payload to paste when you create the integration.
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -51,7 +53,7 @@ if (!url || !key) {
 
 const res = await fetch(url, {
   method: "POST",
-  headers: { "content-type": "application/json", authorization: key, "x-api-key": key },
+  headers: { "content-type": "application/json", authorization: `auth-key ${key.replace(/^auth-key\s+/i, "")}` },
   body: JSON.stringify(alert),
   signal: AbortSignal.timeout(15_000),
 });

@@ -1,5 +1,5 @@
 import { serveStatic } from "@hono/node-server/serve-static";
-import { VOBIZ_CALLBACKS, type VobizCallback } from "@crisiscrew/adapters";
+import { postMonitoringAlert, VOBIZ_CALLBACKS, type VobizCallback } from "@crisiscrew/adapters";
 import { DecisionBody, impactGraph, LEVEL_NAMES, ReplayBody } from "@crisiscrew/contracts";
 import { describeWorkflows } from "@crisiscrew/core";
 import { timingSafeEqual } from "node:crypto";
@@ -117,8 +117,46 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
       uptimeSec: Math.round((Date.now() - startedAt) / 1000),
       session: runtime.state().session,
       auth: { admin: config.adminToken !== null, approver: config.approverToken !== null },
+      demo: { freshdeskTickets: config.demo.tickets?.count ?? null, freshserviceAlert: config.demo.alert?.service ?? null, filing: runtime.demoFiling },
     }),
   );
+
+  // Real-mode demo: file the live world's tickets in Freshdesk, as its customers would.
+  app.post("/api/demo/freshdesk-tickets", adminLimit, admin, (c) => {
+    if (!config.demo.tickets) return c.json({ error: "Filing demo tickets needs TICKETS=freshdesk against a real Freshdesk" }, 404);
+    try {
+      return c.json(runtime.fileDemoTickets(config.demo.tickets), 202);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
+    }
+  });
+
+  // Real-mode demo: play the monitoring tool, and post a critical alert to Freshservice Alert Management.
+  app.post("/api/demo/freshservice-alert", adminLimit, admin, async (c) => {
+    const alert = config.demo.alert;
+    if (!alert) return c.json({ error: "Firing a demo alert needs FRESHSERVICE_ALERT_WEBHOOK_URL and FRESHSERVICE_ALERT_WEBHOOK_KEY" }, 404);
+    try {
+      await postMonitoringAlert(alert, {
+        resource: alert.service,
+        node: `${alert.service}-prod`,
+        metric_name: "http_5xx_rate",
+        metric_value: "3.4%",
+        severity: "critical",
+        message: `${alert.service} 5xx error rate at 3.4%, above the 1% threshold`,
+        description: `Payment API errors on ${alert.service} jumped after the last release. Fired from the CrisisCrew demo.`,
+        tags: [`service:${alert.service}`],
+      });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
+    }
+    // Alert Management files it a few seconds after accepting it; read it back then rather than waiting for the next poll.
+    if (config.alerts) {
+      for (const delay of [5_000, 12_000]) {
+        setTimeout(() => runtime.pollFreshserviceAlerts().catch((error) => onError?.(error)), delay);
+      }
+    }
+    return c.json({ fired: true, service: alert.service }, 202);
+  });
 
   app.get("/api/wiring", (c) => c.json(wiringReport(config)));
   app.get("/api/state", (c) => c.json(runtime.state()));

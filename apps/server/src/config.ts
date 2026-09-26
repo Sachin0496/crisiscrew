@@ -108,11 +108,13 @@ const PORTS: Record<PortName, PortSpec> = {
   },
   classifier: {
     env: "CLASSIFIER",
-    options: ["embeddings", "laya"],
-    wired: ["embeddings", "laya"],
+    options: ["embeddings", "laya", "laya-sim"],
+    wired: ["embeddings", "laya", "laya-sim"],
     mode: () => "live",
     detail: (v, c) =>
-      v === "laya" && c.laya
+      v === "laya-sim"
+        ? "Laya (simulated): Laya's two questions, failure/question/request and the product area, answered from keyword evidence on this machine. Unsure answers leave the built-in labels in place"
+        : v === "laya" && c.laya
         ? `Laya at ${hostOf(c.laya.baseUrl)}${c.laya.model ? ` (${c.laya.model} checkpoint)` : " (its router picks the checkpoint)"}: failure, question or request, and the product area. The built-in classifier answers if Laya doesn't`
         : "Built in: each ticket is labeled failure, question or request against the embedding prototypes",
   },
@@ -252,6 +254,16 @@ export type Config = {
   infra: InfraConfig | null;
   /** Lets a Freshservice workflow acknowledge a page: POST /api/webhooks/freshservice/acknowledge with X-CrisisCrew-Secret. */
   freshserviceWebhookSecret: string | null;
+  /**
+   * The demo triggers for a real-mode run. tickets: file the live world's
+   * tickets in Freshdesk (needs TICKETS=freshdesk). alert: post a critical
+   * alert to a Freshservice Alert Management webhook integration (needs
+   * FRESHSERVICE_ALERT_WEBHOOK_URL and _KEY).
+   */
+  demo: {
+    tickets: { count: number; gapMs: number } | null;
+    alert: { url: string; key: string; service: string } | null;
+  };
 };
 
 type Env = Record<string, string | undefined>;
@@ -607,6 +619,21 @@ export function loadConfig(input: Env): Config {
     alerts: switches.alerts === "freshservice" ? alertsConfig(env) : null,
     infra: switches.infra === "mcp" ? infraConfig(env) : null,
     freshserviceWebhookSecret: text(env, "FRESHSERVICE_WEBHOOK_SECRET"),
+    demo: demoConfig(env, switches, mock),
+  };
+}
+
+function demoConfig(env: Env, switches: Record<PortName, string>, mock: MockPortsConfig | null): Config["demo"] {
+  const alertUrl = text(env, "FRESHSERVICE_ALERT_WEBHOOK_URL");
+  const alertKey = text(env, "FRESHSERVICE_ALERT_WEBHOOK_KEY");
+  if (Boolean(alertUrl) !== Boolean(alertKey)) throw new ConfigError("FRESHSERVICE_ALERT_WEBHOOK_URL and FRESHSERVICE_ALERT_WEBHOOK_KEY go together; see .env.example");
+  if (alertUrl && !/^https:\/\/[a-z0-9-]+\.alerts\.freshservice\.com\//i.test(alertUrl)) {
+    throw new ConfigError("FRESHSERVICE_ALERT_WEBHOOK_URL must be the https://<account>.alerts.freshservice.com/integrations/… endpoint of a webhook integration");
+  }
+  return {
+    // The mock cockpit files its own tickets; this trigger is for a real Freshdesk.
+    tickets: switches.tickets === "freshdesk" && !mock ? { count: Math.max(1, int(env, "DEMO_TICKETS", 17)), gapMs: Math.max(500, int(env, "DEMO_TICKET_GAP_MS", 4000)) } : null,
+    alert: alertUrl && alertKey && !mock ? { url: alertUrl, key: alertKey.replace(/^auth-key\s+/i, ""), service: text(env, "DEMO_ALERT_SERVICE") ?? "checkout-service" } : null,
   };
 }
 
