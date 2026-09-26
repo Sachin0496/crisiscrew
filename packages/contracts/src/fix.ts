@@ -2,11 +2,12 @@
  * The Fix Agent's work on one incident: it gathers context, clones the
  * service's repository, lets a headless coding agent (OpenCode) reproduce
  * and patch the bug, verifies the tests itself, opens a pull request for a
- * human to review, and shares an incident report. It never merges or deploys.
+ * human to review once deterministic security checks pass, and shares an
+ * incident report. It never merges or deploys.
  */
 
 /** The steps of a fix, in order. */
-export const FIX_STAGES = ["context", "workspace", "reproduce", "patch", "verify", "pull_request", "report"] as const;
+export const FIX_STAGES = ["context", "workspace", "reproduce", "patch", "verify", "security", "pull_request", "report"] as const;
 export type FixStage = (typeof FIX_STAGES)[number];
 export type FixStepStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
@@ -30,6 +31,12 @@ export type FixSessionEvent = {
   ok?: boolean;
 };
 
+/** One finding of the security checks on the fix's diff. P1 blocks the pull request. */
+export type FixFinding = { severity: "P1" | "P2" | "P3"; rule: string; file: string; line?: number; text: string };
+
+/** Deterministic security checks on the lines the coding agent added: no model in the loop. */
+export type FixSecurity = { findings: FixFinding[]; files: number; addedLines: number; rules: number; ok: boolean; at: number };
+
 /** One run of the repository's tests. */
 export type FixTestRun = { command: string; passed: number; failed: number; ok: boolean; output: string; at: number };
 
@@ -50,6 +57,7 @@ export type FixView = {
   agent?: { tool: string; model: string; sessionId?: string };
   session: FixSessionEvent[];
   tests: { before?: FixTestRun; after?: FixTestRun; verified?: FixTestRun };
+  security?: FixSecurity;
   diff?: { files: { path: string; additions: number; deletions: number }[]; patch: string; sha: string };
   pullRequest?: { number: number; url: string; title: string; reviewers: string[]; assignees: string[] };
   report?: { id: string; url: string; title: string; sharedWith: string[] };

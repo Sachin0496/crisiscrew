@@ -27,6 +27,7 @@ export const TOOL_NAMES = [
   "gather_fix_context",
   "start_fix_session",
   "verify_fix",
+  "scan_fix_security",
   "open_fix_pull_request",
   "publish_incident_report",
 ] as const;

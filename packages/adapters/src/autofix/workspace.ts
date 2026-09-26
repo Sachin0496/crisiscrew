@@ -69,6 +69,11 @@ export function gitWorkspace(options: { root: string; author: { name: string; em
       return { dir };
     },
     test: runTests,
+    async diff(dir) {
+      // Intent-to-add, so new files show in the diff without staging their content.
+      await git(dir, "add -A -N");
+      return git(dir, "diff");
+    },
     async commitAndPush(dir, branch, message) {
       await git(dir, "add -A");
       await git(dir, `commit --quiet -m ${q(message)}`);

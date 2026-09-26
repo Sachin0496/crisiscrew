@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ToolDef } from "../policy/gate";
 import type { DocBlock, FixPorts, RepoInfo } from "../ports";
 import type { ToolCtx } from "./definitions";
+import { scanPatch, SECURITY_RULES } from "./security";
 
 /**
  * The Fix Agent's tools. It reads context (L0), then works only in a scratch
@@ -95,6 +96,14 @@ export function summarizeChange(files: { path: string; patch: string }[]): { sen
   return { sentence: files.length ? `The release changed ${files.map((f) => f.path).join(", ")}.` : "The release diff is empty.", keywords: [] };
 }
 
+/** "8 deterministic checks on 3 files: no findings." */
+function securityLine(fix: FixView): string {
+  const s = fix.security;
+  if (!s) return "not run.";
+  const counts = (["P1", "P2", "P3"] as const).map((p) => [p, s.findings.filter((f) => f.severity === p).length] as const).filter(([, n]) => n);
+  return `${s.rules} deterministic checks on ${s.files} file${s.files === 1 ? "" : "s"}: ${counts.length ? counts.map(([p, n]) => `${n} ${p}`).join(", ") : "no findings"}.`;
+}
+
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
 /** The task the coding agent gets: everything it needs, and the limits of its job. */
@@ -144,6 +153,7 @@ function reportBlocks(ctx: ToolCtx, incident: IncidentView, fix: FixView): DocBl
         `Branch ${fix.branch} on ${fix.repo?.fullName}, written by ${fix.agent?.tool ?? "a coding agent"} (${fix.agent?.model ?? "model unknown"}) in headless mode.`,
         `Reproduced first: ${fix.tests.before ? `${fix.tests.before.failed} failing test${fix.tests.before.failed === 1 ? "" : "s"} before the change` : "no failing test recorded"}.`,
         `Verified by CrisisCrew: ${fix.tests.verified?.passed ?? 0} passed, ${fix.tests.verified?.failed ?? 0} failed.`,
+        `Security checks: ${securityLine(fix)}`,
         ...(fix.diff?.files ?? []).map((f) => `${f.path} (+${f.additions} −${f.deletions})`),
       ],
     },
@@ -296,6 +306,34 @@ export function fixTools(): FixTool[] {
       summarize: (r) => `${(r as { passed: number }).passed} passed, ${(r as { failed: number }).failed} failed`,
     },
     {
+      name: "scan_fix_security",
+      description: "Run deterministic security checks on the lines the fix adds (secrets, disabled TLS, code execution, SQL concatenation, CI, CODEOWNERS and dependency changes). A P1 finding keeps it from review.",
+      input: idOnly,
+      level: fixed(0),
+      adapter: (ctx) => ctx.ports.fix?.workspace.adapter ?? "off",
+      condition(args, ctx) {
+        const fix = ctx.state().fixes[(args as { incidentId: string }).incidentId];
+        if (!fix?.workdir) return "there's no workspace";
+        return fix.tests.verified?.ok ? null : "the tests haven't passed CrisisCrew's own run";
+      },
+      async run(args, ctx) {
+        const { incidentId } = args as { incidentId: string };
+        const host = { state: ctx.state, emit: ctx.emit, now: ctx.now };
+        const fix = ctx.state().fixes[incidentId]!;
+        patchFix(host, incidentId, (f) => stage(f, "security", "running", `${SECURITY_RULES} checks on the diff`, ctx.now()));
+        const scan = scanPatch(await portsOf(ctx).workspace.diff(fix.workdir!));
+        const blocking = scan.findings.filter((f) => f.severity === "P1").length;
+        const security = { ...scan, rules: SECURITY_RULES, ok: blocking === 0, at: ctx.now() };
+        const detail = scan.findings.length ? `${scan.findings.length} finding${scan.findings.length === 1 ? "" : "s"}${blocking ? `, ${blocking} blocking` : ""}` : `${SECURITY_RULES} checks, no findings`;
+        patchFix(host, incidentId, (f) => stage({ ...f, security }, "security", security.ok ? "done" : "failed", detail, ctx.now()));
+        return { findings: scan.findings.length, blocking, files: scan.files, addedLines: scan.addedLines };
+      },
+      summarize: (r) => {
+        const res = r as { findings: number; blocking: number; files: number };
+        return `${res.files} files scanned: ${res.findings} findings, ${res.blocking} blocking`;
+      },
+    },
+    {
       name: "open_fix_pull_request",
       description: "Commit the fix on its own branch, push it, and open a pull request with the code owners as reviewers and the on-call engineer assigned. Only after CrisisCrew's own test run passed. It can never merge.",
       input: idOnly,
@@ -306,7 +344,9 @@ export function fixTools(): FixTool[] {
         if (!fix?.workdir || !fix.branch) return "there's no workspace";
         if (fix.pullRequest) return `already opened as #${fix.pullRequest.number}`;
         if (!fix.tests.verified) return "the tests haven't been verified";
-        return fix.tests.verified.ok ? null : `the tests fail (${fix.tests.verified.failed} failing): nothing goes to review`;
+        if (!fix.tests.verified.ok) return `the tests fail (${fix.tests.verified.failed} failing): nothing goes to review`;
+        if (!fix.security) return "the security checks haven't run";
+        return fix.security.ok ? null : "a security check blocks it: nothing goes to review";
       },
       async run(args, ctx) {
         const { incidentId } = args as { incidentId: string };
@@ -325,6 +365,8 @@ export function fixTools(): FixTool[] {
           `**Why:** ${fix.diagnosis ?? fix.releaseChange ?? ""}`,
           `**Customer impact:** ${recoveryCoverage(incident).confirmed} customers affected (${ticketsOf(ctx, incident).length} complaints).`,
           `**Reproduced:** ${fix.tests.before?.failed ?? 0} failing test(s) before the change. **Verified by CrisisCrew:** ${fix.tests.verified!.passed} passed, ${fix.tests.verified!.failed} failed.`,
+          `**Security checks:** ${securityLine(fix)}`,
+          ...(fix.security?.findings ?? []).map((f) => `- ${f.severity} · ${f.text} · \`${f.file}${f.line ? `:${f.line}` : ""}\``),
           `**Written by:** ${fix.agent?.tool} (${fix.agent?.model}), headless, from CrisisCrew's context.`,
           "",
           "> Opened by CrisisCrew's Fix Agent. It will not be merged or deployed automatically: that's the reviewer's call.",

@@ -9,8 +9,11 @@ import { loadPolicy, loadScenarios } from "../scenarios";
 
 async function setup(env: Record<string, string> = {}) {
   const config = loadConfig({ SANDBOX_LATENCY_MS: "0", MCP_TOKEN_PATTERN: "pattern-token", ...env });
+  // Calling hours would deny customer calls when the suite runs at night.
+  const policy = loadPolicy();
+  policy.voice.callingHours = { ...policy.voice.callingHours, start: 0, end: 24 };
   const runtime = new Runtime({
-    policy: loadPolicy(),
+    policy,
     scenarios: loadScenarios(),
     embedder: new CachedEmbedder({ modelId: DEFAULT_EMBEDDING_MODEL, dir: EMBEDDING_CACHE_DIR, inner: null }),
     latencyMs: 0,

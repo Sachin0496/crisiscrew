@@ -5,6 +5,22 @@ A 5-minute flow, with a 3-minute cut at the end. Every beat runs on the real eng
 **The story in one line:**
 > Most incident tools tell engineering what broke. Support tools tell you who complained. CrisisCrew connects the two, and measures success by Recovery Coverage, not by whether the alert fired.
 
+## The cockpit demo (mock mode, 2 minutes, no narration needed)
+
+`pnpm demo:mock`, then open http://localhost:8788 full screen, in light mode, with **Follow** and **Autopilot** on. Press **Start the incident** and let it run: the page scrolls itself, and the caption under **NOW** says each step in one line. The run takes about two minutes, and the PR is up at about 1:00.
+
+| When | On screen | Say |
+|---|---|---|
+| 0:00–0:11 | Tickets fly from the Freshdesk inbox into two groups | "24 customers, different words. The Pattern Agent runs locally and groups them by meaning and product area: 19 payment failures are one incident, 5 delivery complaints another." |
+| 0:07 | Commander node turns green: **P1 · P3** | "25 harmed customers and ₹64k stuck: P1, so someone gets woken up. The deliveries are P3: nobody is paged." |
+| 0:11–0:20 | Freshservice On-Call → Vobiz → voice agent; the phone rings, then answers | "Freshservice says Neha is on call, Vobiz rings her, and our voice agent briefs her. She acknowledges by voice." |
+| 0:20–1:00 | Terminal: `git clone`, the cause, the failing tests, the patch, `npm test` | "While she's still on the phone, the Fix Agent has already cloned the repo. OpenCode reproduces the bug with 2 failing tests, then fixes it." |
+| ~0:55 | Test cards: **2 failing → 4 passing → 4 passing**, security **0 findings** | "CrisisCrew doesn't trust the agent: it runs the tests again itself, plus deterministic security checks. A finding would block the PR." |
+| ~1:00 | PR card, Google Doc, notifications on her phone | "The PR goes to the code owner, the report to Neha. She's asking the voice agent 'do I need to write a fix?' and it's already waiting for her." |
+| ~1:45 | **DONE**: Neha approved, code she wrote: **0 lines** | "Her job is to review how the AI fixed it, not to write it. Nothing merges without a human. And the Recovery Agent already reached every customer, including the 6 who never complained." |
+
+If something needs a click: **Reset** starts every mock and CrisisCrew fresh. Turn **Autopilot** off to answer the call yourself and approve the PR live.
+
 ## Before going on stage (10 minutes)
 
 1. Plug the laptop in and close everything else. The server stays near 400 MB with the embedding model loaded.

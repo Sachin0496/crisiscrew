@@ -27,3 +27,4 @@ export * from "./trace/tracer";
 export * from "./workflows/graphs";
 export * from "./agents/dialog";
 export * from "./tools/fix";
+export * from "./tools/security";

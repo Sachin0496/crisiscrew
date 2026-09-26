@@ -78,14 +78,17 @@ Open http://localhost:8787, pick a scenario in the top bar, and click **Run repl
 | Mode | Command | What CrisisCrew talks to |
 |---|---|---|
 | sandbox | `pnpm start` | the scenario's simulated world (default) |
-| mock | `pnpm demo:mock` | `apps/mock`: local Freshdesk, Freshservice and Vobiz APIs, through the real adapters |
+| mock | `pnpm demo:mock` | `apps/mock`: local Freshdesk, Freshservice, Vobiz, GitHub, Google Docs and Slack APIs, through the real adapters |
 | real | `pnpm start:real` | Freshdesk, Freshservice and Vobiz, with the keys in `.env` |
 
-`pnpm demo:mock` starts the mock and CrisisCrew together. The **demo cockpit** at http://localhost:8788 is where you:
-- file complaints in the mock Freshdesk;
-- fire Freshservice alerts;
-- answer the mock phone calls, or leave them on autopilot, which follows the scenario;
-- watch each step of the workflow light up as the agents work.
+`pnpm demo:mock` starts the mock and CrisisCrew together. Open the **demo cockpit** at http://localhost:8788 and press **Start the incident**:
+1. 24 customers write in to Freshdesk. The Pattern Agent sorts them into two groups: 19 failed payments (P1) and 5 stuck deliveries (P3).
+2. For the P1, Freshservice On-Call names the engineer on duty and Vobiz rings her phone. The AI voice agent briefs her from live incident data, and the transcript runs on the phone beside the flow.
+3. While she's still on the call, the Fix Agent gathers context from the grouped tickets, the release diff, Slack and the runbooks. It clones `acme-shop/checkout-service` (a real git repository) to a branch, and headless OpenCode reproduces the bug with a failing test, then patches it. The session is a recorded OpenCode run, replayed on the real clone with the real tests.
+4. CrisisCrew runs the tests again itself, plus deterministic security checks on every added line: secrets, disabled TLS, code built at runtime, SQL concatenation, and CI, CODEOWNERS or dependency changes. A P1 finding blocks the pull request.
+5. It opens the pull request (code owner as reviewer, on-call engineer as assignee) and shares an incident report in Google Docs. Both land on her phone. She reviews the fix; she doesn't write it. Nothing merges without a human.
+
+The pipeline bar at the top shows every agent and service, and a one-line caption says what's happening now. **Follow** scrolls to the live step; scrolling yourself turns it off. With **Autopilot** on, the engineer answers from the script and approves the PR once she's off the call. Turn it off to answer the call and approve the PR yourself. You can also file your own complaints and fire Freshservice alerts.
 
 CrisisCrew's notes, replies, engineering incidents, changes and calls land in the mock exactly as they would in the real services.
 

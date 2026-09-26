@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@crisiscrew/adapters": "workspace:*",
+    "@crisiscrew/core": "workspace:*",
     "tsx": "^4.23.15"
   }
 }

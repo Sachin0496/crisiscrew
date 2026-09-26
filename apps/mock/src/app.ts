@@ -45,6 +45,24 @@ export function createMock(options: MockOptions) {
   const presets = alertPresets();
   const pace = options.phone?.pace ?? 1;
   let burst = { running: false, filed: 0, total: 0, startedAt: 0, timers: [] as ReturnType<typeof setTimeout>[] };
+  let review: ReturnType<typeof setTimeout> | null = null;
+
+  /** On autopilot the on-call engineer reviews the pull request once she's off the phone, as she would; off autopilot, someone clicks Approve. */
+  const autoReview = () => {
+    if (!store.autopilot || review) return;
+    const pr = github.pulls.find((p) => p.state === "open" && !p.reviews.length && p.assignees.length && p.checks?.conclusion === "success");
+    const onPhone = store.calls.some((c) => world.byPhone(c.to)?.kind === "oncall" && ["queued", "ringing", "answered"].includes(c.state));
+    if (!pr || onPhone) return;
+    review = setTimeout(() => {
+      review = null;
+      if (store.autopilot && !pr.reviews.length) github.approve(pr.number, pr.assignees[0]!);
+    }, 9_000 * pace);
+  };
+  const reviewer = options.watch ? setInterval(autoReview, 1_000) : null;
+  const stopReview = () => {
+    if (review) clearTimeout(review);
+    review = null;
+  };
 
   const freshdesk = freshdeskApi(store);
   const freshservice = freshserviceApi(store, world);
@@ -92,6 +110,7 @@ export function createMock(options: MockOptions) {
   /** Clears every mock service and starts CrisisCrew on a fresh live session. */
   const reset = async (): Promise<string> => {
     stopBurst();
+    stopReview();
     phone.stopAll();
     store.reset();
     docs.length = 0;
@@ -236,6 +255,8 @@ export function createMock(options: MockOptions) {
     apps: { freshdesk, freshservice, vobiz, github: github.api(), google, slack },
     stop() {
       stopBurst();
+      stopReview();
+      if (reviewer) clearInterval(reviewer);
       phone.stopAll();
       crisis.stop();
     },

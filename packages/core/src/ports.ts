@@ -218,6 +218,8 @@ export interface WorkspacePort extends AdapterMode {
   checkout(repo: RepoInfo, branch: string): Promise<{ dir: string }>;
   /** Runs the repository's tests. */
   test(dir: string, command: string): Promise<TestRun>;
+  /** Everything changed in the workspace, as a unified diff (new files included). */
+  diff(dir: string): Promise<string>;
   /** Commits everything on the branch and pushes it. */
   commitAndPush(dir: string, branch: string, message: string): Promise<{ sha: string; files: { path: string; additions: number; deletions: number }[]; patch: string }>;
 }

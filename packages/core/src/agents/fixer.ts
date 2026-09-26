@@ -9,8 +9,9 @@ import type { AgentKit } from "./kit";
  * Fix Agent: on a P1 whose likely cause is a release, it prepares the fix
  * while the on-call engineer is still on the phone. It gathers context,
  * starts a headless coding agent in a scratch clone, then (when the session
- * ends) runs the tests itself, opens a pull request for the code owners and
- * the on-call engineer to review, and shares an incident report. It never
+ * ends) runs the tests and deterministic security checks itself, opens a
+ * pull request for the code owners and the on-call engineer to review, and
+ * shares an incident report. It never
  * merges or deploys: the engineer reviews, a human ships.
  */
 
@@ -103,7 +104,7 @@ export async function onCodingEvent(kit: AgentKit, sessionId: string, event: Cod
         kit.tracer,
         { workflow: "autofix", title: `Auto-fix ${incidentId}: review`, actor: "fixer", incidentId },
         "hand_off",
-        { label: "Verify and hand off", actor: "fixer", description: "Run the tests, open the pull request, share the report." },
+        { label: "Verify and hand off", actor: "fixer", description: "Run the tests and security checks, open the pull request, share the report." },
         () => handOff(kit, incidentId),
         () => ({ outcome: kit.state().fixes[incidentId]?.pullRequest ? `PR #${kit.state().fixes[incidentId]!.pullRequest!.number} ready for review` : "Not handed off", incidentId }),
       );
@@ -118,6 +119,14 @@ async function handOff(kit: AgentKit, incidentId: string): Promise<void> {
   const fix = kit.state().fixes[incidentId];
   if (!verified.ok || !fix?.tests.verified?.ok) {
     const why = verified.ok ? `${fix?.tests.verified?.failed ?? "some"} tests fail` : verified.reason;
+    patchFix(kit, incidentId, (f) => ({ ...f, status: "failed", error: `not sent for review: ${why}` }));
+    kit.setAgent("fixer", "done", `${incidentId}'s fix isn't sent for review: ${why}`);
+    return;
+  }
+  kit.setAgent("fixer", "working", `Running security checks on ${incidentId}'s diff`);
+  const scanned = await kit.gate.call("fixer", "scan_fix_security", { incidentId });
+  if (!scanned.ok || !kit.state().fixes[incidentId]?.security?.ok) {
+    const why = scanned.ok ? "a security check blocks it" : scanned.reason;
     patchFix(kit, incidentId, (f) => ({ ...f, status: "failed", error: `not sent for review: ${why}` }));
     kit.setAgent("fixer", "done", `${incidentId}'s fix isn't sent for review: ${why}`);
     return;

@@ -25,11 +25,9 @@ import {
   type ReplaySession,
 } from "@crisiscrew/adapters";
 import { MOCK } from "@crisiscrew/contracts";
-import { readFileSync } from "node:fs";
-import { isAbsolute } from "node:path";
 import { heuristicGuard, type Embedder, type PromptGuard, type TicketClassifier, type TraceSink } from "@crisiscrew/core";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { ConfigError, loadConfig, wiringReport, type Config } from "./config";
 import { createApp } from "./http/app";
 import { DATA_DIR, EMBEDDING_CACHE_DIR, REPO_ROOT } from "./paths";

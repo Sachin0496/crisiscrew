@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CrisisCrew Live Demo</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%2309090b%22/%3E%3Cpath d=%22M12 5l6 3v4c0 3.4-2.6 6.2-6 6.8-3.4-.6-6-3.4-6-6.8V8z%22 fill=%22none%22 stroke=%22white%22 stroke-width=%222%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -91,6 +92,47 @@ a { color: inherit; }
 .notice { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border: 1px solid var(--work-line); background: var(--work-soft); border-radius: 12px; font-size: 13.5px; margin-bottom: 16px; }
 .notice code { font-family: var(--mono); font-size: 12.5px; background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
 
+/* ---------- Flow rail: the whole pipeline, always in view ---------- */
+.rail { position: sticky; top: 0; z-index: 30; margin: 0 -24px 16px; padding: 10px 24px 12px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px) saturate(1.4); -webkit-backdrop-filter: blur(10px) saturate(1.4); border-bottom: 1px solid transparent; transition: border-color .2s, box-shadow .2s; }
+.rail.stuck { border-bottom-color: var(--border); box-shadow: 0 6px 20px -12px rgba(0,0,0,.25); }
+.now { display: flex; align-items: center; gap: 10px; min-height: 26px; margin-bottom: 8px; }
+.now .tag { font: 600 10.5px var(--mono); letter-spacing: .08em; color: #fff; background: var(--accent); border-radius: 6px; padding: 3px 7px; flex: none; }
+.now .tag.done { background: var(--ok); } .now .tag.idle { background: var(--faint); } .now .tag.attention { background: var(--bad); }
+.now .line { font-size: 15px; font-weight: 500; letter-spacing: -.01em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.now .line b { font-weight: 650; }
+.now .line.swap { animation: swap .45s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes swap { from { opacity: 0; transform: translateY(8px); filter: blur(2px); } }
+.now .clock { margin-left: auto; font: 500 12.5px var(--mono); color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+.flow { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)) 14px minmax(0, 1fr); gap: 0; align-items: stretch; }
+.fn { position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 7px; align-items: center; padding: 7px 8px; margin-right: 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); text-align: left; transition: border-color .3s, background .3s, box-shadow .3s, opacity .3s; min-width: 0; }
+.fn:last-child { margin-right: 0; }
+.fn.idle { opacity: .55; }
+.fn .ic { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--subtle); color: var(--muted); font-size: 13px; transition: background .3s, color .3s; position: relative; }
+.fn.working { border-color: var(--accent-line); background: var(--accent-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+.fn.working .ic { background: var(--accent); color: #fff; }
+.fn.working .ic::after { content: ""; position: absolute; inset: -4px; border-radius: 11px; border: 2px solid var(--accent); opacity: 0; animation: ring 1.6s ease-out infinite; }
+@keyframes ring { 0% { opacity: .7; transform: scale(.9); } 100% { opacity: 0; transform: scale(1.35); } }
+.fn.done { border-color: var(--ok-line); }
+.fn.done .ic { background: var(--ok); color: #fff; animation: pop .45s ease-out both; }
+.fn.attention { border-color: var(--bad-line); background: var(--bad-soft); }
+.fn.attention .ic { background: var(--bad); color: #fff; }
+.fn .tx { min-width: 0; line-height: 1.2; }
+.fn .nm { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.fn .sv { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; margin-top: 1px; }
+.fn .vl { font-size: 11px; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.fn.working .vl { color: var(--accent); }
+.fn::after { content: ""; position: absolute; right: -16px; top: 50%; width: 16px; height: 2px; background: var(--border); transform: translateY(-50%); }
+.fn:nth-last-child(-n+3)::after { display: none; }
+.fn.done::after { background: var(--ok); }
+.fn.done.feeding::after { background: linear-gradient(90deg, var(--ok), var(--accent), var(--ok)); background-size: 200% 100%; animation: feed 1s linear infinite; }
+@keyframes feed { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.flow .par { display: grid; place-items: center; color: var(--faint); font-size: 11px; }
+.flow .par span { width: 1px; height: 70%; border-left: 1px dashed var(--border-strong); }
+.fn.branch { border-style: dashed; }
+.fn.branch.working, .fn.branch.done, .fn.branch.attention { border-style: solid; }
+.act { scroll-margin-top: calc(var(--rail-h, 110px) + 12px); }
+.act.focus .act-head { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 60%); }
+
 /* ---------- Hero ---------- */
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 22px 24px; margin-bottom: 16px; position: relative; overflow: hidden; }
 .hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(600px 180px at 0% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%); pointer-events: none; }
@@ -169,7 +211,7 @@ a { color: inherit; }
 .nopage b { color: var(--text); }
 
 /* Act 3: auto-fix */
-.stepper { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+.stepper { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
 .stp { display: grid; gap: 6px; }
 .stp .bar { height: 4px; border-radius: 4px; background: var(--border); overflow: hidden; position: relative; }
 .stp.running .bar::after { content: ""; position: absolute; inset: 0; width: 35%; background: var(--accent); animation: flow 1.1s linear infinite; }
@@ -206,7 +248,7 @@ a { color: inherit; }
 .ev.diag .ti { color: #fde68a; font-weight: 500; }
 .ev.diag .tl { color: #fbbf24; }
 .caret { display: inline-block; width: 7px; height: 14px; background: var(--term-text); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
-.tests { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.tests { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
 .test { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
 .test .k { font-size: 12px; color: var(--muted); }
 .test .v { font-size: 18px; font-weight: 600; margin-top: 2px; }
@@ -252,7 +294,7 @@ a { color: inherit; }
 .stat .k { font-size: 12px; color: var(--muted); }
 
 /* ---------- The phone ---------- */
-.phone-col { position: sticky; top: 16px; display: grid; gap: 10px; justify-items: center; }
+.phone-col { position: sticky; top: calc(var(--rail-h, 110px) + 12px); display: grid; gap: 10px; justify-items: center; }
 .phone { width: 320px; height: 660px; border-radius: 50px; background: #0b0b0d; padding: 11px; box-shadow: var(--shadow-lg), inset 0 0 0 2px #2a2a2e; position: relative; }
 .screen { width: 100%; height: 100%; border-radius: 40px; overflow: hidden; position: relative; background: linear-gradient(160deg, #1e1b4b 0%, #312e81 45%, #0f172a 100%); color: #fff; display: flex; flex-direction: column; }
 .island { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 110px; height: 30px; background: #000; border-radius: 20px; z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; transition: width .4s; }
@@ -368,7 +410,14 @@ dialog::backdrop { background: rgba(9,9,11,.45); backdrop-filter: blur(3px); }
 .msg.reply { background: var(--accent-soft); border-color: var(--accent-line); }
 .msg .text { white-space: pre-wrap; overflow-wrap: anywhere; }
 
+@media (max-width: 1320px) {
+  .fn .sv { display: none; }
+}
 @media (max-width: 1180px) {
+  .flow { grid-template-columns: repeat(5, minmax(0, 1fr)); row-gap: 8px; }
+  .flow .par { display: none; }
+  .fn { margin-right: 8px; }
+  .fn::after { display: none; }
   .stage { grid-template-columns: 1fr; }
   .phone-col { position: static; order: -1; }
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -381,7 +430,9 @@ dialog::backdrop { background: rgba(9,9,11,.45); backdrop-filter: blur(3px); }
   .pipeline { grid-template-columns: 1fr; gap: 8px; }
   .pipeline .link { display: none; }
   .stepper { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .tests { grid-template-columns: 1fr; }
+  .tests { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .rail { margin: 0 -14px 14px; padding: 8px 14px 10px; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 380px) { .phone { transform: scale(.9); transform-origin: top center; margin-bottom: -60px; } }
@@ -400,6 +451,7 @@ dialog::backdrop { background: rgba(9,9,11,.45); backdrop-filter: blur(3px); }
     </div>
     <div class="controls">
       <span class="pillbtn" id="conn"><span class="dot"></span><span>Connecting</span></span>
+      <button class="pillbtn toggle" id="follow" type="button" aria-pressed="true" title="Scroll to whatever CrisisCrew is doing now. Scrolling yourself turns it off."><span class="box"></span>Follow</button>
       <button class="pillbtn toggle" id="sound" type="button" aria-pressed="false" title="Read the call aloud in this browser"><span class="box"></span>Voice</button>
       <button class="pillbtn toggle" id="autopilot" type="button" aria-pressed="true" title="On: Neha answers from the script. Off: you answer the call and speak for her."><span class="box"></span>Autopilot</button>
       <a class="pillbtn" id="console" href="#" target="_blank" rel="noopener">Console ↗</a>
@@ -408,6 +460,11 @@ dialog::backdrop { background: rgba(9,9,11,.45); backdrop-filter: blur(3px); }
   </header>
 
   <div class="notice" id="notice" hidden></div>
+
+  <nav class="rail" id="rail" aria-label="What CrisisCrew is doing">
+    <div class="now"><span class="tag idle" id="now-tag">READY</span><span class="line" id="now-line"></span><span class="clock" id="now-clock"></span></div>
+    <div class="flow" id="flow"></div>
+  </nav>
 
   <section class="card hero">
     <div>
@@ -493,11 +550,11 @@ const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${M
 const initials = (name) => String(name || "?").split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 const inr = (n) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const PRIORITY = { 4: "Urgent", 3: "High", 2: "Medium", 1: "Low" };
-const STAGES = [["context", "Context"], ["workspace", "Clone"], ["reproduce", "Reproduce"], ["patch", "Patch"], ["verify", "Verify"], ["pull_request", "Pull request"], ["report", "Report"]];
+const STAGES = [["context", "Context"], ["workspace", "Clone"], ["reproduce", "Reproduce"], ["patch", "Patch"], ["verify", "Verify"], ["security", "Security"], ["pull_request", "Pull request"], ["report", "Report"]];
 const STATE_LABEL = { idle: "Waiting", working: "In progress", done: "Done", attention: "Needs a person" };
 let S = null, version = -1, skew = 0, modalRoute = null, tab = "freshdesk", termCount = 0, bannerShown = new Set();
 const testsSeen = new Set(), spoken = new Set();
-let soundOn = false;
+let soundOn = false, follow = true, focused = null, focusedAt = 0, primed = false, autoScrolling = 0, lastHeadline = "";
 const now = () => Date.now() + skew;
 
 async function post(path, body) {
@@ -550,6 +607,125 @@ function sync(container, items, key, html) {
   }
   for (const el of existing.values()) el.remove();
 }
+
+/* ---------- The rail: every agent and service in one line, and what's happening now ---------- */
+function flowNodes(st) {
+  const { c, inc, fix, pr, acts, pageCall, owner } = st;
+  const g = fix?.stages ?? {};
+  const routed = S.freshdesk.filter((t) => routeOf(t)?.incidentId).length;
+  const first = owner?.name?.split(" ")[0] ?? "the engineer";
+  const stageState = (...names) => names.some((n) => g[n]?.status === "failed") ? "attention" : names.some((n) => g[n]?.status === "running") ? "working" : names.every((n) => g[n]?.status === "done") ? "done" : names.some((n) => g[n]?.status === "done") ? "working" : "idle";
+  const incs = [...c.incidents].sort((a, b) => a.openedAt - b.openedAt);
+  const counts = incs.map((i) => `${S.crisis.routes.filter((r) => r.incidentId === i.id).length}`).join(" + ");
+  const approved = pr?.reviews?.length > 0;
+  return [
+    { act: "act1", ic: "✉", nm: "Tickets", sv: "Freshdesk", vl: S.freshdesk.length ? `${S.freshdesk.length} of ${S.scenario.tickets}` : "—", state: !S.freshdesk.length ? "idle" : S.burst.running ? "working" : "done" },
+    { act: "act1", ic: "◎", nm: "Pattern Agent", sv: "Laya · runs locally", vl: incs.length ? `${counts} grouped` : S.freshdesk.length ? "reading…" : "—", state: !S.freshdesk.length ? "idle" : S.burst.running || routed < S.freshdesk.length ? "working" : "done" },
+    { act: "act2", ic: "⚑", nm: "Commander", sv: "P1? wake someone?", vl: incs.length ? incs.map((i) => i.importance ?? "…").join(" · ") : "—", state: !inc ? "idle" : inc.importance ? "done" : "working" },
+    { act: "act2", ic: "☎", nm: "On-call", sv: "Freshservice · Vobiz", vl: inc?.paging?.status === "acknowledged" ? `${first} acked${pageCall?.state === "answered" ? " · on call" : ""}` : pageCall ? ({ queued: "dialling", ringing: "ringing…", answered: "on the call" }[pageCall.state] ?? pageCall.state) : "—", state: acts.act2 },
+    { act: "act3", ic: "⌘", nm: "Fix Agent", sv: "OpenCode, headless", vl: fix ? (g.patch?.status === "done" ? "patched" : g.reproduce?.status === "done" ? "patching…" : g.workspace?.status === "done" ? "reproducing…" : "reading context…") : "—", state: !fix ? "idle" : stageState("context", "workspace", "reproduce", "patch") },
+    { act: "act3", ic: "✓", nm: "Checks", sv: "tests · security", vl: fix?.security ? `${fix.tests.verified?.passed ?? 0} ✓ · ${fix.security.findings.length} findings` : fix?.tests?.verified ? `${fix.tests.verified.passed} pass · scanning` : "—", state: stageState("verify", "security") },
+    { act: "act4", ic: "⎇", nm: "PR + report", sv: "GitHub · Docs", vl: fix?.pullRequest ? `#${fix.pullRequest.number}${fix.report ? " · doc shared" : ""}` : "—", state: stageState("pull_request", "report") },
+    { act: "act4", ic: "◉", nm: "Human review", sv: `${first}, not the AI`, vl: approved ? `${first} approved` : pr ? (pageCall?.state === "answered" ? `for ${first}` : `${first} reviewing…`) : "—", state: !pr ? "idle" : approved ? "done" : "working" },
+    { par: true },
+    { act: "act5", ic: "♥", nm: "Recovery", sv: "every customer", vl: inc?.coverage?.confirmed ? `${inc.coverage.recovered}/${inc.coverage.confirmed}${inc.approvals.length ? ` · ${inc.approvals.length} for a human` : " customers"}` : "—", state: acts.act5 === "attention" && inc?.approvals?.length ? "working" : acts.act5, branch: true },
+  ];
+}
+function headline(st) {
+  const { c, inc, fix, pr, pageCall, owner } = st;
+  const first = owner?.name?.split(" ")[0] ?? "the engineer";
+  const g = fix?.stages ?? {};
+  const incs = c.incidents;
+  const count = (id) => S.crisis.routes.filter((r) => r.incidentId === id).length;
+  if (!c.connected) return ["attention", "CrisisCrew isn't connected: run <b>pnpm demo:mock</b>"];
+  if (!S.freshdesk.length) return ["idle", `Press <b>Start the incident</b>: ${S.scenario.tickets} customers are about to write in to Freshdesk.`];
+  if (pr?.reviews?.length) return ["done", `<b>${esc(first)} approved PR #${pr.number}</b>. She wrote 0 lines; the code owner's review is next, and a human merges.`];
+  if (fix?.report && pr && pageCall?.state !== "answered") return ["working", `<b>Off the call, ${esc(first)} opens PR #${pr.number}</b> and the report. She checks how the AI fixed it; she doesn't write the fix.`];
+  if (fix?.report && pr) return ["working", `<b>PR #${pr.number} and the incident report are on ${esc(first)}'s phone</b> before she's even hung up. Her job is to review the fix, not write it.`];
+  if (g.pull_request?.status === "running" || g.report?.status === "running") return ["working", `Opening the pull request for the code owner and writing the <b>Google Doc report</b> for ${esc(first)}.`];
+  if (g.security?.status === "running") return ["working", `Tests pass. Now <b>deterministic security checks</b> on every line OpenCode added.`];
+  if (g.verify?.status === "running") return ["working", `OpenCode says it's fixed. <b>CrisisCrew runs the tests itself</b> before anything leaves the sandbox.`];
+  if (pageCall && ["queued", "ringing"].includes(pageCall.state)) return ["working", `<b>${esc(inc?.id ?? "")} is P1.</b> Freshservice On-Call says ${esc(owner?.name ?? "the engineer")} is on duty; <b>Vobiz is ringing her phone</b>${fix ? ", and the Fix Agent has already started" : ""}.`];
+  const onCall = pageCall?.state === "answered";
+  const talking = onCall ? `<b>${esc(first)} is on the phone with the AI voice agent.</b> Meanwhile ` : "";
+  if (fix && g.patch?.status === "running") return ["working", `${talking}${onCall ? "" : `<b>Reproduced: ${fix.tests.before?.failed ?? ""} failing tests.</b> `}OpenCode ${onCall ? `reproduced the bug (${fix.tests.before?.failed ?? ""} failing tests) and is patching it` : `is patching ${esc(fix.repo?.fullName ?? "the repo")}`}.`];
+  if (fix && (g.reproduce?.status === "running" || g.workspace?.status === "running")) return ["working", `${talking}${onCall ? "the Fix Agent" : "<b>The Fix Agent</b>"} cloned ${esc(fix.repo?.fullName ?? "the repo")}; OpenCode is writing a test that reproduces the bug.`];
+  if (fix) return ["working", `${talking}${onCall ? "the Fix Agent" : "<b>The Fix Agent</b>"} reads the context: grouped tickets, the release diff, Slack and runbooks.`];
+  if (onCall) return ["working", `<b>${esc(first)} picked up.</b> The AI voice agent is briefing her from live incident data.`];
+  if (inc?.importance) return ["working", `<b>Incident Commander rated ${esc(inc.id)} ${esc(inc.importance)}</b>: ${esc(inc.importanceWhy[0] ?? "")}.`];
+  if (incs.length) return ["working", `<b>Pattern Agent opened ${esc(incs[0].id)}</b> with ${count(incs[0].id)} tickets that describe the same failure.`];
+  return ["working", `<b>${S.freshdesk.length} tickets</b> in Freshdesk. The Pattern Agent is reading each one and looking for a shared failure.`];
+}
+function renderRail(st) {
+  const nodes = flowNodes(st);
+  sync($("flow"), nodes, (n) => n.par ? "par" : n.nm, (n) => n.par
+    ? `<div class="par" aria-hidden="true"><span></span></div>`
+    : `<button class="fn ${n.state}${n.branch ? " branch" : ""}" data-goto="${n.act}" type="button"><span class="ic">${n.state === "done" ? "✓" : n.ic}</span><span class="tx"><span class="nm">${esc(n.nm)}</span><span class="sv">${esc(n.sv)}</span><span class="vl">${esc(n.vl)}</span></span></button>`);
+  // A finished node whose successor is working "feeds" it.
+  const els = [...$("flow").querySelectorAll(".fn")];
+  els.forEach((el, i) => el.classList.toggle("feeding", el.classList.contains("done") && els[i + 1]?.classList.contains("working")));
+  const [state, line] = headline(st);
+  const tag = $("now-tag");
+  tag.className = `tag ${state}`;
+  tag.textContent = { idle: "READY", working: "NOW", done: "DONE", attention: "ATTENTION" }[state];
+  const el = $("now-line");
+  if (line !== lastHeadline) { lastHeadline = line; el.innerHTML = line; el.classList.remove("swap"); void el.offsetWidth; el.classList.add("swap"); }
+}
+function renderRailClock(st) {
+  const t0 = S.burst.startedAt;
+  const done = st.pr?.reviews?.length ? Date.parse(st.pr.reviews[0].at) : null;
+  $("now-clock").textContent = t0 && S.freshdesk.length ? `T+${mmss((done ?? now()) - t0)}` : "";
+}
+
+/* ---------- Follow: keep whatever is happening now on screen ---------- */
+const ACT_ORDER = ["act1", "act2", "act3", "act4", "act5"];
+const DWELL = { act1: 11_000, act2: 9_000, act3: 4_000, act4: 6_000 };
+function focusAct(st) {
+  const { acts } = st;
+  if (acts.act4 === "done") return "act5";
+  if (acts.act4 !== "idle") return "act4";
+  if (acts.act3 !== "idle") return "act3";
+  if (acts.act2 !== "idle") return "act2";
+  if (acts.act1 !== "idle") return "act1";
+  return null;
+}
+function goTo(id, smooth = true) {
+  const el = $(id);
+  if (!el) return;
+  autoScrolling = Date.now();
+  const rail = $("rail").offsetHeight;
+  let top = el.getBoundingClientRect().top + scrollY - rail - 12;
+  // Never past the end of the acts: the phone beside them would slide off screen.
+  const stage = document.querySelector(".stage").getBoundingClientRect().bottom + scrollY;
+  if (innerWidth > 1180) top = Math.min(top, stage - innerHeight + 24);
+  scrollTo({ top: Math.max(0, top), behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto" });
+}
+function applyFollow(st) {
+  const next = focusAct(st);
+  // Opening the page on a finished (or running) demo starts at the top; only changes scroll.
+  if (!primed) { primed = true; focused = next; focusedAt = Date.now(); for (const id of ACT_ORDER) $(id).classList.toggle("focus", id === next); return; }
+  if (next === focused) return;
+  let target = next;
+  // Forward, one act at a time, each on screen long enough to read before the next takes over.
+  if (focused && ACT_ORDER.indexOf(next) > ACT_ORDER.indexOf(focused)) {
+    if (Date.now() - focusedAt < (DWELL[focused] ?? 0)) return;
+    target = ACT_ORDER.slice(ACT_ORDER.indexOf(focused) + 1).find((id) => st.acts[id] !== "idle") ?? next;
+  }
+  for (const id of ACT_ORDER) $(id).classList.toggle("focus", id === target);
+  focused = target;
+  focusedAt = Date.now();
+  if (follow && target && !modalRoute) goTo(target);
+}
+function setFollow(on) {
+  follow = on;
+  $("follow").setAttribute("aria-pressed", String(on));
+  if (on && focused) goTo(focused);
+}
+// Scrolling by hand means the viewer wants to look around: stop following until they turn it back on.
+for (const type of ["wheel", "touchmove"]) window.addEventListener(type, () => { if (follow && Date.now() - autoScrolling > 250) setFollow(false); }, { passive: true });
+window.addEventListener("keydown", (e) => { if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(e.key) && !e.target.closest("input,textarea") && follow) setFollow(false); });
+window.addEventListener("scroll", () => $("rail").classList.toggle("stuck", $("rail").getBoundingClientRect().top <= 0 && window.scrollY > 40), { passive: true });
+new ResizeObserver(() => document.documentElement.style.setProperty("--rail-h", `${$("rail").offsetHeight}px`)).observe($("rail"));
 
 /* ---------- KPIs ---------- */
 function renderKpis(st) {
@@ -691,7 +867,11 @@ function renderFix(st) {
     testsSeen.add(key);
     return `<div class="test ${run.ok ? "green" : "red"}${pop}"><div class="k">${label}</div><div class="v">${run.ok ? `✓ ${run.passed} passing` : `✕ ${run.failed} failing`}</div><div class="k mono" style="margin-top:2px">${esc(run.command)}</div></div>`;
   };
-  const tests = card("b", "Reproduced first (OpenCode)", t.before) + card("a", "After the patch (OpenCode)", t.after) + card("v", "Verified by CrisisCrew itself", t.verified);
+  const sec = fix?.security;
+  const secCard = !sec
+    ? `<div class="test"><div class="k">Security checks (deterministic)</div><div class="v muted" style="font-size:14px;font-weight:500">${fix?.stages?.security?.status === "running" ? "Scanning the diff…" : "—"}</div></div>`
+    : (() => { const pop = testsSeen.has("s") ? "" : " enter-pop"; testsSeen.add("s"); const blocking = sec.findings.filter((f) => f.severity === "P1").length; return `<div class="test ${sec.ok ? "green" : "red"}${pop}" title="${esc(sec.findings.map((f) => `${f.severity} ${f.text} · ${f.file}`).join("\n") || "secrets · disabled TLS · runtime code · SQL concatenation · CI · CODEOWNERS · dependencies · removed tests")}"><div class="k">Security checks (deterministic)</div><div class="v">${sec.ok ? `✓ ${sec.findings.length ? `${sec.findings.length} note${sec.findings.length > 1 ? "s" : ""}` : "0 findings"}` : `✕ ${blocking} blocking`}</div><div class="k mono" style="margin-top:2px">${sec.rules} rules · ${sec.files} files · ${sec.addedLines} lines added</div></div>`; })();
+  const tests = card("b", "Reproduced first (OpenCode)", t.before) + card("a", "After the patch (OpenCode)", t.after) + card("v", "Verified by CrisisCrew itself", t.verified) + secCard;
   if ($("tests").dataset.hash !== tests.replace(/ enter-pop/g, "")) { $("tests").innerHTML = tests; $("tests").dataset.hash = tests.replace(/ enter-pop/g, ""); }
 }
 function renderEvent(e, fix) {
@@ -727,7 +907,7 @@ function renderReview(st) {
       <div class="pr-head"><div class="t">${esc(pr.title)} <span>#${pr.number}</span></div><div class="pr-meta"><span class="pr-state">⎇ Open</span><b>crisiscrew-bot</b> wants to merge ${pr.commits.length} commit into <code>${esc(pr.base)}</code> from <code>${esc(pr.head)}</code></div></div>
       <div class="pr-row"><span class="k">Reviewer</span>${pr.requested_reviewers.map((l) => `<span class="avatar">${initials(user(l).name)}</span><span>${esc(user(l).name)}</span><span class="pill">code owner · required</span>`).join("") || "<span class=muted>none</span>"}</div>
       <div class="pr-row"><span class="k">Assignee</span>${pr.assignees.map((l) => `<span class="avatar">${initials(user(l).name)}</span><span>${esc(user(l).name)}</span><span class="pill">on call</span>`).join("")}${approved ? `<span class="pill ok">✓ approved</span>` : ""}</div>
-      <div class="pr-row"><span class="k">Checks</span>${pr.checks ? `<span class="pill ${pr.checks.conclusion === "success" ? "ok" : ""}">${pr.checks.conclusion === "success" ? "✓" : "✕"} ${esc(pr.checks.name)}</span><span class="muted">${esc(pr.checks.summary)}</span>` : `<span class="pill work">● running</span>`}</div>
+      <div class="pr-row"><span class="k">Checks</span>${pr.checks ? `<span class="pill ${pr.checks.conclusion === "success" ? "ok" : ""}">${pr.checks.conclusion === "success" ? "✓" : "✕"} ${esc(pr.checks.name)}</span><span class="muted">${esc(pr.checks.summary)}</span>` : `<span class="pill work">● running</span>`}${st.fix?.security ? `<span class="pill ${st.fix.security.ok ? "ok" : ""}">${st.fix.security.ok ? "✓" : "✕"} security · ${st.fix.security.findings.length} findings</span>` : ""}</div>
       <div class="pr-row" style="align-items:flex-start"><span class="k">Files <b style="color:var(--ok)">+${add}</b> <b style="color:var(--bad)">−${del}</b></span><div class="files">${pr.files.map((f) => `<span>${esc(f.filename)} <b>+${f.additions}</b> <i>−${f.deletions}</i></span>`).join("")}</div></div>
       <div class="pr-actions"><button class="btn small" data-open="github/pull/${pr.number}">View changes</button>${approved ? `<span class="pill ok">✓ ${esc(user(pr.reviews[0].by).name)} approved</span><span class="muted" style="font-size:12px">${esc(user(pr.requested_reviewers[0] ?? "").name)}'s review is still required to merge</span>` : `<button class="btn small accent" data-approve="${pr.number}">Approve as ${esc(owner?.name ?? "the engineer")}</button><span class="muted" style="font-size:12px">merging stays a human decision</span>`}</div>
     </div>`;
@@ -960,8 +1140,9 @@ window.addEventListener("hashchange", route);
 
 /* ---------- Controls ---------- */
 document.addEventListener("click", async (e) => {
-  const el = e.target.closest("[data-open],[data-close],[data-call],[data-say],[data-approve],[data-url],[data-tab]");
+  const el = e.target.closest("[data-open],[data-close],[data-call],[data-say],[data-approve],[data-url],[data-tab],[data-goto]");
   if (!el) return;
+  if (el.dataset.goto) { goTo(el.dataset.goto); return; }
   if (el.dataset.tab) { tab = el.dataset.tab; renderHood(story()); return; }
   if (el.dataset.open) { location.hash = `#/${el.dataset.open}`; return; }
   if (el.dataset.url) { const u = new URL(el.dataset.url, location.href); if (u.origin === location.origin && u.hash) location.hash = u.hash; else window.open(el.dataset.url, "_blank"); return; }
@@ -989,7 +1170,8 @@ function clearStage() {
   $("screen").dataset.key = "";
   if ("speechSynthesis" in window) speechSynthesis.cancel();
 }
-$("start").onclick = async () => { $("start").disabled = true; clearStage(); await post("/mock/start", {}); refresh(); };
+$("start").onclick = async () => { $("start").disabled = true; clearStage(); focused = null; primed = true; setFollow(true); await post("/mock/start", {}); refresh(); };
+$("follow").onclick = () => setFollow(!follow);
 $("reset").onclick = async () => { if (!confirm("Clear every mock service and start CrisisCrew on a fresh session?")) return; clearStage(); await post("/mock/reset"); refresh(); };
 $("autopilot").onclick = () => { const on = $("autopilot").getAttribute("aria-pressed") !== "true"; $("autopilot").setAttribute("aria-pressed", String(on)); post("/mock/phone/autopilot", { on }); };
 $("sound").onclick = () => { soundOn = !soundOn; $("sound").setAttribute("aria-pressed", String(soundOn)); if ("speechSynthesis" in window) { if (soundOn) speechSynthesis.getVoices(); else speechSynthesis.cancel(); } };
@@ -1013,8 +1195,9 @@ function renderTop(st) {
 
 function renderAll() {
   const st = story();
-  renderTop(st); renderKpis(st); renderTriage(st); renderOncall(st); renderFix(st); renderReview(st); renderRecover(st); renderPhone(st); renderHood(st);
+  renderTop(st); renderRail(st); renderKpis(st); renderTriage(st); renderOncall(st); renderFix(st); renderReview(st); renderRecover(st); renderPhone(st); renderHood(st);
   if (modalRoute) renderModal();
+  applyFollow(st);
 }
 async function refresh() {
   try {
@@ -1032,7 +1215,7 @@ async function refresh() {
   }
 }
 // Between state changes: the transcript is spoken word by word, and the clocks tick.
-setInterval(() => { if (!S) return; const st = story(); renderPhone(st); renderKpis(st); if (st.pageCall?.state === "answered") renderOncall(st); }, 150);
+setInterval(() => { if (!S) return; const st = story(); renderPhone(st); renderKpis(st); renderRailClock(st); applyFollow(st); if (st.pageCall?.state === "answered") renderOncall(st); }, 150);
 refresh().then(route);
 setInterval(refresh, 600);
 </script>

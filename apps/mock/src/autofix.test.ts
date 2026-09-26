@@ -1,6 +1,6 @@
 import { githubCodeHost, gitWorkspace, googleDocs, replayCodingAgent, teamKnowledge, testCounts, type ReplaySession } from "@crisiscrew/adapters";
 import { MOCK, mockPorts } from "@crisiscrew/contracts";
-import type { CodingEvent } from "@crisiscrew/core";
+import { scanPatch, type CodingEvent } from "@crisiscrew/core";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +11,7 @@ import { paragraphs } from "./google";
 const ports = mockPorts();
 const root = mkdtempSync(join(tmpdir(), "crisiscrew-autofix-test-"));
 let mock: ReturnType<typeof createMock>;
-const net = (async (input: RequestInfo | URL | string, init?: RequestInit) => {
+const net = (async (input: URL | string, init?: RequestInit) => {
   const req = new Request(input as string, init);
   const port = Number(new URL(req.url).port);
   const app = { [ports.github]: mock.apps.github, [ports.google]: mock.apps.google, [ports.slack]: mock.apps.slack }[port];
@@ -55,6 +55,8 @@ describe("the Fix Agent's adapters against the mocks", () => {
 
     const verified = await workspace.test(dir, repo.testCommand);
     expect(verified).toMatchObject({ passed: 4, failed: 0, ok: true });
+    // The security checks read the uncommitted diff, the new test file included, and find nothing to block.
+    expect(scanPatch(await workspace.diff(dir))).toMatchObject({ findings: [], files: 3 });
     const pushed = await workspace.commitAndPush(dir, "crisiscrew/inc-test-fix", "fix(checkout): restore the gateway timeout");
     expect(pushed.files.map((f) => f.path).sort()).toEqual(["src/config.ts", "src/orders/checkout.ts", "test/gateway-timeout.test.ts"]);
 
