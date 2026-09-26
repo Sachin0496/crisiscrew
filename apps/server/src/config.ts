@@ -585,19 +585,22 @@ export function loadConfig(input: Env): Config {
   const langsmith = switches.tracing === "langsmith" ? langsmithConfig(env) : null;
   const egress = [...new Set([laya && hostOf(laya.baseUrl), lakera && "api.lakera.ai", langsmith && hostOf(langsmith.endpoint)].filter((h): h is string => Boolean(h)))];
 
+  // The Fix Agent's GitHub, Google Docs and Slack are always apps/mock's: with INTEGRATIONS=mock, or beside the real
+  // Freshworks and Vobiz with INTEGRATIONS=real and AUTOFIX=mock (start the mock with `pnpm mock`).
+  const fixPorts = mock ?? (switches.autofix === "mock" && integrations === "real" ? mockPorts(int(env, "MOCK_PORT", MOCK.defaultPort)) : null);
   const autofix: AutofixConfig | null =
-    switches.autofix === "mock" && mock
+    switches.autofix === "mock" && fixPorts
       ? {
-          githubBase: `http://localhost:${mock.github}`,
-          googleBase: `http://localhost:${mock.google}`,
-          slackBase: `http://localhost:${mock.slack}`,
-          viewBase: `http://localhost:${mock.freshdesk}/#/docs/`,
+          githubBase: `http://localhost:${fixPorts.github}`,
+          googleBase: `http://localhost:${fixPorts.google}`,
+          slackBase: `http://localhost:${fixPorts.slack}`,
+          viewBase: `http://localhost:${fixPorts.freshdesk}/#/docs/`,
           repos: { ...MOCK.repos },
           replayFile: text(env, "AUTOFIX_REPLAY") ?? "apps/mock/fixtures/checkout-service.opencode.json",
           workspaceRoot: text(env, "AUTOFIX_WORKSPACES") ?? "data/workspaces",
         }
       : null;
-  if (switches.autofix === "mock" && !mock) throw new ConfigError("AUTOFIX=mock needs INTEGRATIONS=mock: the Fix Agent's mock services come with the other mocks");
+  if (switches.autofix === "mock" && !fixPorts) throw new ConfigError("AUTOFIX=mock needs INTEGRATIONS=mock or real: the Fix Agent's GitHub, Google Docs and Slack come from apps/mock");
 
   return {
     integrations,

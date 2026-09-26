@@ -118,9 +118,17 @@ export type CallRequest = {
   dialog?: CallDialog;
 };
 
-/** One reply in a conversational call. acknowledge: the callee took the incident. end: say this, then hang up. */
-export type DialogTurn = { say: string; acknowledge?: boolean; end?: boolean };
-export type CallDialog = { respond(utterance: string): DialogTurn };
+/**
+ * One reply in a conversational call. acknowledge: the callee took the incident. end: say this, then hang up.
+ * open: a free-form question the rules can only answer in general; a voice that can reason may answer it from
+ * the dialog's facts instead, and says this reply if it can't.
+ */
+export type DialogTurn = { say: string; acknowledge?: boolean; end?: boolean; open?: boolean };
+export type CallDialog = {
+  respond(utterance: string): DialogTurn;
+  /** What is known right now, as plain text: the only material a free-form answer may use. */
+  facts?(): string;
+};
 
 /** Outbound phone calls (Vobiz, or its sandbox): paging on-call, and calling affected customers. */
 export interface TelephonyPort extends AdapterMode {

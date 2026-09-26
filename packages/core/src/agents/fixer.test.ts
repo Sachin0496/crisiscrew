@@ -63,6 +63,38 @@ describe("pageDialog", () => {
     expect(say).toContain("A rollback change, CHN-21, is also filed");
   });
 
+  it("answers questions about the coding agent while it works, and keeps the call going after the acknowledgement", () => {
+    const working = state({
+      status: "running",
+      repo: { fullName: "acme-shop/checkout-service", url: "", defaultBranch: "main", architecture: "microservice" },
+      agent: { tool: "opencode", model: "m" },
+      diagnosis: "v4.21.7 cut the gateway timeout from 15 seconds to 1.5.",
+      session: [{ at: 0, kind: "tool", tool: "edit", title: "Edited src/gateway.ts" }],
+      tests: { before: { command: "npm test", passed: 2, failed: 2, ok: false, output: "", at: 0 }, after: { command: "npm test", passed: 4, failed: 0, ok: true, output: "", at: 0 } },
+      diff: { files: [{ path: "src/gateway.ts", additions: 3, deletions: 1 }], patch: "", sha: "abc" },
+      people: { reviewers: [{ name: "Kiran Desai", login: "kiran-desai" }] },
+    });
+    const dialog = pageDialog(() => working, incident.id, "Neha Kapoor");
+    const ack = dialog.respond("Acknowledge");
+    expect(ack).toMatchObject({ acknowledge: true });
+    expect(ack.end).toBeUndefined();
+    expect(ack.say).toContain("The Fix Agent is already working on the code");
+    expect(dialog.respond("What is the coding agent doing right now?").say).toContain("Its latest step: Edited src/gateway.ts.");
+    expect(dialog.respond("Are the tests passing?").say).toBe("OpenCode wrote a test that reproduces the bug: 2 failing before the patch. After its patch, 4 pass and 0 fail.");
+    expect(dialog.respond("Which files did it change?").say).toContain("The patch touches 1 file: gateway.ts, plus 3 minus 1.");
+    expect(dialog.respond("Who is reviewing the PR?").say).toContain("with Kiran Desai as reviewer. Nothing merges without a human.");
+    expect(dialog.respond("How long will it take?").say).toMatch(/^About \d+ minutes?:/);
+    expect(dialog.respond("Is it secure?").say).toContain("deterministic rules");
+    // Coding-agent questions and unknown ones are open, for a voice that can reason; the facts carry the fix's live state.
+    expect(dialog.respond("Which branch is it on?")).toMatchObject({ open: true });
+    expect(dialog.respond("How many customers are hit?").open).toBeUndefined();
+    const facts = dialog.facts!();
+    expect(facts).toContain("Diff: src/gateway.ts +3 -1");
+    expect(facts).toContain("Tests after the patch: 4 passed, 0 failed.");
+    expect(facts).toContain("[edit] Edited src/gateway.ts");
+    expect(facts).toContain("area checkout payments");
+  });
+
   it("answers the impact, and hangs up on thanks", () => {
     const dialog = pageDialog(() => state(), incident.id, "Neha Kapoor");
     expect(dialog.respond("How many customers are hit?").say).toContain("2 customers are confirmed affected, 1,500 rupees");

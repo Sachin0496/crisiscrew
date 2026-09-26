@@ -80,6 +80,12 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...keys, VOBIZ_FROM_NUMBER: "reception" })).toThrow(/E\.164/);
   });
 
+  it("runs the mock Fix Agent beside real integrations, and only with apps/mock's services", () => {
+    const real = { INTEGRATIONS: "real", TICKETS: "sandbox", INCIDENTS: "sandbox", ONCALL: "sandbox", ALERTS: "sandbox", TELEPHONY: "sandbox", AUTOFIX: "mock" };
+    expect(loadConfig(real).autofix).toMatchObject({ githubBase: "http://localhost:8791", googleBase: "http://localhost:8792", slackBase: "http://localhost:8793" });
+    expect(() => loadConfig({ AUTOFIX: "mock" })).toThrow(/AUTOFIX=mock needs INTEGRATIONS=mock or real/);
+  });
+
   it("offers the real-mode demo triggers only when their services are wired", () => {
     const fd = { TICKETS: "freshdesk", FRESHDESK_DOMAIN: "acme", FRESHDESK_API_KEY: "k", FRESHDESK_INGEST: "poll" };
     expect(loadConfig({}).demo).toEqual({ tickets: null, alert: null });

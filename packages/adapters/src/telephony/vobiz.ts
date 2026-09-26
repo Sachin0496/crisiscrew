@@ -2,7 +2,7 @@ import type { CallState } from "@crisiscrew/contracts";
 import type { CallRequest, TelephonyPort } from "@crisiscrew/core";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { CallBook, e164, isFinal, maskNumber } from "./calls";
-import { wavOf, type CallSpeech } from "./sarvam";
+import { wavOf, type CallAnswerer, type CallSpeech } from "./sarvam";
 import { streamConversation, type StreamSocket } from "./stream";
 
 export type VobizOptions = {
@@ -22,6 +22,8 @@ export type VobizOptions = {
    * speaks each turn; otherwise Vobiz's own Speak and speech Gather do.
    */
   speech?: CallSpeech;
+  /** Streamed calls only: answers the callee's open questions from the dialog's facts (Sarvam's chat model). */
+  answer?: CallAnswerer;
   /** Streamed calls only: the whole call, both sides mixed, as a WAV file once it ends. */
   onRecording?: (callId: string, wav: Buffer) => void;
   /** When non-empty, the only numbers a call may go to; any other is refused before dialling. */
@@ -318,6 +320,7 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
         opening: openingOf(info.script, info.gather),
         ...(info.openingAudio ? { openingAudio: info.openingAudio } : {}),
         respond: (utterance) => dialog.respond(utterance),
+        ...(options.answer && dialog.facts ? { answer: options.answer, facts: () => dialog.facts!() } : {}),
         onLine: (speaker, text) => book.line(callId, speaker, text),
         // The same signal as pressing 1: the engine sees the digit and marks the page acknowledged.
         onAcknowledge: () => book.update(callId, { digits: `${book.get(callId)?.digits ?? ""}1` }),

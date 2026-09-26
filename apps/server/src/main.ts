@@ -16,6 +16,7 @@ import {
   LayaClassifier,
   LocalEmbedder,
   restWriter,
+  sarvamAnswerer,
   sarvamSpeech,
   simulatedLaya,
   VOBIZ_STREAM_PATH,
@@ -113,7 +114,7 @@ function liveAdapters(): LiveAdapters {
       ringTimeoutSec,
       timeLimitSec,
       allowedNumbers,
-      ...(sarvam ? { speech: sarvamSpeech({ apiKey: sarvam.apiKey, speaker: sarvam.speaker, pace: sarvam.pace }) } : {}),
+      ...(sarvam ? { speech: sarvamSpeech({ apiKey: sarvam.apiKey, speaker: sarvam.speaker, pace: sarvam.pace }), answer: sarvamAnswerer({ apiKey: sarvam.apiKey }) } : {}),
       ...(recordCalls
         ? {
             onRecording: (callId: string, wav: Buffer) => {

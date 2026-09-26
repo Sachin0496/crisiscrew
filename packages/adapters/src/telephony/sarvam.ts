@@ -109,3 +109,41 @@ export function sarvamSpeech(options: SarvamSpeechOptions): CallSpeech {
     },
   };
 }
+
+/** Answers a free-form question on a call from the facts given, and nothing else. */
+export type CallAnswerer = (question: string, facts: string) => Promise<string>;
+
+const ANSWER_RULES = `You are CrisisCrew's voice agent, on a live phone call with the on-call engineer about an incident.
+Answer the engineer's question in one to three short spoken sentences, at most 60 words.
+Use ONLY the facts below. If they don't contain the answer, say you don't know that yet, and say what you do know that is closest.
+Never invent numbers, file names, people, times or links. Never promise anything the facts don't say.
+Plain speech only: no markdown, lists, emojis or stage directions. Say "pull request" rather than "PR".`;
+
+/**
+ * Sarvam's conversational model (sarvam-105b-conversations) answering one
+ * question on a call, grounded in the facts CrisisCrew passes: the incident
+ * and the Fix Agent's live state. It never decides anything; it only words
+ * an answer from what the engine knows.
+ */
+export function sarvamAnswerer(options: { apiKey: string; model?: string; fetch?: typeof fetch; timeoutMs?: number; apiBase?: string }): CallAnswerer {
+  const api = (options.apiBase ?? "https://api.sarvam.ai").replace(/\/+$/, "");
+  return async (question, facts) => {
+    const res = await (options.fetch ?? fetch)(`${api}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "api-subscription-key": options.apiKey, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: options.model ?? "sarvam-105b-conversations",
+        max_tokens: 160,
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: `${ANSWER_RULES}\n\nFacts:\n${facts}` },
+          { role: "user", content: question },
+        ],
+      }),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 4_000),
+    });
+    const json = (await res.json().catch(() => ({}))) as { choices?: { message?: { content?: string | null } }[]; error?: { message?: string } };
+    if (!res.ok) throw new SarvamError(`Sarvam chat failed with ${res.status}: ${json.error?.message ?? ""}`);
+    return (json.choices?.[0]?.message?.content ?? "").replace(/[*_#`]/g, "").replace(/\s+/g, " ").trim();
+  };
+}

@@ -1,6 +1,6 @@
 import type { CallView } from "@crisiscrew/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { pcmOf, sarvamSpeech, wavOf, type CallSpeech } from "./sarvam";
+import { pcmOf, sarvamAnswerer, sarvamSpeech, wavOf, type CallSpeech } from "./sarvam";
 import { streamConversation } from "./stream";
 import { vobizTelephony } from "./vobiz";
 
@@ -167,6 +167,45 @@ describe("streamed call conversation", () => {
   });
 });
 
+describe("open questions on a streamed call", () => {
+  it("lets the model word an answer from the dialog's facts, and falls back to the rules' reply when it fails", async () => {
+    const asked: [string, string][] = [];
+    let fail = false;
+    const lines: [string, string][] = [];
+    const convo = streamConversation({
+      socket: { send: () => {}, close: () => {} },
+      speech: fakeSpeech(["which branch is the fix on", "and the tests"]),
+      opening: "Hello",
+      respond: () => ({ say: "The Fix Agent is working on it.", open: true }),
+      answer: async (q, facts) => {
+        asked.push([q, facts]);
+        if (fail) throw new Error("timeout");
+        return "It's on branch crisiscrew/inc-2026-001-fix.";
+      },
+      facts: () => "branch crisiscrew/inc-2026-001-fix",
+      onLine: (speaker, text) => lines.push([speaker, text]),
+      onAcknowledge: () => {},
+      hangup: async () => {},
+    });
+    convo.receive(JSON.stringify({ event: "start", start: { streamId: "s1" } }));
+    await flush();
+    convo.receive(JSON.stringify({ event: "playedStream", name: "turn-1" }));
+    convo.receive(media(Buffer.concat([tone(20), silence(40)])));
+    await flush();
+    await flush();
+    await flush();
+    expect(asked[0]).toEqual(["which branch is the fix on", "branch crisiscrew/inc-2026-001-fix"]);
+    expect(lines.at(-1)).toEqual(["agent", "It's on branch crisiscrew/inc-2026-001-fix."]);
+    fail = true;
+    convo.receive(JSON.stringify({ event: "playedStream", name: "turn-2" }));
+    convo.receive(media(Buffer.concat([tone(20), silence(40)])));
+    await flush();
+    await flush();
+    await flush();
+    expect(lines.at(-1)).toEqual(["agent", "The Fix Agent is working on it."]);
+  });
+});
+
 describe("streamed call recording", () => {
   it("mixes the callee's audio with each agent line where it played, once, when the stream closes", async () => {
     const recordings: Buffer[] = [];
@@ -211,6 +250,19 @@ describe("Sarvam speech", () => {
     expect([form.get("model"), form.get("language_code")]).toEqual(["saaras:v3", "en-IN"]);
     expect((await speech.say("Hello")).length).toBe(FRAME * 2);
     expect(JSON.parse(String(calls[1]!.body))).toMatchObject({ model: "bulbul:v3", speaker: "anand", speech_sample_rate: 16000, target_language_code: "en-IN" });
+  });
+
+  it("answers a question from the facts with the conversational model", async () => {
+    let sent: { model: string; messages: { role: string; content: string }[] } | null = null;
+    const fetch = (async (_url: string, init: RequestInit) => {
+      sent = JSON.parse(String(init.body));
+      return Response.json({ choices: [{ message: { content: "It's on **branch** crisiscrew/fix." } }] });
+    }) as unknown as typeof globalThis.fetch;
+    const answer = await sarvamAnswerer({ apiKey: "k", fetch })("which branch?", "branch crisiscrew/fix");
+    expect(answer).toBe("It's on branch crisiscrew/fix.");
+    expect(sent!.model).toBe("sarvam-105b-conversations");
+    expect(sent!.messages[0]!.content).toContain("Use ONLY the facts below");
+    expect(sent!.messages[0]!.content).toContain("branch crisiscrew/fix");
   });
 
   it("says why Sarvam refused", async () => {

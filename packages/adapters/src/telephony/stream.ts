@@ -1,5 +1,5 @@
 import type { DialogTurn } from "@crisiscrew/core";
-import { SPEECH_RATE, type CallSpeech } from "./sarvam";
+import { SPEECH_RATE, type CallAnswerer, type CallSpeech } from "./sarvam";
 
 /** The WebSocket Vobiz streams a call's audio over, as far as a conversation needs it. */
 export type StreamSocket = { send(data: string): void; close(): void };
@@ -13,6 +13,9 @@ export type StreamConversationOptions = {
   openingAudio?: Promise<Buffer>;
   /** CrisisCrew's answer to one turn of the callee's speech. */
   respond(utterance: string): DialogTurn;
+  /** For open questions: words an answer from facts() alone; the rules' reply stands if it fails or says nothing. */
+  answer?: CallAnswerer;
+  facts?(): string;
   /** One line of the transcript, as it happens. */
   onLine(speaker: "agent" | "callee", text: string): void;
   /** The callee took the incident. */
@@ -137,7 +140,16 @@ export function streamConversation(options: StreamConversationOptions) {
       options.onLine("callee", heard);
       const reply = options.respond(heard);
       if (reply.acknowledge) options.onAcknowledge();
-      await speak(reply.say, Boolean(reply.end), at);
+      let say = reply.say;
+      if (reply.open && !reply.end && options.answer && options.facts) {
+        try {
+          const worded = await options.answer(heard, options.facts());
+          if (worded && at === turn && !ended) say = `${reply.acknowledge ? say.split(/(?<=yours\.)\s/)[0] + " " : ""}${worded}`.trim();
+        } catch (error) {
+          options.onError?.(error);
+        }
+      }
+      await speak(say, Boolean(reply.end), at);
     } catch (error) {
       options.onError?.(error);
       if ((at === undefined || at === turn) && !ended) await speak("Sorry, I missed that. Could you say it again?", false, at).catch(() => {});
