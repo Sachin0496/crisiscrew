@@ -1,13 +1,14 @@
 import { AGENT_IDS, WORKFLOW_LABELS, type CrisisState, type TraceDetail, type TraceSummary, type WiringReport, type WorkflowGraph, type WorkflowName } from "@crisiscrew/contracts";
 import { Activity } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { TraceView } from "../components/traces/TraceView";
+import { RuntimeWorkflowMap } from "../components/traces/RuntimeWorkflowMap";
 import { WorkflowMap } from "../components/traces/WorkflowMap";
 import { Badge, Card, Empty, Segmented } from "../components/ui";
 import { AGENT_STATUS, plural, since } from "../format";
 import { traceHref } from "../router";
-import { defaultTrace, duration, nodeStates, TRACE_STATUS } from "../traces";
+import { defaultTrace, duration, latestWorkflowActivity, nodeStates, TRACE_STATUS } from "../traces";
 
 type Filter = "all" | "attention" | "incidents";
 
@@ -20,10 +21,12 @@ type Filter = "all" | "attention" | "incidents";
  */
 export function TracesPage({ state, wiring, traceId }: { state: CrisisState; wiring: WiringReport | null; traceId?: string }) {
   const [graphs, setGraphs] = useState<WorkflowGraph[]>([]);
-  const [tab, setTab] = useState<WorkflowName>("incident");
+  const [tab, setTab] = useState<WorkflowName | "overview">("overview");
   const [filter, setFilter] = useState<Filter>("all");
   const [detail, setDetail] = useState<TraceDetail | null>(null);
+  const [activityDetails, setActivityDetails] = useState<TraceDetail[]>([]);
   const [span, setSpan] = useState<string | null>(null);
+  const pendingNode = useRef<{ traceId: string; spanId: string } | null>(null);
 
   useEffect(() => {
     api.workflows().then(setGraphs, () => undefined);
@@ -33,6 +36,36 @@ export function TracesPage({ state, wiring, traceId }: { state: CrisisState; wir
   const selected = traces.find((t) => t.id === traceId) ?? defaultTrace(traces);
   const attention = traces.filter((t) => t.status === "attention" || t.status === "error").length;
   const langsmith = wiring?.ports.find((p) => p.port === "tracing" && p.adapter === "langsmith");
+
+  // The overview follows the latest run of each workflow and every run still open.
+  // Recovery is nested in incident and late-complaint traces, so those details cover it too.
+  const activityTargets = useMemo(() => {
+    const latest = new Map<WorkflowName, TraceSummary>();
+    for (const trace of [...traces].reverse()) if (trace.workflow !== "mcp_call" && !latest.has(trace.workflow)) latest.set(trace.workflow, trace);
+    return [...new Map([...latest.values(), ...traces.filter((trace) => trace.workflow !== "mcp_call" && !trace.endedAt)].map((trace) => [trace.id, trace])).values()];
+  }, [traces]);
+  const activityKey = activityTargets.map((trace) => `${trace.id}:${trace.endedAt ?? "running"}`).join("|");
+  useEffect(() => {
+    if (activityTargets.length === 0) {
+      setActivityDetails([]);
+      return;
+    }
+    let stopped = false;
+    let loading = false;
+    const load = async () => {
+      if (loading) return;
+      loading = true;
+      const results = await Promise.allSettled(activityTargets.map((trace) => api.trace(trace.id)));
+      if (!stopped) setActivityDetails(results.flatMap((result) => result.status === "fulfilled" && result.value.trace.sessionId === state.session.id ? [result.value] : []));
+      loading = false;
+    };
+    void load();
+    const timer = activityTargets.some((trace) => !trace.endedAt) ? setInterval(load, 750) : undefined;
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [state.session.id, activityKey]);
 
   // Follow the open trace: fetch its spans when it changes, and keep polling while it runs.
   const key = selected ? `${selected.id}:${selected.status}:${selected.endedAt ?? ""}:${selected.firstProblem?.spanId ?? ""}` : "";
@@ -57,10 +90,15 @@ export function TracesPage({ state, wiring, traceId }: { state: CrisisState; wir
 
   // Opening a trace shows its workflow on the map, and its first problem.
   useEffect(() => {
+    if (!traceId) setTab("overview");
     if (!selected) return;
-    if (selected.workflow !== "mcp_call") setTab(selected.workflow);
-    setSpan(selected.firstProblem?.spanId ?? null);
-  }, [selected?.id]);
+    if (traceId && selected.workflow !== "mcp_call") setTab(selected.workflow);
+    const pending = pendingNode.current;
+    if (pending?.traceId === selected.id) {
+      setSpan(pending.spanId);
+      pendingNode.current = null;
+    } else setSpan(selected.firstProblem?.spanId ?? null);
+  }, [selected?.id, traceId]);
 
   const shown = useMemo(() => {
     const newest = [...traces].reverse();
@@ -71,8 +109,17 @@ export function TracesPage({ state, wiring, traceId }: { state: CrisisState; wir
 
   const graph = graphs.find((g) => g.name === tab);
   const openDetail = detail && selected && detail.trace.id === selected.id ? detail : null;
-  const states = graph ? nodeStates(openDetail, graph) : {};
-  const showRuns = Boolean(openDetail && Object.values(states).some((s) => s.ran));
+  const currentActivity = activityDetails.filter((item) => item.trace.sessionId === state.session.id);
+  const focusedDetail = traceId ? openDetail : graph ? latestWorkflowActivity(currentActivity, graph)?.detail ?? null : null;
+  const states = graph ? nodeStates(focusedDetail, graph) : {};
+  const showRuns = Boolean(focusedDetail && Object.values(states).some((s) => s.ran));
+  const openWorkflowNode = (nodeTraceId: string, spanId: string) => {
+    if (selected?.id === nodeTraceId) setSpan(spanId);
+    else {
+      pendingNode.current = { traceId: nodeTraceId, spanId };
+      window.location.hash = traceHref(nodeTraceId);
+    }
+  };
 
   return (
     <div className="page">
@@ -110,19 +157,29 @@ export function TracesPage({ state, wiring, traceId }: { state: CrisisState; wir
 
       <Card
         title="Workflow map"
-        subtitle={graph ? graph.description : "The five LangGraph workflow entry points"}
+        className="workflow-card"
+        subtitle={tab === "overview" ? "The complete runtime handoffs and all five compiled LangGraph workflows" : graph ? graph.description : "The LangGraph workflows, read from the compiled graphs"}
         actions={
           <Segmented
             label="Workflow"
             value={tab}
             onChange={setTab}
-            options={graphs.map((g) => ({ value: g.name, label: g.title }))}
+            options={[{ value: "overview", label: "Full runtime" }, ...graphs.map((g) => ({ value: g.name, label: g.title }))]}
           />
         }
       >
-        {graph ? (
+        {tab === "overview" && graphs.length > 0 ? (
           <>
-            <WorkflowMap graph={graph} states={states} showRuns={showRuns} onNode={setSpan} />
+            <RuntimeWorkflowMap graphs={graphs} details={currentActivity} traces={traces} replayFinished={state.replayFinished} replaying={state.session.mode === "replay" && !state.replayFinished} onNode={openWorkflowNode} />
+            <div className="wf-legend">
+              <span><i className="solid" /> always</span>
+              <span><i className="dashed" /> conditional</span>
+              <span className="muted">The current and latest runs light up as the demo plays. Click a node to inspect its trace.</span>
+            </div>
+          </>
+        ) : graph ? (
+          <>
+            <WorkflowMap graph={graph} states={states} showRuns={showRuns} inProgress={Boolean(focusedDetail && !focusedDetail.trace.endedAt)} onNode={(spanId) => focusedDetail && openWorkflowNode(focusedDetail.trace.id, spanId)} />
             <div className="wf-legend">
               <span>
                 <i className="solid" /> always
@@ -131,7 +188,7 @@ export function TracesPage({ state, wiring, traceId }: { state: CrisisState; wir
                 <i className="dashed" /> conditional
               </span>
               {showRuns ? (
-                <span className="muted">Showing the run of {selected?.title}. Click a node to open its step.</span>
+                <span className="muted">Showing the run of {focusedDetail?.trace.title}. Click a node to open its step.</span>
               ) : (
                 <span className="muted">Open a run of this workflow to see the path it took.</span>
               )}

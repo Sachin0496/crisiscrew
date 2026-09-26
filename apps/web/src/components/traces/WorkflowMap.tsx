@@ -15,6 +15,7 @@ type Props = {
   /** Which nodes ran in the selected trace; empty when no trace of this workflow is open. */
   states: Record<string, NodeState>;
   showRuns: boolean;
+  inProgress?: boolean;
   onNode: (spanId: string) => void;
 };
 
@@ -23,7 +24,7 @@ type Props = {
  * With a trace open, the nodes it ran are marked, and a node
  * with a problem anywhere under it is ringed in red or amber.
  */
-export function WorkflowMap({ graph, states, showRuns, onNode }: Props) {
+export function WorkflowMap({ graph, states, showRuns, inProgress = false, onNode }: Props) {
   const { at, cols, maxRows } = layout(graph);
   const terminal = new Set(graph.nodes.filter((n) => n.kind !== "node").map((n) => n.id));
   // Columns holding only Start or End are narrow.
@@ -86,7 +87,7 @@ export function WorkflowMap({ graph, states, showRuns, onNode }: Props) {
             );
           }
           const problem = showRuns && st?.worst && isProblemStatus(st.worst) ? SPAN_STATUS[st.worst].tone : null;
-          const state = !showRuns ? "idle" : !st?.ran ? "skipped" : st.worst === "running" ? "running" : problem ? `problem-${problem}` : "ok";
+          const state = !showRuns ? "idle" : !st?.ran ? inProgress ? "pending" : "skipped" : st.active ? "running" : problem ? `problem-${problem}` : "ok";
           const clickable = showRuns && st?.spanId;
           return (
             <g

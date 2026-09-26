@@ -92,7 +92,7 @@ export function duration(ms: number | undefined): string {
   return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
-export type NodeState = { ran: boolean; runs: number; worst: SpanStatus | null; spanId?: string };
+export type NodeState = { ran: boolean; runs: number; worst: SpanStatus | null; active?: boolean; spanId?: string };
 
 /**
  * Which of a workflow's nodes ran in this trace and whether anything under
@@ -111,6 +111,7 @@ export function nodeStates(detail: TraceDetail | null, graph: WorkflowGraph): Re
     const st = states[s.name]!;
     st.ran = true;
     st.runs += 1;
+    if (s.status === "running") st.active = true;
     st.worst = worse(st.worst, row.worst);
     // Point at the run that went wrong, or the last run.
     if (!st.spanId || isProblemStatus(row.worst)) st.spanId = s.id;
@@ -119,6 +120,13 @@ export function nodeStates(detail: TraceDetail | null, graph: WorkflowGraph): Re
     for (const id of ["__start__", "__end__"]) if (states[id]) states[id] = { ...states[id]!, ran: true, runs: 1, worst: "ok" };
   }
   return states;
+}
+
+/** Prefer a run still in progress; otherwise show the latest run that reached this workflow. */
+export function latestWorkflowActivity(details: TraceDetail[], graph: WorkflowGraph): { detail: TraceDetail; states: Record<string, NodeState> } | null {
+  const candidates = details.map((detail) => ({ detail, states: nodeStates(detail, graph) })).filter(({ states }) => Object.values(states).some((state) => state.ran));
+  candidates.sort((a, b) => Number(Boolean(a.detail.trace.endedAt)) - Number(Boolean(b.detail.trace.endedAt)) || b.detail.trace.startedAt - a.detail.trace.startedAt);
+  return candidates[0] ?? null;
 }
 
 export type Placement = { col: number; row: number; colSize: number };
