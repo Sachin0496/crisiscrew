@@ -657,3 +657,5 @@ button.side-row:hover { background: var(--surface-hover); color: var(--text); }
 .call-transcript p.agent { background: var(--surface-2, rgba(37, 99, 235, 0.08)); align-self: flex-start; }
 .call-transcript p.callee { background: rgba(22, 163, 74, 0.1); align-self: flex-end; }
 .call-transcript .speaker { font-weight: 600; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.row-actions { display: inline-flex; align-items: center; gap: 8px; margin-left: 8px; }

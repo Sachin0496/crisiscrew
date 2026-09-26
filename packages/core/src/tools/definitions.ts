@@ -824,32 +824,34 @@ export function createTools(): Tool[] {
     {
       name: "page_on_call",
       description:
-        "Phone the on-call engineer for an important incident and ask them to press 1 to acknowledge. Attempt 1 calls the primary responder; each later attempt escalates to the next one on the schedule.",
-      input: z.object({ incidentId: z.string().min(1), attempt: z.number().int().min(1) }),
+        "Phone the on-call engineer for an important incident and ask them to press 1 to acknowledge. Attempt 1 calls the primary responder; each later attempt escalates to the next one on the schedule. manual: an operator asked for the call, so it goes to the primary responder whatever the importance, even after an earlier page, and never escalates.",
+      input: z.object({ incidentId: z.string().min(1), attempt: z.number().int().min(1), manual: z.boolean().optional() }),
       level: fixed(1),
       adapter: (ctx) => ctx.ports.telephony.adapter,
       condition(args, ctx) {
-        const { incidentId, attempt } = args as { incidentId: string; attempt: number };
+        const { incidentId, attempt, manual } = args as { incidentId: string; attempt: number; manual?: boolean };
         const incident = ctx.state().incidents[incidentId];
         if (!incident) return `no incident ${incidentId}`;
-        if (!incident.importance?.page) return `${incidentId} is ${incident.importance?.level ?? "not assessed"}, below the level that pages on-call`;
         const paging = incident.paging;
-        if (paging?.status === "acknowledged") return `already acknowledged by ${paging.acknowledgedBy}`;
         const made = paging?.attempts.length ?? 0;
         if (attempt !== made + 1) return attempt <= made ? `attempt ${attempt} was already made` : `attempt ${made + 1} comes first`;
         if (paging?.attempts.at(-1)?.state === "calling") return `attempt ${made} is still in progress`;
+        // An operator's call: they decided it's worth a call, so importance and earlier acknowledgements don't stop it.
+        if (manual) return null;
+        if (!incident.importance?.page) return `${incidentId} is ${incident.importance?.level ?? "not assessed"}, below the level that pages on-call`;
+        if (paging?.status === "acknowledged") return `already acknowledged by ${paging.acknowledgedBy}`;
         const max = ctx.policy.oncall.maxEscalations + 1;
         return attempt > max ? `no escalations left: ${max} ${max === 1 ? "responder was" : "responders were"} already paged` : null;
       },
       async run(args, ctx) {
-        const { incidentId, attempt } = args as { incidentId: string; attempt: number };
+        const { incidentId, attempt, manual } = args as { incidentId: string; attempt: number; manual?: boolean };
         const incident = incidentOf(ctx, incidentId);
         const service = ctx.ports.catalog.servicesFor(incident.surface)[0]?.name ?? incident.surface;
         const responders = (await ctx.ports.oncall.whoIsOnCall(service)).filter((r) => r.phone);
-        const responder = responders[attempt - 1];
+        const responder = manual ? responders[0] : responders[attempt - 1];
         const attempts = incident.paging?.attempts ?? [];
         if (!responder) {
-          const status = attempt === 1 ? "no_responder" : "exhausted";
+          const status = attempt === 1 || manual ? "no_responder" : "exhausted";
           const note = attempt === 1 ? `Nobody on call for ${service} has a phone number` : `Nobody left on call for ${service} to escalate to`;
           ctx.emit({ type: "paging.updated", payload: { incidentId, paging: { status, attempts, note } } });
           return { paged: false, reason: note };
@@ -858,7 +860,7 @@ export function createTools(): Tool[] {
         const masked = `••••${responder.phone!.replace(/\D/g, "").slice(-4)}`;
         const entry: PageAttempt = { attempt, responder: responder.name, role: responder.role, phone: masked, state: "calling", startedAt: now, updatedAt: now };
         // Recorded before dialling, so the call's first updates always find their attempt.
-        ctx.emit({ type: "paging.updated", payload: { incidentId, paging: { status: "paging", attempts: [...attempts, entry] } } });
+        ctx.emit({ type: "paging.updated", payload: { incidentId, paging: { status: "paging", attempts: [...attempts, entry], ...(manual ? { note: `An operator asked for a call to ${responder.name}` } : {}) } } });
         let callId: string;
         try {
           ({ callId } = await ctx.ports.telephony.call({
@@ -866,7 +868,7 @@ export function createTools(): Tool[] {
             script: pageScript(incident, responder.name),
             purpose: "oncall",
             gather: { prompt: "Say acknowledge, or press 1, to take this incident." },
-            metadata: { incidentId, attempt: String(attempt) },
+            metadata: { incidentId, attempt: String(attempt), ...(manual ? { manual: "true" } : {}) },
             dialog: pageDialog(ctx.state, incidentId, responder.name),
           }));
         } catch (error) {

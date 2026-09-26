@@ -42,6 +42,21 @@ async function run(scenario: Scenario, policy: Policy = loadPolicy()) {
   return { engine, ports, state, incident, pages };
 }
 
+describe("an operator's call to on-call", () => {
+  it("calls the primary again after an acknowledged page, briefs them, and doesn't escalate", async () => {
+    const { engine, ports } = await run(hero);
+    const result = await engine.pageNow(engine.snapshot().incidentOrder[0]!, "Demo operator");
+    await engine.whenIdle();
+    expect(result).toMatchObject({ ok: true, callId: expect.any(String) });
+    const incident = engine.snapshot().incidents[engine.snapshot().incidentOrder[0]!]!;
+    expect(incident.paging?.attempts.map((a) => [a.attempt, a.responder])).toEqual([[1, "Neha Kapoor"], [2, "Neha Kapoor"]]);
+    expect(ports.record.calls.at(-1)?.script).toMatch(/^Hi Neha, CrisisCrew here, with a P1 incident/);
+    const pages = engine.audit.entries().filter((e) => e.tool === "page_on_call");
+    expect(pages.map((p) => p.decision)).toEqual(["allowed", "allowed"]);
+    expect(pages.at(-1)?.argsSummary).toContain('"manual":true');
+  });
+});
+
 describe("paging on-call", () => {
   it("pages the hero's primary on-call engineer exactly once, after the incident opens, and records the acknowledgement", async () => {
     const { incident, pages, ports, state } = await run(hero);

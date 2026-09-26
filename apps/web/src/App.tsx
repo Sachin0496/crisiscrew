@@ -125,6 +125,7 @@ export function App() {
           demo={demo}
           onFileTickets={() => run(() => api.demoTickets(), "tickets")}
           onFireAlert={() => run(() => api.demoAlert())}
+          onCallOnCall={(id) => run(() => api.pageNow(id))}
         />
         <main id="content">
           {route === "incident" && <IncidentPage state={state} scenario={scenario} customerNames={customerNames} />}

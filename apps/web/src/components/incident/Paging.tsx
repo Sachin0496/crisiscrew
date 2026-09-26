@@ -1,5 +1,7 @@
 import type { CallView, IncidentView, PageAttemptState, PagingView } from "@crisiscrew/contracts";
 import { PhoneCall } from "lucide-react";
+import { useState } from "react";
+import { api } from "../../api";
 import { clock, type Tone } from "../../format";
 import { Badge, Card, Empty } from "../ui";
 
@@ -20,13 +22,43 @@ const ATTEMPT: Record<PageAttemptState, { label: string; tone: Tone }> = {
 };
 
 /** Paging the on-call engineer: each call, in escalation order, and who took it. Only shown once importance calls for a page. */
+/** Phones the primary on-call engineer now; the call briefs them on the incident. */
+function CallButton({ incident }: { incident: IncidentView }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const calling = incident.paging?.attempts.at(-1)?.state === "calling";
+  return (
+    <span className="row-actions">
+      {error && <span className="muted" title={error}>Not called</span>}
+      <button
+        className="btn btn-sm"
+        type="button"
+        disabled={busy || calling}
+        title={error ?? "Phone the on-call engineer now; the call briefs them on this incident"}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            await api.pageNow(incident.id);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <PhoneCall size={13} aria-hidden /> {calling ? "Calling…" : "Call on-call now"}
+      </button>
+    </span>
+  );
+}
+
 export function Paging({ incident, calls = {} }: { incident: IncidentView; calls?: Record<string, CallView> }) {
   const paging = incident.paging;
   if (!paging) {
-    if (!incident.importance?.page) return null;
     return (
-      <Card title="On-call" subtitle="Paging the on-call engineer">
-        <Empty icon={<PhoneCall size={18} />} title="Looking up who's on call" />
+      <Card title="On-call" subtitle={incident.importance?.page ? "Paging the on-call engineer" : `${incident.importance?.level ?? "This incident"} doesn't page on its own`} actions={<CallButton incident={incident} />}>
+        <Empty icon={<PhoneCall size={18} />} title={incident.importance?.page ? "Looking up who's on call" : "Call the on-call engineer yourself if it needs one"} />
       </Card>
     );
   }
@@ -36,7 +68,17 @@ export function Paging({ incident, calls = {} }: { incident: IncidentView; calls
       ? `${paging.acknowledgedBy} took it at ${clock(paging.acknowledgedAt!)}${paging.via === "call" ? " by pressing 1" : ""}`
       : (paging.note ?? "Each unanswered call escalates to the next responder");
   return (
-    <Card title="On-call" subtitle={subtitle} actions={<Badge tone={status.tone} dot>{status.label}</Badge>} flush>
+    <Card
+      title="On-call"
+      subtitle={subtitle}
+      actions={
+        <>
+          <Badge tone={status.tone} dot>{status.label}</Badge>
+          <CallButton incident={incident} />
+        </>
+      }
+      flush
+    >
       {paging.attempts.length > 0 && (
         <table className="table">
           <thead>

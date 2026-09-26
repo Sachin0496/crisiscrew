@@ -248,6 +248,14 @@ export function createApp({ runtime, config, onError }: AppDeps): Hono {
   });
 
   // An operator takes the page, so no one else is called.
+  // An operator asks for a call to the primary on-call engineer now; it briefs them on the incident, and they can acknowledge by voice.
+  app.post("/api/incidents/:id/page", adminLimit, admin, async (c) => {
+    const id = c.req.param("id");
+    if (!runtime.state().incidents[id]) return c.json({ error: `no incident ${id}` }, 404);
+    const result = await runtime.pageNow(id, c.req.header("x-operator-name")?.slice(0, 60) || "an operator");
+    return result.ok ? c.json(result, 202) : c.json({ error: result.reason ?? "the call was not placed" }, 409);
+  });
+
   app.post("/api/incidents/:id/page/acknowledge", adminLimit, admin, async (c) => {
     const parsed = await body(c, AcknowledgeBody);
     if (!parsed.ok) return parsed.response;

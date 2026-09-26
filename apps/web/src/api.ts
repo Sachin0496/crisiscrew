@@ -81,6 +81,7 @@ export const api = {
   customers: () => get<DirectoryEntry[]>("/api/customers"),
   replay: (scenario: string, speed: number) => post<{ sessionId: string }>("/api/replay", { scenario, speed }, "admin"),
   live: () => post<{ sessionId: string }>("/api/live", {}, "admin"),
+  pageNow: (incidentId: string) => post<{ ok: boolean; callId?: string }>(`/api/incidents/${encodeURIComponent(incidentId)}/page`, {}, "admin"),
   demoTickets: () => post<{ total: number }>("/api/demo/freshdesk-tickets", {}, "admin"),
   demoAlert: () => post<{ fired: boolean; service: string }>("/api/demo/freshservice-alert", {}, "admin"),
   addTicket: (ticket: { customerName: string; channel: string; body: string }) => post<Ticket>("/api/tickets", ticket, "admin"),

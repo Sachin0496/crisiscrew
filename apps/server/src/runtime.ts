@@ -287,6 +287,10 @@ export class Runtime {
     return this.currentPorts().telephony.call(request);
   }
 
+  pageNow(incidentId: string, by: string): Promise<{ ok: boolean; reason?: string; callId?: string }> {
+    return this.current().pageNow(incidentId, by);
+  }
+
   acknowledgePage(incidentId: string, by: string): Promise<void> {
     return this.current().acknowledgePage(incidentId, by);
   }
