@@ -90,8 +90,8 @@ function liveAdapters(): LiveAdapters {
     live.alerts = { client: new FreshserviceAlertsClient({ domain, apiKey }), rules };
   }
   if (config.oncall) {
-    const { domain, apiKey, defaultScheduleId, schedules } = config.oncall;
-    const oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules });
+    const { domain, apiKey, defaultScheduleId, schedules, names } = config.oncall;
+    const oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules, names });
     live.oncall = oncall;
     // Ask once now: Freshservice's on-call API is slow on its first call, and this shows at startup who a page would ring.
     oncall.whoIsOnCall("").then(

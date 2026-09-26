@@ -223,7 +223,9 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
           ring_method: "POST",
           hangup_url: callbackUrl(callId, "hangup"),
           hangup_method: "POST",
-          hangup_on_ring: options.ringTimeoutSec ?? 30,
+          // ring_timeout stops an unanswered call ringing. (hangup_on_ring would hang up that long after ringing
+          // starts, answered or not, which cut every call short.) time_limit caps the answered call.
+          ring_timeout: options.ringTimeoutSec ?? 30,
           time_limit: options.timeLimitSec ?? 300,
         });
         if (created?.request_uuid) placed.get(callId)!.requestUuid = created.request_uuid;

@@ -66,7 +66,7 @@ describe("Vobiz calls", () => {
         answer_url: `${BASE}/api/webhooks/vobiz/${callId}/answer`,
         ring_url: `${BASE}/api/webhooks/vobiz/${callId}/ring`,
         hangup_url: `${BASE}/api/webhooks/vobiz/${callId}/hangup`,
-        hangup_on_ring: 30,
+        ring_timeout: 30,
         time_limit: 300,
       },
     });

@@ -192,7 +192,7 @@ export type VobizConfig = {
  */
 export type IntegrationsMode = "sandbox" | "mock" | "real";
 
-export type OnCallConfig = { domain: string; apiKey: string; defaultScheduleId: number; schedules: Record<string, number> };
+export type OnCallConfig = { domain: string; apiKey: string; defaultScheduleId: number; schedules: Record<string, number>; names: Record<string, string> };
 
 export type AlertsConfig = {
   domain: string;
@@ -410,7 +410,19 @@ function oncallConfig(env: Env): OnCallConfig {
     apiKey: text(env, "FRESHSERVICE_API_KEY")!,
     defaultScheduleId: id("FRESHSERVICE_ONCALL_SCHEDULE_ID", text(env, "FRESHSERVICE_ONCALL_SCHEDULE_ID")!),
     schedules,
+    names: namesOf(text(env, "FRESHSERVICE_ONCALL_NAMES")),
   };
+}
+
+/** FRESHSERVICE_ONCALL_NAMES: email=Name pairs, the name CrisisCrew uses for an on-call agent (e.g. a demo persona). */
+function namesOf(value: string | null): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const pair of (value ?? "").split(",").map((p) => p.trim()).filter(Boolean)) {
+    const [email, name] = pair.split("=").map((p) => p.trim());
+    if (!email?.includes("@") || !name) throw new ConfigError(`FRESHSERVICE_ONCALL_NAMES takes email=Name pairs, got "${pair}"`);
+    names[email.toLowerCase()] = name;
+  }
+  return names;
 }
 
 function alertsConfig(env: Env): AlertsConfig {

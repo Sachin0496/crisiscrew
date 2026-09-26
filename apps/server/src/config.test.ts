@@ -126,7 +126,10 @@ describe("loadConfig", () => {
       apiKey: "fs",
       defaultScheduleId: 8569,
       schedules: { "checkout-service": 8570, "auth-service": 8571 },
+      names: {},
     });
+    expect(loadConfig({ ...keys, FRESHSERVICE_ONCALL_NAMES: "Nakul@Example.com=Meenakshi" }).oncall?.names).toEqual({ "nakul@example.com": "Meenakshi" });
+    expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_NAMES: "Meenakshi" })).toThrow(/email=Name/);
     expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "live", adapter: "freshservice" });
     expect(() => loadConfig({ ONCALL: "freshservice", FRESHSERVICE_DOMAIN: "acme" })).toThrow("ONCALL=freshservice needs FRESHSERVICE_API_KEY, FRESHSERVICE_ONCALL_SCHEDULE_ID; see .env.example");
     expect(() => loadConfig({ ...keys, FRESHSERVICE_ONCALL_SCHEDULE_ID: "weekly" })).toThrow(/schedule id/);
