@@ -8,7 +8,7 @@ import type { AgentId } from "./domain";
  */
 
 /** The workflows CrisisCrew runs as LangGraph graphs, plus calls from external MCP clients. */
-export type WorkflowName = "ticket" | "incident" | "late_ticket" | "recovery_pass" | "decision" | "mcp_call";
+export type WorkflowName = "ticket" | "incident" | "late_ticket" | "recovery_pass" | "decision" | "autofix" | "mcp_call";
 
 export const WORKFLOW_LABELS: Record<WorkflowName, string> = {
   ticket: "Ticket intake",
@@ -16,6 +16,7 @@ export const WORKFLOW_LABELS: Record<WorkflowName, string> = {
   late_ticket: "Late complaint",
   recovery_pass: "Recovery pass",
   decision: "Human decision",
+  autofix: "Auto-fix",
   mcp_call: "MCP call",
 };
 

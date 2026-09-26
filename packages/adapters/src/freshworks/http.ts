@@ -24,9 +24,20 @@ export class FreshworksError extends Error {
   }
 }
 
+/** localhost or 127.0.0.1, with or without a port: the mock services (apps/mock), reached over plain http. */
+export function isLocalHost(host: string): boolean {
+  return /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host);
+}
+
+/** The origin behind a domain: https for Freshworks, http for a local mock. */
+export function originOf(domain: string): string {
+  return `${isLocalHost(domain) ? "http" : "https"}://${domain}`;
+}
+
 /**
  * Accepts "acme", "acme.freshdesk.com" or "https://acme.freshdesk.com/" and
  * returns the bare host. A name without a dot gets the product's domain.
+ * "localhost:8788" stays as it is: that's the mock.
  */
 export function normalizeDomain(input: string, productDomain: "freshdesk.com" | "freshservice.com"): string {
   const host = input
@@ -35,6 +46,7 @@ export function normalizeDomain(input: string, productDomain: "freshdesk.com" | 
     .replace(/\/.*$/, "")
     .toLowerCase();
   if (!host) throw new Error("empty domain");
+  if (isLocalHost(host)) return host;
   return host.includes(".") ? host : `${host}.${productDomain}`;
 }
 
@@ -52,7 +64,7 @@ export async function freshworksRequest<T>(auth: FreshworksAuth, method: "GET" |
   const doFetch = auth.fetch ?? fetch;
   let res: Response;
   try {
-    res = await doFetch(`https://${auth.domain}${path}`, {
+    res = await doFetch(`${originOf(auth.domain)}${path}`, {
       method,
       headers: {
         authorization: `Basic ${Buffer.from(`${auth.apiKey}:X`).toString("base64")}`,

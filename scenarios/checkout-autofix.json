@@ -1,0 +1,793 @@
+{
+  "id": "checkout-autofix",
+  "title": "24 tickets, one P1: page on-call and ship the fix for review",
+  "purpose": "24 customers write in within 40 seconds. CrisisCrew groups them: 19 describe failed payments since checkout-service v4.21.7 (P1) and 5 describe stuck delivery tracking (P3). The P1 pages the on-call engineer by phone, and while she's on the call the Fix Agent clones checkout-service, reproduces the bug, patches it with OpenCode, and sends her the incident report and a pull request to review.",
+  "speed": 1,
+  "expected": {
+    "incident": true,
+    "incidents": 2,
+    "rootCause": "deploy:checkout-service@4.21.7",
+    "linkedTickets": 19,
+    "affected": 25,
+    "silent": 6,
+    "importance": "P1",
+    "pages": true,
+    "acknowledgedBy": "Neha Kapoor"
+  },
+  "world": {
+    "baselinePerHour": {
+      "checkout_payments": 3,
+      "delivery_orders": 2
+    },
+    "services": [
+      {
+        "name": "checkout-service",
+        "surfaces": [
+          "checkout_payments"
+        ],
+        "baselineErrorRate": 0.004,
+        "faultyErrorRate": 0.0344
+      },
+      {
+        "name": "auth-service",
+        "surfaces": [
+          "login_account"
+        ]
+      },
+      {
+        "name": "tracking-service",
+        "surfaces": [
+          "delivery_orders"
+        ]
+      }
+    ],
+    "deployments": [
+      {
+        "service": "tracking-service",
+        "version": "1.9.2",
+        "sha": "b7d3e0a1c9f4",
+        "author": "meghna-p",
+        "at": "-72h",
+        "message": "Courier webhook retries"
+      },
+      {
+        "service": "checkout-service",
+        "version": "4.21.6",
+        "sha": "8c1f2d94e0b7",
+        "author": "aditi-rao",
+        "at": "-5h",
+        "message": "Show saved UPI handles first"
+      },
+      {
+        "service": "auth-service",
+        "version": "2.8.0",
+        "sha": "51aa90c3d2e4",
+        "author": "neel-b",
+        "at": "-40m",
+        "message": "Rotate OTP signing key"
+      },
+      {
+        "service": "checkout-service",
+        "version": "4.21.7",
+        "sha": "3f9c2e1b7a55",
+        "author": "vikram-s",
+        "at": "-795s",
+        "message": "perf(checkout): fail fast when the payment gateway is slow",
+        "faulty": true
+      }
+    ],
+    "providers": [
+      {
+        "name": "razorpay",
+        "status": "operational",
+        "components": [
+          {
+            "name": "Payments API",
+            "status": "operational"
+          },
+          {
+            "name": "Checkout",
+            "status": "operational"
+          }
+        ],
+        "detail": "All systems operational"
+      }
+    ],
+    "oncall": [
+      {
+        "name": "Neha Kapoor",
+        "role": "primary",
+        "phone": "+91 90000 10001",
+        "email": "neha.kapoor@example.com",
+        "answers": "acknowledges",
+        "conversation": [
+          "Acknowledged, I'm on it. What changed in that release?",
+          "Okay. Do I need to roll back, or start writing a fix?",
+          "How many customers are hit so far?",
+          "Great. Send me the report and the pull request.",
+          "Perfect, thanks. I'll review it now."
+        ]
+      },
+      {
+        "name": "Rohan Mehta",
+        "role": "secondary",
+        "phone": "+91 90000 10002",
+        "email": "rohan.mehta@example.com",
+        "answers": "acknowledges"
+      }
+    ],
+    "customers": [
+      {
+        "ref": "c01",
+        "name": "Priya Sharma",
+        "email": "priya.sharma@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c02",
+        "name": "Arjun Nair",
+        "email": "arjun.nair@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c03",
+        "name": "Sneha Kulkarni",
+        "email": "sneha.kulkarni@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c04",
+        "name": "Varun Mehra",
+        "email": "varun.mehra@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c05",
+        "name": "Ritika Bose",
+        "email": "ritika.bose@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c06",
+        "name": "Karan Malhotra",
+        "email": "karan.malhotra@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c07",
+        "name": "Meera Pillai",
+        "email": "meera.pillai@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c08",
+        "name": "Rohit Jain",
+        "email": "rohit.jain@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c09",
+        "name": "Anjali Rao",
+        "email": "anjali.rao@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c10",
+        "name": "Siddharth Ghosh",
+        "email": "siddharth.ghosh@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c11",
+        "name": "Pooja Verma",
+        "email": "pooja.verma@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c12",
+        "name": "Aman Gupta",
+        "email": "aman.gupta@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c13",
+        "name": "Divya Menon",
+        "email": "divya.menon@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c14",
+        "name": "Nikhil Reddy",
+        "email": "nikhil.reddy@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c15",
+        "name": "Shruti Iyer",
+        "email": "shruti.iyer@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c16",
+        "name": "Harsh Vardhan",
+        "email": "harsh.vardhan@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c17",
+        "name": "Tanya Kapoor",
+        "email": "tanya.kapoor@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c18",
+        "name": "Manish Tiwari",
+        "email": "manish.tiwari@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "c19",
+        "name": "Kavya Joshi",
+        "email": "kavya.joshi@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "d01",
+        "name": "Rahul Desai",
+        "email": "rahul.desai@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "d02",
+        "name": "Neelam Saxena",
+        "email": "neelam.saxena@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "d03",
+        "name": "Vivek Chauhan",
+        "email": "vivek.chauhan@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "d04",
+        "name": "Sana Qureshi",
+        "email": "sana.qureshi@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "d05",
+        "name": "Gautam Batra",
+        "email": "gautam.batra@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "s01",
+        "name": "Isha Menon",
+        "email": "isha.menon@example.com",
+        "consent": {
+          "voice": true,
+          "proactive": true
+        },
+        "tier": "priority",
+        "phone": "+91 90000 00003",
+        "onCall": {
+          "answers": "answers",
+          "press": "1"
+        }
+      },
+      {
+        "ref": "s02",
+        "name": "Farhan Ali",
+        "email": "farhan.ali@example.com",
+        "consent": {
+          "voice": true,
+          "proactive": true
+        },
+        "tier": "priority",
+        "phone": "+91 90000 00009",
+        "onCall": {
+          "answers": "no_answer"
+        }
+      },
+      {
+        "ref": "s03",
+        "name": "Lakshmi Narayan",
+        "email": "lakshmi.narayan@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "s04",
+        "name": "Deepak Yadav",
+        "email": "deepak.yadav@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "s05",
+        "name": "Zoya Sheikh",
+        "email": "zoya.sheikh@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "s06",
+        "name": "Omkar Patil",
+        "email": "omkar.patil@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "u1",
+        "name": "Tara Singh",
+        "email": "tara.singh@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "u2",
+        "name": "Imran Khan",
+        "email": "imran.khan@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "u3",
+        "name": "Neha Bansal",
+        "email": "neha.bansal@example.com",
+        "consent": {
+          "proactive": true
+        }
+      },
+      {
+        "ref": "u4",
+        "name": "Arvind Rao",
+        "email": "arvind.rao@example.com",
+        "consent": {
+          "proactive": true
+        }
+      }
+    ],
+    "attempts": [
+      {
+        "customerRef": "c10",
+        "at": "-2m",
+        "method": "card",
+        "status": "failed",
+        "amountInr": 1899
+      },
+      {
+        "customerRef": "c09",
+        "at": "-3m",
+        "method": "netbanking",
+        "status": "failed",
+        "amountInr": 4299
+      },
+      {
+        "customerRef": "c19",
+        "at": "-3m",
+        "method": "card",
+        "status": "pending",
+        "amountInr": 2349
+      },
+      {
+        "customerRef": "c08",
+        "at": "-4m",
+        "method": "card",
+        "status": "failed",
+        "amountInr": 799
+      },
+      {
+        "customerRef": "c18",
+        "at": "-4m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 1649
+      },
+      {
+        "customerRef": "s06",
+        "at": "-4m",
+        "method": "netbanking",
+        "status": "failed",
+        "amountInr": 3899
+      },
+      {
+        "customerRef": "c07",
+        "at": "-5m",
+        "method": "upi",
+        "status": "pending",
+        "amountInr": 2499
+      },
+      {
+        "customerRef": "c17",
+        "at": "-5m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 749
+      },
+      {
+        "customerRef": "s05",
+        "at": "-5m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 699
+      },
+      {
+        "customerRef": "c06",
+        "at": "-6m",
+        "method": "card",
+        "status": "failed",
+        "amountInr": 3499
+      },
+      {
+        "customerRef": "c16",
+        "at": "-6m",
+        "method": "card",
+        "status": "failed",
+        "amountInr": 1399
+      },
+      {
+        "customerRef": "s04",
+        "at": "-6m",
+        "method": "card",
+        "status": "failed",
+        "amountInr": 2599
+      },
+      {
+        "customerRef": "c05",
+        "at": "-7m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 1549
+      },
+      {
+        "customerRef": "c15",
+        "at": "-7m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 3199
+      },
+      {
+        "customerRef": "s03",
+        "at": "-7m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 1099
+      },
+      {
+        "customerRef": "c04",
+        "at": "-8m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 899
+      },
+      {
+        "customerRef": "c14",
+        "at": "-8m",
+        "method": "card",
+        "status": "failed",
+        "amountInr": 999
+      },
+      {
+        "customerRef": "s02",
+        "at": "-8m",
+        "method": "card",
+        "status": "failed",
+        "amountInr": 8999
+      },
+      {
+        "customerRef": "c03",
+        "at": "-9m",
+        "method": "card",
+        "status": "failed",
+        "amountInr": 2199
+      },
+      {
+        "customerRef": "c13",
+        "at": "-9m",
+        "method": "upi",
+        "status": "pending",
+        "amountInr": 1199
+      },
+      {
+        "customerRef": "s01",
+        "at": "-9m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 12999
+      },
+      {
+        "customerRef": "c02",
+        "at": "-10m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 1299
+      },
+      {
+        "customerRef": "c12",
+        "at": "-10m",
+        "method": "upi",
+        "status": "failed",
+        "amountInr": 599
+      },
+      {
+        "customerRef": "c01",
+        "at": "-11m",
+        "method": "upi",
+        "status": "pending",
+        "amountInr": 649
+      },
+      {
+        "customerRef": "c11",
+        "at": "-11m",
+        "method": "card",
+        "status": "failed",
+        "amountInr": 2799
+      },
+      {
+        "customerRef": "u4",
+        "at": "-22m",
+        "method": "upi",
+        "status": "success",
+        "amountInr": 1899
+      },
+      {
+        "customerRef": "u3",
+        "at": "-28m",
+        "method": "upi",
+        "status": "success",
+        "amountInr": 1599
+      },
+      {
+        "customerRef": "u2",
+        "at": "-34m",
+        "method": "upi",
+        "status": "success",
+        "amountInr": 1299
+      },
+      {
+        "customerRef": "u1",
+        "at": "-40m",
+        "method": "upi",
+        "status": "success",
+        "amountInr": 999
+      },
+      {
+        "customerRef": "d01",
+        "at": "-72h",
+        "method": "card",
+        "status": "success",
+        "amountInr": 1499
+      },
+      {
+        "customerRef": "d02",
+        "at": "-72h",
+        "method": "card",
+        "status": "success",
+        "amountInr": 1499
+      },
+      {
+        "customerRef": "d03",
+        "at": "-72h",
+        "method": "card",
+        "status": "success",
+        "amountInr": 1499
+      },
+      {
+        "customerRef": "d04",
+        "at": "-72h",
+        "method": "card",
+        "status": "success",
+        "amountInr": 1499
+      },
+      {
+        "customerRef": "d05",
+        "at": "-72h",
+        "method": "card",
+        "status": "success",
+        "amountInr": 1499
+      }
+    ]
+  },
+  "tickets": [
+    {
+      "at": "+0s",
+      "customerRef": "c01",
+      "channel": "chat",
+      "body": "My checkout keeps loading forever after I click pay."
+    },
+    {
+      "at": "+1.5s",
+      "customerRef": "c02",
+      "channel": "chat",
+      "body": "UPI payment went through on my bank app but the order says failed."
+    },
+    {
+      "at": "+3s",
+      "customerRef": "d01",
+      "channel": "email",
+      "body": "My parcel tracking has not updated for three days."
+    },
+    {
+      "at": "+4.5s",
+      "customerRef": "c03",
+      "channel": "email",
+      "body": "Card got declined at checkout even though it works everywhere else."
+    },
+    {
+      "at": "+6s",
+      "customerRef": "c04",
+      "channel": "chat",
+      "body": "Money was debited but I got an order failed screen."
+    },
+    {
+      "at": "+7.5s",
+      "customerRef": "d02",
+      "channel": "chat",
+      "body": "Order tracking is stuck at shipped since Monday."
+    },
+    {
+      "at": "+9s",
+      "customerRef": "c05",
+      "channel": "portal",
+      "body": "Payment page times out every time I try to pay with UPI."
+    },
+    {
+      "at": "+10.5s",
+      "customerRef": "c06",
+      "channel": "chat",
+      "body": "Checkout spins for a few seconds and then says payment failed."
+    },
+    {
+      "at": "+12s",
+      "customerRef": "c07",
+      "channel": "email",
+      "body": "Paid 2,499 rupees by UPI, amount deducted, order not placed."
+    },
+    {
+      "at": "+13.5s",
+      "customerRef": "d03",
+      "channel": "portal",
+      "body": "The tracking page shows no updates for my delivery."
+    },
+    {
+      "at": "+15s",
+      "customerRef": "c08",
+      "channel": "chat",
+      "body": "The pay button just keeps loading and then errors out."
+    },
+    {
+      "at": "+16.5s",
+      "customerRef": "c09",
+      "channel": "email",
+      "body": "Netbanking payment completed but your app shows the order as failed."
+    },
+    {
+      "at": "+18s",
+      "customerRef": "d04",
+      "channel": "email",
+      "body": "My order was supposed to arrive yesterday and tracking is frozen."
+    },
+    {
+      "at": "+19.5s",
+      "customerRef": "c10",
+      "channel": "chat",
+      "body": "Tried to pay three times, each time it fails at the last step."
+    },
+    {
+      "at": "+21s",
+      "customerRef": "c11",
+      "channel": "email",
+      "body": "My card was charged but checkout says the transaction failed."
+    },
+    {
+      "at": "+22.5s",
+      "customerRef": "c12",
+      "channel": "chat",
+      "body": "Payment failed again, this is the fourth attempt today."
+    },
+    {
+      "at": "+24s",
+      "customerRef": "d05",
+      "channel": "chat",
+      "body": "Delivery status has not moved from dispatched for four days."
+    },
+    {
+      "at": "+25.5s",
+      "customerRef": "c13",
+      "channel": "chat",
+      "body": "UPI request approved on my phone yet the order failed."
+    },
+    {
+      "at": "+27s",
+      "customerRef": "c14",
+      "channel": "portal",
+      "body": "Checkout crashes right after I confirm the payment."
+    },
+    {
+      "at": "+28.5s",
+      "customerRef": "c15",
+      "channel": "email",
+      "body": "Amount deducted from my account but there is no order confirmation."
+    },
+    {
+      "at": "+30s",
+      "customerRef": "c16",
+      "channel": "chat",
+      "body": "Getting payment failed at checkout for every method I try."
+    },
+    {
+      "at": "+31.5s",
+      "customerRef": "c17",
+      "channel": "chat",
+      "body": "The payment screen froze and then told me my order failed."
+    },
+    {
+      "at": "+33s",
+      "customerRef": "c18",
+      "channel": "email",
+      "body": "Charged twice, and both payments show as failed on the order page."
+    },
+    {
+      "at": "+34.5s",
+      "customerRef": "c19",
+      "channel": "chat",
+      "body": "Cannot complete payment, it keeps failing after the OTP step."
+    }
+  ]
+}

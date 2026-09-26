@@ -45,7 +45,7 @@ export class VobizError extends Error {
   }
 }
 
-type Placed = { script: string; gather?: CallRequest["gather"]; requestUuid?: string; callUuid?: string };
+type Placed = { script: string; gather?: CallRequest["gather"]; dialog?: CallRequest["dialog"]; requestUuid?: string; callUuid?: string };
 
 const xmlReply = (text: string) => `<?xml version="1.0" encoding="UTF-8"?><Response><Speak>${xml(text)}</Speak><Hangup/></Response>`;
 
@@ -85,6 +85,18 @@ export function answerXml(script: string, gather: CallRequest["gather"] | undefi
     ? `<Gather action="${xml(digitsUrl)}" method="POST" inputType="dtmf" numDigits="${gather.numDigits ?? 1}" executionTimeout="10"><Speak>${xml(gather.prompt)}</Speak></Gather>`
     : "";
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Speak>${xml(script)}</Speak>${ask}<Hangup/></Response>`;
+}
+
+/** Speaks, then listens for speech (as text) or a key press, posted to the digits URL. */
+function listen(say: string, digitsUrl: string): string {
+  return `<Gather action="${xml(digitsUrl)}" method="POST" inputType="dtmf speech" numDigits="1" executionTimeout="15" speechEndTimeout="auto" language="en-IN"><Speak>${xml(say)}</Speak></Gather><Speak>I'll leave it there. Goodbye.</Speak><Hangup/>`;
+}
+
+/** A conversational call's XML: the opening script then the first question, or one reply; the last reply hangs up. */
+export function conversationXml(parts: { script?: string; say: string; end?: boolean }, digitsUrl: string): string {
+  const open = parts.script ? `<Speak>${xml(parts.script)}</Speak>` : "";
+  const body = parts.end ? `<Speak>${xml(parts.say)}</Speak><Hangup/>` : listen(parts.say, digitsUrl);
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${open}${body}</Response>`;
 }
 
 /**
@@ -144,10 +156,10 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
     adapter: "vobiz",
     callbackUrl,
 
-    async call({ to, script, purpose, gather, metadata }) {
+    async call({ to, script, purpose, gather, metadata, dialog }) {
       const number = e164(to);
       const callId = `CALL-${randomUUID()}`;
-      placed.set(callId, { script, ...(gather ? { gather } : {}) });
+      placed.set(callId, { script, ...(gather ? { gather } : {}), ...(dialog ? { dialog } : {}) });
       book.open(callId, number, purpose, metadata);
       try {
         const created = await request<{ request_uuid?: string; message?: string }>("POST", "/Call/", {
@@ -208,8 +220,22 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
           return null;
         case "answer":
           book.update(callId, { state: "answered" });
+          if (info.dialog) {
+            book.line(callId, "agent", `${info.script} ${info.gather?.prompt ?? ""}`);
+            return conversationXml({ script: info.script, say: info.gather?.prompt ?? "Are you there?" }, callbackUrl(callId, "digits"));
+          }
           return answerXml(info.script, info.gather, callbackUrl(callId, "digits"));
         case "digits":
+          if (info.dialog) {
+            // A conversational turn: speech (as text) or a key. Pressing 1 is the same as saying "acknowledge".
+            const speech = params.Speech?.trim();
+            const utterance = speech || (params.Digits === "1" ? "acknowledge" : params.Digits ? `pressed ${params.Digits}` : "");
+            if (utterance) book.line(callId, "callee", speech || `Pressed ${params.Digits}`);
+            const turn = info.dialog.respond(utterance);
+            if (turn.acknowledge || params.Digits === "1") book.update(callId, { digits: `${call.digits ?? ""}1` });
+            book.line(callId, "agent", turn.say);
+            return conversationXml({ say: turn.say, end: Boolean(turn.end) }, callbackUrl(callId, "digits"));
+          }
           if (params.Digits) book.update(callId, { digits: params.Digits.slice(0, 32) });
           // The call's own reply for the key pressed, or a plain goodbye.
           return xmlReply(info.gather?.replies?.[params.Digits ?? ""] ?? "Thank you. Goodbye.");

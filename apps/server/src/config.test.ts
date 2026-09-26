@@ -24,6 +24,7 @@ describe("loadConfig", () => {
       tracing: "local",
       credits: "sandbox",
       translate: "off",
+      autofix: "off",
     });
     expect(config.embeddingsModel).toBe(DEFAULT_EMBEDDING_MODEL);
     expect(config).toMatchObject({ freshdesk: null, freshservice: null, vobiz: null });
@@ -59,7 +60,15 @@ describe("loadConfig", () => {
       ADMIN_TOKEN: "admin",
       APPROVER_TOKEN: "approver",
     };
-    expect(loadConfig(keys).vobiz).toEqual({ authId: "MA123", authToken: "tok", from: "+918065551234", ringTimeoutSec: 30, timeLimitSec: 300 });
+    expect(loadConfig(keys).vobiz).toEqual({
+      authId: "MA123",
+      authToken: "tok",
+      from: "+918065551234",
+      ringTimeoutSec: 30,
+      timeLimitSec: 300,
+      apiBase: "https://api.vobiz.ai",
+      callbackBaseUrl: "https://crisis.example.com",
+    });
     expect(wiringReport(loadConfig(keys)).ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "live", adapter: "vobiz" });
     expect(() => loadConfig({ ...keys, VOBIZ_AUTH_TOKEN: "", VOBIZ_FROM_NUMBER: "" })).toThrow("TELEPHONY=vobiz needs VOBIZ_AUTH_TOKEN, VOBIZ_FROM_NUMBER; see .env.example");
     expect(() => loadConfig({ ...keys, PUBLIC_BASE_URL: "http://localhost:8787" })).toThrow(/PUBLIC_BASE_URL.*https/);
@@ -146,12 +155,45 @@ describe("loadConfig", () => {
   });
 });
 
+describe("INTEGRATIONS", () => {
+  it("mock points Freshdesk, Freshservice and Vobiz at the local mock, whatever .env says", () => {
+    const config = loadConfig({ INTEGRATIONS: "mock", FRESHDESK_DOMAIN: "acme", FRESHDESK_API_KEY: "real-key" });
+    expect(config.switches).toMatchObject({ tickets: "freshdesk", incidents: "freshservice", oncall: "freshservice", alerts: "freshservice", telephony: "vobiz" });
+    expect(config.freshdesk).toMatchObject({ domain: "localhost:8788", apiKey: "mock-freshdesk-key", ingest: "webhook" });
+    expect(config.freshservice?.domain).toBe("localhost:8789");
+    expect(config.vobiz).toMatchObject({ apiBase: "http://localhost:8790", callbackBaseUrl: "http://localhost:8787" });
+    // No public URL, so no tokens are needed for a local mock demo.
+    expect(config.adminToken).toBeNull();
+    const report = wiringReport(config);
+    expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "mock", adapter: "freshdesk" });
+    expect(report.ports.find((p) => p.port === "telephony")?.detail).toMatch(/^Mock Vobiz/);
+    expect(report.liveCount).toBe(4);
+  });
+
+  it("lets one port stay in the sandbox, and follows MOCK_PORT", () => {
+    const config = loadConfig({ INTEGRATIONS: "mock", TELEPHONY: "sandbox", MOCK_PORT: "9100" });
+    expect(config.switches.telephony).toBe("sandbox");
+    expect(config.vobiz).toBeNull();
+    expect(config.freshdesk?.domain).toBe("localhost:9100");
+  });
+
+  it("real switches the same ports on against the real services, and needs their keys", () => {
+    expect(() => loadConfig({ INTEGRATIONS: "real" })).toThrow(/TICKETS=freshdesk needs FRESHDESK_DOMAIN/);
+    expect(() => loadConfig({ INTEGRATIONS: "real", TICKETS: "sandbox", INCIDENTS: "sandbox", ONCALL: "sandbox", ALERTS: "sandbox", TELEPHONY: "vobiz" })).toThrow(/TELEPHONY=vobiz needs/);
+    expect(() => loadConfig({ INTEGRATIONS: "mock", TICKETS: "zendesk" })).toThrow(/INTEGRATIONS=mock uses TICKETS=freshdesk/);
+  });
+
+  it("defaults to the sandbox", () => {
+    expect(loadConfig({})).toMatchObject({ integrations: "sandbox", mock: null, freshdesk: null });
+  });
+});
+
 describe("wiringReport", () => {
   it("reports every port as sandbox, with the live adapters available and the ones only planned", () => {
     const report = wiringReport(loadConfig({}));
     // The embedding model, built-in classifier, guard and local tracing run on this machine.
     expect(report.liveCount).toBe(4);
-    expect(report.ports).toHaveLength(18);
+    expect(report.ports).toHaveLength(19);
     expect(report.ports.find((p) => p.port === "oncall")).toMatchObject({ mode: "sandbox", available: ["freshservice"], env: "ONCALL" });
     expect(report.ports.find((p) => p.port === "telephony")).toMatchObject({ mode: "sandbox", available: ["vobiz"], planned: [], env: "TELEPHONY" });
     expect(report.ports.find((p) => p.port === "tickets")).toMatchObject({ mode: "sandbox", available: ["freshdesk"], planned: [], env: "TICKETS" });

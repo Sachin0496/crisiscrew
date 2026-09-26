@@ -12,7 +12,7 @@ export type AgentKit = {
   /** The update drafted for an incident, once draft_customer_update has run. */
   draftFor(incidentId: string): Draft | undefined;
   policy: Policy;
-  ports: Pick<Ports, "catalog">;
+  ports: Pick<Ports, "catalog" | "fix">;
   now(): number;
   /** Waits on the session's clock (scaled in replays). */
   sleep(ms: number): Promise<void>;
@@ -27,6 +27,8 @@ export type AgentKit = {
   noted: Set<string>;
   /** Records workflow runs as traces; every gate call inside a node becomes a span of it. */
   tracer: Tracer;
+  /** Runs work in the background that the session waits for when idle; an error stops that agent, not the session. */
+  spawn(agent: AgentId, run: () => Promise<unknown>): void;
 };
 
 /** Runs up to `size` promises at a time, in order. */

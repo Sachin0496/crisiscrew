@@ -21,6 +21,7 @@ import {
   type EngineSession,
   type Embedder,
   type CallRequest,
+  type FixPorts,
   type IncidentsPort,
   type InfraHealthPort,
   type OnCallPort,
@@ -46,6 +47,8 @@ export type LiveAdapters = {
   infra?: InfraHealthPort;
   /** ALERTS=freshservice: alerts from Freshservice Alert Management, and the rules that tie them to services. */
   alerts?: { client: FreshserviceAlertsClient; rules: AlertServiceRule[] };
+  /** AUTOFIX: the Fix Agent's code host, workspace, coding agent, documents and team knowledge. */
+  fix?: FixPorts;
 };
 
 export type RuntimeOptions = {
@@ -300,6 +303,7 @@ export class Runtime {
       ...(live?.telephony ? { telephony: live.telephony } : {}),
       ...(live?.oncall ? { oncall: live.oncall } : {}),
       ...(live?.infra ? { infra: live.infra } : {}),
+      ...(live?.fix ? { fix: live.fix } : {}),
     };
   }
 

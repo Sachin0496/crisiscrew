@@ -25,3 +25,6 @@ export * from "./guard/outbound";
 export * from "./trace/redact";
 export * from "./trace/tracer";
 export * from "./workflows/graphs";
+export * from "./agents/dialog";
+export * from "./tools/fix";
+export * from "./tools/security";

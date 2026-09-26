@@ -1,6 +1,6 @@
 import { normalizeDomain, type McpServerConfig } from "@crisiscrew/adapters";
 import { z } from "zod";
-import type { Identity, PortMode, PortName, WiringReport } from "@crisiscrew/contracts";
+import { MOCK, mockPorts, type Identity, type MockPorts, type PortMode, type PortName, type WiringReport } from "@crisiscrew/contracts";
 import { randomBytes } from "node:crypto";
 import { MODELS_DIR } from "./paths";
 
@@ -17,18 +17,22 @@ type PortSpec = {
   options: string[];
   /** Values that actually work today. The rest are designed but not wired. */
   wired: string[];
-  mode: (value: string) => PortMode;
+  mode: (value: string, config: Config) => PortMode;
   detail: (value: string, config: Config) => string;
 };
 
 const sandboxMode = () => "sandbox" as const;
+/** A Freshworks or Vobiz adapter that's switched on: live, or mock when INTEGRATIONS=mock points it at apps/mock. */
+const external = (on: boolean, config: Config): PortMode => (!on ? "sandbox" : config.integrations === "mock" ? "mock" : "live");
+const named = (product: string, config: Config) => (config.integrations === "mock" ? `Mock ${product}` : product);
 const hostOf = (url: string) => new URL(url).hostname;
 
-function ticketsDetail(value: string, { freshdesk }: Config): string {
+function ticketsDetail(value: string, config: Config): string {
+  const { freshdesk } = config;
   if (value !== "freshdesk" || !freshdesk) return "Scenario replay and tickets typed into the UI";
   const ingest = freshdesk.ingest === "webhook" ? "webhook ingest" : `polled every ${freshdesk.pollSeconds} s`;
   const writes = freshdesk.actions === "mcp" ? "Freshdesk's MCP server" : "the REST API";
-  return `Freshdesk (${freshdesk.domain}): ${ingest}; notes and replies through ${writes}. Replays and typed tickets stay in the sandbox`;
+  return `${named("Freshdesk", config)} (${freshdesk.domain}): ${ingest}; notes and replies through ${writes}. Replays and typed tickets stay in the sandbox`;
 }
 
 const PORTS: Record<PortName, PortSpec> = {
@@ -36,17 +40,17 @@ const PORTS: Record<PortName, PortSpec> = {
     env: "TICKETS",
     options: ["sandbox", "freshdesk"],
     wired: ["sandbox", "freshdesk"],
-    mode: (v) => (v === "freshdesk" ? "live" : "sandbox"),
+    mode: (v, c) => external(v === "freshdesk", c),
     detail: ticketsDetail,
   },
   incidents: {
     env: "INCIDENTS",
     options: ["sandbox", "freshservice"],
     wired: ["sandbox", "freshservice"],
-    mode: (v) => (v === "freshservice" ? "live" : "sandbox"),
+    mode: (v, c) => external(v === "freshservice", c),
     detail: (v, c) =>
       v === "freshservice" && c.freshservice
-        ? `Freshservice (${c.freshservice.domain}): an incident for each CrisisCrew incident, with notes, filed as ${c.freshservice.requesterEmail}`
+        ? `${named("Freshservice", c)} (${c.freshservice.domain}): an incident for each CrisisCrew incident, with notes, filed as ${c.freshservice.requesterEmail}`
         : "Engineering incidents kept in memory",
   },
   deployments: { env: "DEPLOYMENTS", options: ["sandbox", "github"], wired: ["sandbox"], mode: sandboxMode, detail: () => "The scenario's release history" },
@@ -57,30 +61,30 @@ const PORTS: Record<PortName, PortSpec> = {
     env: "TELEPHONY",
     options: ["sandbox", "vobiz"],
     wired: ["sandbox", "vobiz"],
-    mode: (v) => (v === "vobiz" ? "live" : "sandbox"),
+    mode: (v, c) => external(v === "vobiz", c),
     detail: (v, c) =>
       v === "vobiz" && c.vobiz
-        ? `Vobiz: calls from ${c.vobiz.from}, with callbacks to ${c.publicBaseUrl}/api/webhooks/vobiz`
+        ? `${named("Vobiz", c)}: calls from ${c.vobiz.from}, with callbacks to ${c.vobiz.callbackBaseUrl}/api/webhooks/vobiz`
         : "Calls are simulated: they ring, and are answered, missed or busy, the same way on every replay",
   },
   oncall: {
     env: "ONCALL",
     options: ["sandbox", "freshservice"],
     wired: ["sandbox", "freshservice"],
-    mode: (v) => (v === "freshservice" ? "live" : "sandbox"),
+    mode: (v, c) => external(v === "freshservice", c),
     detail: (v, c) =>
       v === "freshservice" && c.oncall
-        ? `Freshservice on-call (${c.oncall.domain}): schedule ${c.oncall.defaultScheduleId}${Object.keys(c.oncall.schedules).length ? ` and ${Object.keys(c.oncall.schedules).length} per service` : ""}`
+        ? `${named("Freshservice", c)} on-call (${c.oncall.domain}): schedule ${c.oncall.defaultScheduleId}${Object.keys(c.oncall.schedules).length ? ` and ${Object.keys(c.oncall.schedules).length} per service` : ""}`
         : "The scenario's on-call roster",
   },
   alerts: {
     env: "ALERTS",
     options: ["sandbox", "freshservice"],
     wired: ["sandbox", "freshservice"],
-    mode: (v) => (v === "freshservice" ? "live" : "sandbox"),
+    mode: (v, c) => external(v === "freshservice", c),
     detail: (v, c) =>
       v === "freshservice" && c.alerts
-        ? `Freshservice Alert Management (${c.alerts.domain}): ${c.alerts.ingest === "poll" ? `polled every ${c.alerts.pollSeconds} s` : "webhook"}; ${c.alerts.rules.length} service ${c.alerts.rules.length === 1 ? "rule" : "rules"}`
+        ? `${named("Freshservice", c)} Alert Management (${c.alerts.domain}): ${c.alerts.ingest === "poll" ? `polled every ${c.alerts.pollSeconds} s` : "webhook"}; ${c.alerts.rules.length} service ${c.alerts.rules.length === 1 ? "rule" : "rules"}`
         : "The scenario's alert timeline, and alerts posted to /api/alerts",
   },
   infra: {
@@ -134,6 +138,16 @@ const PORTS: Record<PortName, PortSpec> = {
   },
   credits: { env: "CREDITS", options: ["sandbox", "dodo"], wired: ["sandbox"], mode: sandboxMode, detail: () => "An in-memory ledger" },
   translate: { env: "TRANSLATE", options: ["off", "sarvam"], wired: ["off"], mode: () => "off", detail: () => "Tickets are embedded as written" },
+  autofix: {
+    env: "AUTOFIX",
+    options: ["off", "mock"],
+    wired: ["off", "mock"],
+    mode: (v) => (v === "mock" ? "mock" : "off"),
+    detail: (v, c) =>
+      v === "mock" && c.autofix
+        ? `Fix Agent: mock GitHub (${hostOf(c.autofix.githubBase)}), a recorded OpenCode session replayed on a real git checkout with real tests, mock Google Docs and Slack`
+        : "The Fix Agent is off: P1 incidents get a rollback request, not a pull request",
+  },
 };
 
 const MCP_IDENTITIES: Identity[] = ["pattern", "commander", "investigator", "issue_creator", "recovery", "handoff", "operator"];
@@ -149,7 +163,24 @@ export type FreshdeskConfig = {
 
 export type FreshserviceConfig = { domain: string; apiKey: string; requesterEmail: string; workspaceId: number | null; groups: Record<string, number> };
 
-export type VobizConfig = { authId: string; authToken: string; from: string; ringTimeoutSec: number; timeLimitSec: number };
+export type VobizConfig = {
+  authId: string;
+  authToken: string;
+  from: string;
+  ringTimeoutSec: number;
+  timeLimitSec: number;
+  /** The Vobiz API; the mock's in mock mode. */
+  apiBase: string;
+  /** Where Vobiz calls back: PUBLIC_BASE_URL, or this server on localhost for the mock. */
+  callbackBaseUrl: string;
+};
+
+/**
+ * sandbox: every Freshworks and Vobiz port reads the scenario (the default).
+ * mock:    they use their real adapters against apps/mock on localhost (`pnpm mock`).
+ * real:    they use their real adapters against Freshdesk, Freshservice and Vobiz, with the keys below.
+ */
+export type IntegrationsMode = "sandbox" | "mock" | "real";
 
 export type OnCallConfig = { domain: string; apiKey: string; defaultScheduleId: number; schedules: Record<string, number> };
 
@@ -162,6 +193,9 @@ export type AlertsConfig = {
 };
 
 export type InfraConfig = { servers: McpServerConfig[] };
+
+/** The Fix Agent's services (mock mode): the code host, Google Docs and Drive, Slack, the recorded coding session and where checkouts go. */
+export type AutofixConfig = { githubBase: string; googleBase: string; slackBase: string; viewBase: string; repos: Record<string, string>; replayFile: string; workspaceRoot: string };
 
 const McpServerSchema = z
   .object({
@@ -184,6 +218,12 @@ export type LakeraConfig = { apiKey: string; projectId: string | null };
 export type LangSmithConfig = { apiKey: string; project: string; endpoint: string };
 
 export type Config = {
+  integrations: IntegrationsMode;
+  /** The scenario whose world backs live sessions (LIVE_WORLD): the customers Freshdesk tickets are matched to. */
+  liveWorld: string;
+  autofix: AutofixConfig | null;
+  /** The mock's ports, in mock mode. */
+  mock: MockPorts | null;
   port: number;
   publicBaseUrl: string | null;
   adminToken: string | null;
@@ -283,7 +323,22 @@ function freshserviceConfig(env: Env): FreshserviceConfig {
   };
 }
 
-function vobizConfig(env: Env): VobizConfig {
+function vobizConfig(env: Env, mock: MockPortsConfig | null): VobizConfig {
+  const timing = {
+    ringTimeoutSec: Math.max(10, int(env, "VOBIZ_RING_TIMEOUT_SEC", 30)),
+    timeLimitSec: Math.max(30, int(env, "VOBIZ_TIME_LIMIT_SEC", 300)),
+  };
+  // The mock places no real calls and calls back on localhost, so it needs no public URL and no admin token.
+  if (mock) {
+    return {
+      authId: MOCK.vobizAuthId,
+      authToken: MOCK.vobizAuthToken,
+      from: MOCK.vobizFrom,
+      ...timing,
+      apiBase: `http://localhost:${mock.vobiz}`,
+      callbackBaseUrl: `http://localhost:${int(env, "PORT", 8787)}`,
+    };
+  }
   const missing = ["VOBIZ_AUTH_ID", "VOBIZ_AUTH_TOKEN", "VOBIZ_FROM_NUMBER"].filter((k) => !text(env, k));
   if (missing.length > 0) throw new ConfigError(`TELEPHONY=vobiz needs ${missing.join(", ")}; see .env.example`);
   const base = text(env, "PUBLIC_BASE_URL");
@@ -298,8 +353,9 @@ function vobizConfig(env: Env): VobizConfig {
     authId: text(env, "VOBIZ_AUTH_ID")!,
     authToken: text(env, "VOBIZ_AUTH_TOKEN")!,
     from,
-    ringTimeoutSec: Math.max(10, int(env, "VOBIZ_RING_TIMEOUT_SEC", 30)),
-    timeLimitSec: Math.max(30, int(env, "VOBIZ_TIME_LIMIT_SEC", 300)),
+    ...timing,
+    apiBase: "https://api.vobiz.ai",
+    callbackBaseUrl: base.replace(/\/+$/, ""),
   };
 }
 
@@ -413,12 +469,60 @@ function langsmithConfig(env: Env): LangSmithConfig {
   };
 }
 
+type MockPortsConfig = MockPorts;
+
+/** The ports INTEGRATIONS switches together, and the adapter each one uses outside the sandbox. */
+const EXTERNAL_SWITCHES: Record<string, string> = { TICKETS: "freshdesk", INCIDENTS: "freshservice", ONCALL: "freshservice", ALERTS: "freshservice", TELEPHONY: "vobiz" };
+
+/**
+ * INTEGRATIONS=mock or real switches the Freshworks and Vobiz ports on
+ * together. A port set explicitly to sandbox stays sandbox, so one service
+ * can be left out. In mock mode the domains, keys and secrets are the
+ * mock's, whatever .env says: mock mode can never write to a real account.
+ */
+function withIntegrations(env: Env): { env: Env; integrations: IntegrationsMode; mock: MockPortsConfig | null } {
+  const integrations = oneOf(env, "INTEGRATIONS", ["sandbox", "mock", "real"] as const);
+  if (integrations === "sandbox") return { env, integrations, mock: null };
+  const switches: Env = {};
+  for (const [key, adapter] of Object.entries(EXTERNAL_SWITCHES)) {
+    const given = text(env, key);
+    if (given && given !== "sandbox" && given !== adapter) throw new ConfigError(`INTEGRATIONS=${integrations} uses ${key}=${adapter} (or sandbox to leave it out); got "${given}"`);
+    switches[key] = given === "sandbox" ? "sandbox" : adapter;
+  }
+  if (integrations === "real") return { env: { ...env, ...switches }, integrations, mock: null };
+  const mock = mockPorts(int(env, "MOCK_PORT", MOCK.defaultPort));
+  return {
+    integrations,
+    mock,
+    env: {
+      ...env,
+      ...switches,
+      AUTOFIX: text(env, "AUTOFIX") === "off" ? "off" : "mock",
+      LIVE_WORLD: text(env, "LIVE_WORLD") ?? "checkout-autofix",
+      FRESHDESK_DOMAIN: `localhost:${mock.freshdesk}`,
+      FRESHDESK_API_KEY: MOCK.freshdeskApiKey,
+      FRESHDESK_INGEST: "webhook",
+      FRESHDESK_WEBHOOK_SECRET: MOCK.webhookSecret,
+      FRESHDESK_ACTIONS: "rest",
+      FRESHSERVICE_DOMAIN: `localhost:${mock.freshservice}`,
+      FRESHSERVICE_API_KEY: MOCK.freshserviceApiKey,
+      FRESHSERVICE_REQUESTER_EMAIL: MOCK.requesterEmail,
+      FRESHSERVICE_WORKSPACE_ID: undefined,
+      FRESHSERVICE_ONCALL_SCHEDULE_ID: String(MOCK.oncallScheduleId),
+      FRESHSERVICE_ONCALL_SCHEDULES: undefined,
+      FRESHSERVICE_ALERTS_INGEST: "webhook",
+      FRESHSERVICE_WEBHOOK_SECRET: MOCK.webhookSecret,
+    },
+  };
+}
+
 const truthy = (value: string | null) => value !== null && ["true", "1", "yes"].includes(value.toLowerCase());
 
 /** Reads and validates configuration from environment variables. See .env.example. */
 export function loadConfig(input: Env): Config {
   const alias = ["true", "1", "yes"].includes((text(input, "LANGSMITH_TRACING") ?? text(input, "LANGCHAIN_TRACING_V2") ?? "").toLowerCase());
-  const env: Env = !text(input, "TRACING") && alias ? { ...input, TRACING: "langsmith" } : input;
+  const traced: Env = !text(input, "TRACING") && alias ? { ...input, TRACING: "langsmith" } : input;
+  const { env, integrations, mock } = withIntegrations(traced);
   const switches = {} as Record<PortName, string>;
   for (const [port, spec] of Object.entries(PORTS) as [PortName, PortSpec][]) {
     const value = text(env, spec.env) ?? spec.options[0]!;
@@ -448,7 +552,25 @@ export function loadConfig(input: Env): Config {
   const langsmith = switches.tracing === "langsmith" ? langsmithConfig(env) : null;
   const egress = [...new Set([laya && hostOf(laya.baseUrl), lakera && "api.lakera.ai", langsmith && hostOf(langsmith.endpoint)].filter((h): h is string => Boolean(h)))];
 
+  const autofix: AutofixConfig | null =
+    switches.autofix === "mock" && mock
+      ? {
+          githubBase: `http://localhost:${mock.github}`,
+          googleBase: `http://localhost:${mock.google}`,
+          slackBase: `http://localhost:${mock.slack}`,
+          viewBase: `http://localhost:${mock.freshdesk}/#/docs/`,
+          repos: { ...MOCK.repos },
+          replayFile: text(env, "AUTOFIX_REPLAY") ?? "apps/mock/fixtures/checkout-service.opencode.json",
+          workspaceRoot: text(env, "AUTOFIX_WORKSPACES") ?? "data/workspaces",
+        }
+      : null;
+  if (switches.autofix === "mock" && !mock) throw new ConfigError("AUTOFIX=mock needs INTEGRATIONS=mock: the Fix Agent's mock services come with the other mocks");
+
   return {
+    integrations,
+    mock,
+    liveWorld: text(env, "LIVE_WORLD") ?? "checkout-v4.21.7",
+    autofix,
     port: int(env, "PORT", 8787),
     publicBaseUrl: text(env, "PUBLIC_BASE_URL"),
     adminToken: text(env, "ADMIN_TOKEN"),
@@ -467,7 +589,7 @@ export function loadConfig(input: Env): Config {
     langsmith,
     egress,
     rateLimitPerMinute: int(env, "RATE_LIMIT_PER_MINUTE", 120),
-    vobiz: switches.telephony === "vobiz" ? vobizConfig(env) : null,
+    vobiz: switches.telephony === "vobiz" ? vobizConfig(env, mock) : null,
     oncall: switches.oncall === "freshservice" ? oncallConfig(env) : null,
     alerts: switches.alerts === "freshservice" ? alertsConfig(env) : null,
     infra: switches.infra === "mcp" ? infraConfig(env) : null,
@@ -481,10 +603,10 @@ export function wiringReport(config: Config): WiringReport {
     const value = config.switches[port];
     return {
       port,
-      mode: spec.mode(value),
+      mode: spec.mode(value, config),
       adapter: value,
       detail: spec.detail(value, config),
-      available: spec.wired.filter((o) => o !== value && spec.mode(o) === "live"),
+      available: spec.wired.filter((o) => o !== value && spec.mode(o, { ...config, integrations: "real" }) === "live"),
       planned: spec.options.filter((o) => !spec.wired.includes(o)),
       env: spec.env,
     };

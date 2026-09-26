@@ -28,6 +28,8 @@ import type { Deployment, InfraHealth, Ports, ProviderHealth } from "../ports";
 import { assessImpact } from "../recovery/impact";
 import { planRecovery } from "../recovery/plan";
 import { callMenu, customerCase, draftUpdate, engineeringSummary, engineeringTicket, inr, pageScript, problemRecord, rollbackChange, type Draft } from "../recovery/templates";
+import { pageDialog } from "../agents/dialog";
+import { fixTools } from "./fix";
 
 export type ToolCtx = {
   now(): number;
@@ -294,7 +296,8 @@ export function createTools(): Tool[] {
         const incident = incidentOf(ctx, incidentId);
         const since = windowStart(ctx, incident);
         const tickets = ticketsOf(ctx, incident);
-        const attempts = await ctx.ports.orders.attemptsSince(since);
+        // A failed payment is evidence of harm only when payments are what's failing: a delivery or login incident is judged on its complaints.
+        const attempts = incident.surface === "checkout_payments" ? await ctx.ports.orders.attemptsSince(since) : [];
         const refs = new Set([...tickets.map((t) => t.customerRef), ...attempts.map((a) => a.customerRef)]);
         const records = await Promise.all([...refs].map(async (ref) => [ref, await ctx.ports.orders.customer(ref)] as const));
         const root = rootOf(incident);
@@ -860,10 +863,11 @@ export function createTools(): Tool[] {
         try {
           ({ callId } = await ctx.ports.telephony.call({
             to: responder.phone!,
-            script: pageScript(incident),
+            script: pageScript(incident, responder.name),
             purpose: "oncall",
-            gather: { prompt: "Press 1 to acknowledge this incident." },
+            gather: { prompt: "Say acknowledge, or press 1, to take this incident." },
             metadata: { incidentId, attempt: String(attempt) },
+            dialog: pageDialog(ctx.state, incidentId, responder.name),
           }));
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
@@ -878,6 +882,7 @@ export function createTools(): Tool[] {
         return res.paged === false ? `not paged: ${res.reason}` : `calling ${res.responder} (${res.role}), ${res.callId}`;
       },
     },
+    ...(fixTools() as Tool[]),
   ];
 }
 

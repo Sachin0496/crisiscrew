@@ -165,10 +165,12 @@ export const PORT_LABELS: Record<PortName, string> = {
   classifier: "Ticket classifier",
   guard: "Prompt guard",
   tracing: "Tracing",
+  autofix: "Auto-fix",
 };
 
 export const MODE: Record<PortMode, { label: string; tone: Tone }> = {
   live: { label: "Live", tone: "success" },
+  mock: { label: "Mock", tone: "accent" },
   sandbox: { label: "Sandbox", tone: "neutral" },
   off: { label: "Off", tone: "neutral" },
 };

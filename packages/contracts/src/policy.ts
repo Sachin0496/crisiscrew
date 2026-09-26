@@ -24,6 +24,8 @@ export const PolicySchema = z.object({
     issue_creator: IdentityPolicy,
     recovery: IdentityPolicy,
     handoff: IdentityPolicy,
+    /** Optional so older policy files still load: without it the Fix Agent has no tools. */
+    fixer: IdentityPolicy.default({ name: "Fix Agent", maxLevel: 1, tools: [] }),
     operator: IdentityPolicy,
   }),
   limits: z.object({
@@ -136,6 +138,15 @@ export const PolicySchema = z.object({
     /** Customers are called only between these hours, in this time zone. */
     callingHours: z.object({ start: z.number().int().min(0).max(23), end: z.number().int().min(1).max(24), timeZone: z.string().min(1) }),
   }),
+  /** The Fix Agent: when it starts on an incident. It opens pull requests for review; it never merges or deploys. */
+  autofix: z
+    .object({
+      /** Start on incidents at this importance or above. */
+      minImportance: ImportanceLevelSchema,
+      /** Only when a release is the likely cause at least this confident: the fix is a code change to that release. */
+      deployConfidence: z.number().min(0).max(1),
+    })
+    .default({ minImportance: "P1", deployConfidence: 0.8 }),
   oncall: z.object({
     /** After a page call ends unacknowledged, wait this long (for an acknowledgement another way) before paging the next responder. */
     ackTimeoutMin: z.number().nonnegative(),

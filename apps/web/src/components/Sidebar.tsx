@@ -108,17 +108,18 @@ function Environment({ wiring }: { wiring: WiringReport }) {
     };
   }, [open]);
   const sandbox = wiring.ports.filter((p) => p.mode === "sandbox").length;
+  const mock = wiring.ports.filter((p) => p.mode === "mock").length;
   const off = wiring.ports.filter((p) => p.mode === "off").length;
   return (
     <div className="env" ref={ref}>
       <button className="env-button" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="dialog" title="What's live and what's sandbox">
         <span className="env-title">
           <Box size={14} aria-hidden />
-          <span>{sandbox > 0 ? "Sandbox environment" : "Live environment"}</span>
+          <span>{mock > 0 ? "Mock environment" : sandbox > 0 ? "Sandbox environment" : "Live environment"}</span>
           <ChevronUp size={14} aria-hidden />
         </span>
         <span className="env-sub">
-          {wiring.liveCount} live · {sandbox} sandbox · {off} off
+          {wiring.liveCount} live · {mock > 0 ? `${mock} mock · ` : ""}{sandbox} sandbox · {off} off
         </span>
       </button>
       {open && (
@@ -126,7 +127,8 @@ function Environment({ wiring }: { wiring: WiringReport }) {
           <div className="popover-head">
             <h3>Integrations</h3>
             <p>
-              Every number is computed by the engine. Live means real computation or a real service; sandbox ports read the scenario's simulated world. Freshdesk,
+              Every number is computed by the engine. Live means real computation or a real service; mock means the real adapter talking to the local mock
+              services (INTEGRATIONS=mock); sandbox ports read the scenario's simulated world. Freshdesk,
               Freshservice, Laya, Lakera and LangSmith are wired and switch on with their keys in .env; the other external APIs are designed but not wired yet.
             </p>
           </div>

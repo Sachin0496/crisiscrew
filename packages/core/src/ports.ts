@@ -110,7 +110,17 @@ export type CallRequest = {
   gather?: { prompt: string; numDigits?: number; replies?: Record<string, string> };
   /** Ids that tie the call back to its incident, customer or action. */
   metadata?: Record<string, string>;
+  /**
+   * Makes the call a conversation: after the script, the callee can speak
+   * (speech to text on the telephony side) and CrisisCrew answers each turn
+   * from what it knows at that moment. Pressing 1 still works.
+   */
+  dialog?: CallDialog;
 };
+
+/** One reply in a conversational call. acknowledge: the callee took the incident. end: say this, then hang up. */
+export type DialogTurn = { say: string; acknowledge?: boolean; end?: boolean };
+export type CallDialog = { respond(utterance: string): DialogTurn };
 
 /** Outbound phone calls (Vobiz, or its sandbox): paging on-call, and calling affected customers. */
 export interface TelephonyPort extends AdapterMode {
@@ -173,6 +183,80 @@ export interface ServiceCatalog {
   servicesFor(surface: string): ServiceInfo[];
 }
 
+/* ---------- The Fix Agent's tools: the code host, a workspace, a headless coding agent, documents and team knowledge ---------- */
+
+/** A service's repository, as the code host (GitHub, or the mock) describes it. */
+export type RepoInfo = {
+  service: string;
+  fullName: string;
+  url: string;
+  cloneUrl: string;
+  defaultBranch: string;
+  architecture: "microservice" | "monolith";
+  /** Logins that own the code (CODEOWNERS): they review every change. */
+  owners: string[];
+  testCommand: string;
+};
+
+export type CodeUser = { login: string; name: string; email?: string };
+
+export interface CodeHostPort extends AdapterMode {
+  repoFor(service: string): Promise<RepoInfo | null>;
+  /** What changed between two refs (a release's tag and the one before it). */
+  compare(repo: RepoInfo, base: string, head: string): Promise<{ files: { path: string; additions: number; deletions: number; patch: string }[] }>;
+  userByEmail(email: string): Promise<CodeUser | null>;
+  users(logins: string[]): Promise<CodeUser[]>;
+  /** Opens a pull request and asks for reviews. Never merges. */
+  openPullRequest(repo: RepoInfo, input: { branch: string; title: string; body: string; reviewers: string[]; assignees: string[] }): Promise<{ number: number; url: string }>;
+}
+
+export type TestRun = { command: string; passed: number; failed: number; ok: boolean; output: string; durationMs: number };
+
+/** A scratch checkout where the coding agent works. */
+export interface WorkspacePort extends AdapterMode {
+  /** Clones the repository into a fresh directory, on a new branch. */
+  checkout(repo: RepoInfo, branch: string): Promise<{ dir: string }>;
+  /** Runs the repository's tests. */
+  test(dir: string, command: string): Promise<TestRun>;
+  /** Everything changed in the workspace, as a unified diff (new files included). */
+  diff(dir: string): Promise<string>;
+  /** Commits everything on the branch and pushes it. */
+  commitAndPush(dir: string, branch: string, message: string): Promise<{ sha: string; files: { path: string; additions: number; deletions: number }[]; patch: string }>;
+}
+
+export type CodingEvent =
+  | { type: "text"; text: string; diagnosis?: boolean }
+  | { type: "tool"; tool: string; title: string; detail?: string; ok?: boolean }
+  | { type: "tests"; phase: "before" | "after"; run: TestRun }
+  | { type: "done"; summary: string; title: string }
+  | { type: "failed"; reason: string };
+
+/** A headless coding agent (OpenCode, Claude Code, Codex) working in a workspace. */
+export interface CodingAgentPort extends AdapterMode {
+  readonly tool: string;
+  readonly model: string;
+  /** Starts a session and returns at once; its events arrive through onEvent. */
+  start(input: { dir: string; prompt: string; testCommand: string }): Promise<{ sessionId: string }>;
+  onEvent(listener: (sessionId: string, event: CodingEvent) => void): () => void;
+}
+
+export type DocBlock = { kind: "heading" | "subheading" | "paragraph"; text: string } | { kind: "bullets"; items: string[] } | { kind: "link"; text: string; url: string };
+
+/** Shared documents (Google Docs, or the mock). */
+export interface DocsPort extends AdapterMode {
+  /** Creates the document and shares it; each person gets the provider's email notification. */
+  publish(input: { title: string; blocks: DocBlock[]; shareWith: { email: string; role: "writer" | "commenter" }[]; message: string }): Promise<{ id: string; url: string }>;
+}
+
+export type KnowledgeHit = { source: "slack" | "runbook"; title: string; snippet: string; url?: string };
+
+/** What the team already knows: chat threads and runbooks (Slack and Google Drive, or the mock). */
+export interface KnowledgePort extends AdapterMode {
+  search(query: string): Promise<KnowledgeHit[]>;
+}
+
+export type FixPorts = { codeHost: CodeHostPort; workspace: WorkspacePort; coding: CodingAgentPort; docs: DocsPort; knowledge: KnowledgePort };
+
 export type Ports = {
   deployments: DeploymentsPort;
   payments: PaymentsPort;
@@ -187,4 +271,6 @@ export type Ports = {
   credits: CreditsPort;
   incidents: IncidentsPort;
   catalog: ServiceCatalog;
+  /** The Fix Agent's tools; without them it never starts. */
+  fix?: FixPorts;
 };

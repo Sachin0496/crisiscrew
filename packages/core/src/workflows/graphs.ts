@@ -27,6 +27,7 @@ const definitions: { name: Exclude<WorkflowName, "mcp_call">; node: string; acto
   { name: "recovery_pass", node: "recover", actor: "recovery", description: "Plans and carries out recovery, outreach and approvals for confirmed customers." },
   { name: "late_ticket", node: "link_and_recover", actor: "recovery", description: "Links a later complaint and updates the customer's recovery." },
   { name: "decision", node: "settle_decision", actor: "handoff", description: "Carries out a human credit decision and updates coverage." },
+  { name: "autofix", node: "fix", actor: "fixer", description: "Gathers context, clones the repository, runs a headless coding agent, verifies the tests and opens a pull request for review." },
 ];
 
 /** The graph catalog shown on the Traces page. */

@@ -6,6 +6,7 @@ import { investigate } from "./investigator";
 import type { AgentKit } from "./kit";
 import { fileIssue, openProblem } from "./issue-creator";
 import { pageIfNeeded } from "./paging";
+import { autofixIfNeeded } from "./fixer";
 import { assessImpact, noteOutcomes, reconcile, startRecovery } from "./recovery";
 import { runWorkflow } from "../workflows/graphs";
 
@@ -93,6 +94,8 @@ export async function reassess(kit: AgentKit, incidentId: string, stage: Importa
   }
   await syncEngineering(kit, incidentId);
   await pageIfNeeded(kit, incidentId);
+  // While on-call is being paged, the Fix Agent starts on the code (only for a P1 a release caused).
+  autofixIfNeeded(kit, incidentId);
 }
 
 /** A human's decision on the incident's importance; the rules leave it alone from then on. */
@@ -168,6 +171,7 @@ async function openAndRun(kit: AgentKit, opening: Opening, onOpened: () => void)
   // Importance first, so the ticket is filed at the right priority, then the Issue Creator files it with the findings.
   await reassess(kit, incidentId, kit.state().incidents[incidentId]!.rootCause ? "root_cause" : "impact");
   await kit.tracer.span({ name: "file_engineering", kind: "node", actor: "issue_creator" }, () => fileIssue(kit, incidentId));
+  autofixIfNeeded(kit, incidentId);
   kit.setStatus(incidentId, "recovering", "Planning a recovery for each affected customer");
   await kit.tracer.span({ name: "recover", kind: "node", actor: "commander" }, () => recover(kit, incidentId));
 }

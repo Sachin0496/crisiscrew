@@ -1,0 +1,305 @@
+import { MOCK } from "@crisiscrew/contracts";
+import { Hono } from "hono";
+import { createHmac, randomUUID } from "node:crypto";
+import { json, logCalls } from "./freshworks";
+import { iso, type Call, type Store } from "./store";
+import type { World } from "./world";
+
+const XML_UNESCAPES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'" };
+const unxml = (s: string) => s.replace(/&(amp|lt|gt|quot|apos);/g, (m) => XML_UNESCAPES[m]!);
+const speaks = (xml: string) => [...xml.matchAll(/<Speak[^>]*>([\s\S]*?)<\/Speak>/gi)].map((m) => unxml(m[1]!.trim())).filter(Boolean);
+
+export type AnswerXml = { said: string[]; gather: { action: string; prompt: string; speech: boolean } | null; fallback: string[] };
+
+/**
+ * The parts of Vobiz XML the mock phone plays: what's spoken first, the
+ * question it then waits on (a Gather: where the answer goes, and whether it
+ * listens for speech), and what it says if nobody answers.
+ */
+export function parseAnswerXml(xml: string): AnswerXml {
+  const g = /<Gather\b([^>]*)>([\s\S]*?)<\/Gather>/i.exec(xml);
+  if (!g) return { said: speaks(xml), gather: null, fallback: [] };
+  const before = xml.slice(0, g.index);
+  const after = xml.slice(g.index + g[0].length);
+  const action = /action="([^"]*)"/i.exec(g[1]!)?.[1];
+  const inputType = /inputType="([^"]*)"/i.exec(g[1]!)?.[1] ?? "dtmf";
+  return {
+    said: speaks(before),
+    gather: action ? { action: unxml(action), prompt: speaks(g[2]!).join(" "), speech: /speech/i.test(inputType) } : null,
+    fallback: speaks(after),
+  };
+}
+
+/** How long a line takes to say, at about two and a half words a second. */
+export const speakingMs = (text: string) => Math.max(1_500, (text.split(/\s+/).filter(Boolean).length / 2.6) * 1000);
+
+export type PhoneOptions = {
+  /** Multiplies every delay: 1 in the demo, near 0 in tests. */
+  pace?: number;
+  /** Where callbacks go; the global fetch otherwise. */
+  fetch?: typeof fetch;
+};
+
+const FINAL = ["completed", "no_answer", "busy", "failed"];
+
+/**
+ * The phone network behind the mock Vobiz API. A placed call rings, then is
+ * answered, missed or busy, either on autopilot (the scenario's behaviour
+ * for that number, including what the on-call engineer says) or by someone
+ * in the cockpit. Every step goes to the call's callback URLs, signed the way
+ * Vobiz signs them (V3). A conversational call runs turn by turn: each
+ * answer is posted as Speech, and CrisisCrew's reply is the next XML.
+ */
+export class Phone {
+  private readonly pace: number;
+  private readonly doFetch: typeof fetch;
+  private readonly timers = new Map<string, ReturnType<typeof setTimeout>[]>();
+  private readonly turns = new Map<string, number>();
+
+  constructor(
+    private readonly store: Store,
+    private readonly world: World,
+    options: PhoneOptions = {},
+  ) {
+    this.pace = options.pace ?? 1;
+    this.doFetch = options.fetch ?? fetch;
+  }
+
+  place(input: { from: string; to: string; answerUrl: string; ringUrl: string | null; hangupUrl: string | null; ringTimeoutSec: number }): Call {
+    const call: Call = {
+      uuid: randomUUID(),
+      requestUuid: randomUUID(),
+      ...input,
+      state: "queued",
+      lines: [],
+      gather: null,
+      digits: null,
+      cause: null,
+      created_at: iso(),
+      answer_time: null,
+      end_time: null,
+      driver: this.store.autopilot ? "autopilot" : "manual",
+    };
+    this.store.calls.push(call);
+    this.store.touch();
+    this.later(call, 800, () => this.ring(call));
+    return call;
+  }
+
+  get(uuid: string): Call | undefined {
+    return this.store.calls.find((c) => c.uuid === uuid);
+  }
+
+  /** What the person would say next on autopilot, if the scenario scripts them. */
+  nextLine(call: Call): string | undefined {
+    return this.world.conversation(call.to)?.[this.turns.get(call.uuid) ?? 0];
+  }
+
+  private async ring(call: Call): Promise<void> {
+    if (call.state !== "queued") return;
+    call.state = "ringing";
+    this.store.touch();
+    await this.callback(call, call.ringUrl, { CallStatus: "ringing" });
+    this.later(call, call.ringTimeoutSec * 1000, () => this.miss(call, "no_answer"));
+    if (call.driver === "autopilot") {
+      const behaviour = this.world.behaviour(call.to);
+      this.later(call, 3_000, () => (behaviour.answers === "answers" ? this.answer(call.uuid) : this.miss(call, behaviour.answers)));
+    }
+  }
+
+  /** Picks up: fetches what to say from the answer URL and plays it. */
+  async answer(uuid: string): Promise<boolean> {
+    const call = this.get(uuid);
+    if (!call || call.state !== "ringing") return false;
+    this.clear(call);
+    call.state = "answered";
+    call.answer_time = iso();
+    this.store.touch();
+    const xml = await this.callback(call, call.answerUrl, { CallStatus: "in-progress" });
+    if (xml === null) return this.end(call, "completed", "NORMAL_CLEARING"), true;
+    this.play(call, xml);
+    return true;
+  }
+
+  /** Plays CrisisCrew's XML, then waits for the answer: the scripted one on autopilot, or someone in the cockpit. */
+  private play(call: Call, xml: string): void {
+    const parsed = parseAnswerXml(xml);
+    const spoken = [...parsed.said, ...(parsed.gather?.prompt ? [parsed.gather.prompt] : [])];
+    for (const text of spoken) call.lines.push({ who: "agent", text, at: iso() });
+    call.gather = parsed.gather;
+    this.store.touch();
+    const talk = speakingMs(spoken.join(" "));
+    if (!parsed.gather) {
+      this.later(call, talk + 400, () => this.end(call, "completed", "NORMAL_CLEARING"));
+      return;
+    }
+    // Nobody answers the question: the fallback is said, and the call ends.
+    const giveUp = () => {
+      for (const text of parsed.fallback) call.lines.push({ who: "agent", text, at: iso() });
+      call.gather = null;
+      this.store.touch();
+      this.later(call, speakingMs(parsed.fallback.join(" ")), () => this.end(call, "completed", "NORMAL_CLEARING"));
+    };
+    if (call.driver === "manual") {
+      this.later(call, talk + 45_000, giveUp);
+      return;
+    }
+    const line = parsed.gather.speech ? this.nextLine(call) : undefined;
+    const press = this.world.behaviour(call.to).press;
+    if (line) this.later(call, talk + 1_300, () => this.say(call.uuid, line));
+    else if (press && call.digits === null) this.later(call, Math.min(talk, 4_000), () => this.press(call.uuid, press));
+    else this.later(call, talk + 15_000, giveUp);
+  }
+
+  /** The person answers in words (speech to text): posted as Speech, and CrisisCrew's reply is played. */
+  async say(uuid: string, text: string): Promise<boolean> {
+    const call = this.get(uuid);
+    if (!call || call.state !== "answered" || !call.gather?.speech || !text.trim()) return false;
+    this.clear(call);
+    this.turns.set(uuid, (this.turns.get(uuid) ?? 0) + 1);
+    const action = call.gather.action;
+    call.lines.push({ who: "callee", text: text.trim(), at: iso() });
+    call.gather = null;
+    this.store.touch();
+    const xml = await this.callback(call, action, { Speech: text.trim(), SpeechConfidence: "0.94", CallStatus: "in-progress" });
+    if (xml) this.play(call, xml);
+    else this.later(call, 1_000, () => this.end(call, "completed", "NORMAL_CLEARING"));
+    return true;
+  }
+
+  async press(uuid: string, digit: string): Promise<boolean> {
+    const call = this.get(uuid);
+    if (!call || call.state !== "answered" || !call.gather) return false;
+    this.clear(call);
+    const action = call.gather.action;
+    call.digits = `${call.digits ?? ""}${digit}`;
+    call.lines.push({ who: "callee", text: `Pressed ${digit}`, at: iso() });
+    call.gather = null;
+    this.store.touch();
+    const xml = await this.callback(call, action, { Digits: digit, CallStatus: "in-progress" });
+    if (xml) this.play(call, xml);
+    else this.later(call, 1_000, () => this.end(call, "completed", "NORMAL_CLEARING"));
+    return true;
+  }
+
+  /** Ends the call from the cockpit: hangs up an answered call, or lets a ringing one go unanswered or busy. */
+  async hangup(uuid: string, as: "no_answer" | "busy" | "completed"): Promise<boolean> {
+    const call = this.get(uuid);
+    if (!call) return false;
+    if (as === "completed" && call.state === "answered") return this.end(call, "completed", "NORMAL_CLEARING"), true;
+    if (call.state !== "ringing" && call.state !== "queued") return false;
+    await this.miss(call, as === "completed" ? "no_answer" : as);
+    return true;
+  }
+
+  /** Stops autopilot for one call: someone in the cockpit answers from now on. */
+  takeOver(uuid: string): boolean {
+    const call = this.get(uuid);
+    if (!call || FINAL.includes(call.state)) return false;
+    call.driver = "manual";
+    this.clear(call);
+    if (call.state === "ringing") this.later(call, call.ringTimeoutSec * 1000, () => this.miss(call, "no_answer"));
+    this.store.touch();
+    return true;
+  }
+
+  stopAll(): void {
+    for (const list of this.timers.values()) list.forEach(clearTimeout);
+    this.timers.clear();
+    this.turns.clear();
+  }
+
+  private async miss(call: Call, how: "no_answer" | "busy"): Promise<void> {
+    if (call.state !== "ringing" && call.state !== "queued") return;
+    await this.end(call, how, how === "busy" ? "USER_BUSY" : "NO_ANSWER");
+  }
+
+  private async end(call: Call, state: Call["state"], cause: string): Promise<void> {
+    if (FINAL.includes(call.state)) return;
+    this.clear(call);
+    const answered = call.answer_time !== null;
+    call.state = state;
+    call.cause = cause;
+    call.end_time = iso();
+    call.gather = null;
+    this.store.touch();
+    const duration = answered ? Math.max(1, Math.round((Date.parse(call.end_time) - Date.parse(call.answer_time!)) / 1000)) : 0;
+    await this.callback(call, call.hangupUrl, {
+      CallStatus: state === "completed" ? "completed" : state === "busy" ? "busy" : "no-answer",
+      HangupCauseName: cause,
+      ...(answered ? { AnswerTime: call.answer_time!, BillDuration: String(duration), Duration: String(duration) } : {}),
+      EndTime: call.end_time,
+    });
+  }
+
+  /** Posts a form callback, signed with the auth token (X-Vobiz-Signature-V3). Returns the reply body, or null. */
+  private async callback(call: Call, url: string | null, params: Record<string, string>): Promise<string | null> {
+    if (!url) return null;
+    const nonce = randomUUID().replace(/-/g, "");
+    const base = url.replace(/[?#].*$/, "");
+    const signature = createHmac("sha256", MOCK.vobizAuthToken).update(`${base}.${nonce}`).digest("base64");
+    const kind = url.split("/").pop();
+    try {
+      const res = await this.doFetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", "x-vobiz-signature-v3": signature, "x-vobiz-signature-v3-nonce": nonce },
+        body: new URLSearchParams({ CallUUID: call.uuid, RequestUUID: call.requestUuid, From: call.from, To: call.to, Direction: "outbound", ...params }).toString(),
+        signal: AbortSignal.timeout(4_000),
+      });
+      const text = await res.text();
+      this.store.record("vobiz", "out", `callback ${kind} for ${call.to}${params.Speech ? ` (said “${params.Speech.slice(0, 40)}”)` : params.Digits ? ` (pressed ${params.Digits})` : ""} → ${res.status}`, res.ok);
+      return res.ok && text ? text : null;
+    } catch (error) {
+      this.store.record("vobiz", "out", `callback ${kind} failed: ${error instanceof Error ? error.message : String(error)}`, false);
+      return null;
+    }
+  }
+
+  private later(call: Call, ms: number, fn: () => unknown): void {
+    const timer = setTimeout(() => void fn(), ms * this.pace);
+    const list = this.timers.get(call.uuid) ?? [];
+    list.push(timer);
+    this.timers.set(call.uuid, list);
+  }
+
+  private clear(call: Call): void {
+    this.timers.get(call.uuid)?.forEach(clearTimeout);
+    this.timers.delete(call.uuid);
+  }
+}
+
+/** The Vobiz REST API (v1) that CrisisCrew uses: place a call, and read a call record. */
+export function vobizApi(store: Store, phone: Phone): Hono {
+  const app = new Hono();
+  app.use("/api/*", logCalls(store, "vobiz"));
+  app.use("/api/v1/Account/:authId/*", async (c, next) => {
+    if (c.req.param("authId") !== MOCK.vobizAuthId || c.req.header("x-auth-id") !== MOCK.vobizAuthId || c.req.header("x-auth-token") !== MOCK.vobizAuthToken) {
+      return c.json({ error: "authentication failed" }, 401);
+    }
+    await next();
+  });
+
+  app.post("/api/v1/Account/:authId/Call/", async (c) => {
+    const body = await json(c);
+    if (!body || typeof body.to !== "string" || typeof body.answer_url !== "string") return c.json({ error: "to and answer_url are required" }, 400);
+    const str = (v: unknown) => (typeof v === "string" ? v : null);
+    const call = phone.place({
+      from: str(body.from) ?? MOCK.vobizFrom,
+      to: body.to,
+      answerUrl: body.answer_url,
+      ringUrl: str(body.ring_url),
+      hangupUrl: str(body.hangup_url),
+      ringTimeoutSec: typeof body.hangup_on_ring === "number" ? body.hangup_on_ring : 30,
+    });
+    return c.json({ api_id: randomUUID(), message: "call fired", request_uuid: call.requestUuid }, 201);
+  });
+
+  app.get("/api/v1/Account/:authId/Call/:uuid/", (c) => {
+    const call = phone.get(c.req.param("uuid"));
+    if (!call) return c.json({ error: "call not found" }, 404);
+    const duration = call.answer_time && call.end_time ? Math.round((Date.parse(call.end_time) - Date.parse(call.answer_time)) / 1000) : 0;
+    return c.json({ call_uuid: call.uuid, answer_time: call.answer_time, end_time: call.end_time, call_duration: duration, hangup_cause_name: call.cause });
+  });
+
+  return app;
+}

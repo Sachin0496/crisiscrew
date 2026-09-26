@@ -1,0 +1,93 @@
+{
+  "tool": "opencode",
+  "model": "anthropic/claude-sonnet-5",
+  "title": "fix(checkout): restore the 15 s gateway timeout; a timeout never fails an order",
+  "summary": "Restored GATEWAY_TIMEOUT_MS to 15 s, and a gateway timeout now leaves the order PENDING for reconciliation instead of FAILED. Added two regression tests from the incident: a 4-second UPI confirmation completes the order, and a timeout never fails one. All 4 tests pass.",
+  "steps": [
+    {
+      "type": "text",
+      "delayMs": 700,
+      "text": "Reading the incident: 19 customers report payments that hang and then fail, often after their bank debited them. It started after checkout-service v4.21.7."
+    },
+    {
+      "type": "bash",
+      "delayMs": 1100,
+      "command": "git log --oneline -3"
+    },
+    {
+      "type": "bash",
+      "delayMs": 1300,
+      "command": "git diff v4.21.6 v4.21.7 -- src"
+    },
+    {
+      "type": "read",
+      "delayMs": 1100,
+      "path": "src/orders/checkout.ts"
+    },
+    {
+      "type": "read",
+      "delayMs": 1000,
+      "path": "src/payments/gateway.ts"
+    },
+    {
+      "type": "text",
+      "delayMs": 1600,
+      "diagnosis": true,
+      "text": "Release v4.21.7 cut the gateway timeout from 15 seconds to 1.5. UPI and card confirmations take 2 to 8 seconds, so checkout gives up and marks the order failed while the bank still takes the money."
+    },
+    {
+      "type": "text",
+      "delayMs": 1100,
+      "text": "That explains all three symptoms: the pay button that spins, \"debited but order failed\", and customers retrying and being charged again. Writing a test that reproduces it before touching the code."
+    },
+    {
+      "type": "write",
+      "delayMs": 1500,
+      "path": "test/gateway-timeout.test.ts",
+      "content": "import assert from \"node:assert/strict\";\nimport { test } from \"node:test\";\nimport { GATEWAY_TIMEOUT_MS } from \"../src/config.ts\";\nimport { placeOrder } from \"../src/orders/checkout.ts\";\nimport type { Gateway } from \"../src/payments/gateway.ts\";\n\n// INC-2026-001: UPI and card confirmations take 2 to 8 seconds. Customers were\n// charged while their orders were marked failed.\nconst slowGateway = (delayMs: number): Gateway => ({\n  authorize: (request) => new Promise((resolve) => setTimeout(() => resolve({ status: \"captured\", paymentId: `pay_${request.orderId}` }), delayMs)),\n});\nconst silentGateway: Gateway = { authorize: () => new Promise(() => {}) };\n\ntest(\"a UPI payment confirmed after 4 seconds completes the order\", async (t) => {\n  t.mock.timers.enable({ apis: [\"setTimeout\"] });\n  const order = placeOrder(slowGateway(4_000), { orderId: \"o3\", amountInr: 2499, method: \"upi\" });\n  t.mock.timers.tick(4_000);\n  assert.equal((await order).status, \"PAID\");\n});\n\ntest(\"a gateway timeout leaves the order pending, never failed\", async (t) => {\n  t.mock.timers.enable({ apis: [\"setTimeout\"] });\n  const order = placeOrder(silentGateway, { orderId: \"o4\", amountInr: 1299, method: \"upi\" });\n  t.mock.timers.tick(GATEWAY_TIMEOUT_MS);\n  assert.equal((await order).status, \"PENDING\");\n});\n"
+    },
+    {
+      "type": "bash",
+      "delayMs": 1100,
+      "command": "test",
+      "tests": "before"
+    },
+    {
+      "type": "text",
+      "delayMs": 1300,
+      "text": "Reproduced: both new tests fail on v4.21.7. The fix: restore the 15 s timeout, and treat a timeout as PENDING, so a slow confirmation can never fail an order the bank has charged."
+    },
+    {
+      "type": "edit",
+      "delayMs": 1500,
+      "path": "src/config.ts",
+      "find": " * Fail fast: don't keep customers waiting on a slow gateway.\n */\nexport const GATEWAY_TIMEOUT_MS = 1_500;",
+      "replace": " * UPI and 3-D Secure confirmations routinely take 2 to 8 seconds, so failing\n * fast fails payments the bank has already captured (INC-2026-001).\n */\nexport const GATEWAY_TIMEOUT_MS = 15_000;"
+    },
+    {
+      "type": "edit",
+      "delayMs": 1100,
+      "path": "src/orders/checkout.ts",
+      "find": "import { authorize, type Gateway, type PaymentRequest } from \"../payments/gateway.ts\";",
+      "replace": "import { authorize, GatewayTimeout, type Gateway, type PaymentRequest } from \"../payments/gateway.ts\";"
+    },
+    {
+      "type": "edit",
+      "delayMs": 1300,
+      "path": "src/orders/checkout.ts",
+      "find": "  } catch (error) {\n    return { id: request.orderId, status: \"FAILED\"",
+      "replace": "  } catch (error) {\n    // A timeout isn't a failed payment: the bank may have captured it. Reconcile before failing the order.\n    if (error instanceof GatewayTimeout) return { id: request.orderId, status: \"PENDING\", reason: error.message };\n    return { id: request.orderId, status: \"FAILED\""
+    },
+    {
+      "type": "bash",
+      "delayMs": 1100,
+      "command": "test",
+      "tests": "after"
+    },
+    {
+      "type": "text",
+      "delayMs": 900,
+      "text": "All 4 tests pass. The change is two lines of behaviour plus the regression tests; nothing else in checkout is touched."
+    }
+  ]
+}

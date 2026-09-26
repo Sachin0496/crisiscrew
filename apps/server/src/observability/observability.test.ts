@@ -9,8 +9,11 @@ import { loadPolicy, loadScenarios } from "../scenarios";
 
 async function setup(env: Record<string, string> = {}) {
   const config = loadConfig({ SANDBOX_LATENCY_MS: "0", MCP_TOKEN_PATTERN: "pattern-token", ...env });
+  // Calling hours would deny customer calls when the suite runs at night.
+  const policy = loadPolicy();
+  policy.voice.callingHours = { ...policy.voice.callingHours, start: 0, end: 24 };
   const runtime = new Runtime({
-    policy: loadPolicy(),
+    policy,
     scenarios: loadScenarios(),
     embedder: new CachedEmbedder({ modelId: DEFAULT_EMBEDDING_MODEL, dir: EMBEDDING_CACHE_DIR, inner: null }),
     latencyMs: 0,
@@ -75,10 +78,10 @@ describe("agent workflow traces", () => {
     expect(recovery).toMatchObject({ parentTraceId: detail.trace.id });
   });
 
-  it("describes the five workflow graphs used by the current incident flow", async () => {
+  it("describes the six workflow graphs used by the current incident flow", async () => {
     const { app } = await setup();
     const workflows = await get<WorkflowGraph[]>(app, "/api/workflows");
-    expect(workflows.map((w) => w.name)).toEqual(["ticket", "incident", "recovery_pass", "late_ticket", "decision"]);
+    expect(workflows.map((w) => w.name)).toEqual(["ticket", "incident", "recovery_pass", "late_ticket", "decision", "autofix"]);
     const incident = workflows.find((w) => w.name === "incident")!;
     const from = (id: string) => incident.edges.filter((e) => e.from === id).map((e) => `${e.to}${e.conditional ? "?" : ""}`);
     expect(from("__start__")).toEqual(["respond"]);

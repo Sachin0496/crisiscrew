@@ -17,10 +17,17 @@ import {
   LocalEmbedder,
   restWriter,
   vobizTelephony,
+  githubCodeHost,
+  gitWorkspace,
+  googleDocs,
+  replayCodingAgent,
+  teamKnowledge,
+  type ReplaySession,
 } from "@crisiscrew/adapters";
+import { MOCK } from "@crisiscrew/contracts";
 import { heuristicGuard, type Embedder, type PromptGuard, type TicketClassifier, type TraceSink } from "@crisiscrew/core";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { ConfigError, loadConfig, wiringReport, type Config } from "./config";
 import { createApp } from "./http/app";
 import { DATA_DIR, EMBEDDING_CACHE_DIR, REPO_ROOT } from "./paths";
@@ -80,9 +87,21 @@ function liveAdapters(): LiveAdapters {
     const { domain, apiKey, defaultScheduleId, schedules } = config.oncall;
     live.oncall = freshserviceOnCall({ domain, apiKey, defaultScheduleId, schedules });
   }
-  if (config.vobiz && config.publicBaseUrl) {
-    const { authId, authToken, from, ringTimeoutSec, timeLimitSec } = config.vobiz;
-    live.telephony = vobizTelephony({ authId, authToken, from, publicBaseUrl: config.publicBaseUrl, ringTimeoutSec, timeLimitSec });
+  if (config.vobiz) {
+    const { authId, authToken, from, ringTimeoutSec, timeLimitSec, apiBase, callbackBaseUrl } = config.vobiz;
+    live.telephony = vobizTelephony({ authId, authToken, from, publicBaseUrl: callbackBaseUrl, apiBase, ringTimeoutSec, timeLimitSec });
+  }
+  if (config.autofix) {
+    const a = config.autofix;
+    const at = (path: string) => (isAbsolute(path) ? path : join(REPO_ROOT, path));
+    const session = JSON.parse(readFileSync(at(a.replayFile), "utf8")) as ReplaySession;
+    live.fix = {
+      codeHost: githubCodeHost({ apiBase: a.githubBase, token: MOCK.githubToken, repos: a.repos }),
+      workspace: gitWorkspace({ root: at(a.workspaceRoot), author: { name: "CrisisCrew Fix Agent", email: "fix-agent@crisiscrew.dev" } }),
+      coding: replayCodingAgent({ session, pace: Number(process.env.AUTOFIX_REPLAY_PACE) || 2.6 }),
+      docs: googleDocs({ docsBase: a.googleBase, driveBase: a.googleBase, token: MOCK.googleToken, viewBase: a.viewBase }),
+      knowledge: teamKnowledge({ slack: { apiBase: a.slackBase, token: MOCK.slackToken }, drive: { apiBase: a.googleBase, token: MOCK.googleToken } }),
+    };
   }
   return live;
 }
@@ -140,7 +159,7 @@ const runtime = new Runtime({
   scenarios: loadScenarios(),
   embedder: embedder(),
   latencyMs: config.sandboxLatencyMs,
-  liveWorld: "checkout-v4.21.7",
+  liveWorld: config.liveWorld,
   live: liveAdapters(),
   guard: promptGuard(),
   classifier: classifier(),
@@ -163,15 +182,16 @@ const server = serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
     `  Wiring       ${wiring.ports.map((p) => `${p.port}=${p.adapter}`).join("  ")}`,
     // External services only: the local model and the built-in classifier, guard and tracing are summarised below.
     wiring.ports
-      .filter((p) => p.mode === "live" && !["embeddings", "classifier:embeddings", "guard:heuristic", "tracing:local"].includes(p.port === "embeddings" ? p.port : `${p.port}:${p.adapter}`))
-      .map((p) => `  Live         ${p.detail}`)
+      .filter((p) => (p.mode === "live" || p.mode === "mock") && !["embeddings", "classifier:embeddings", "guard:heuristic", "tracing:local"].includes(p.port === "embeddings" ? p.port : `${p.port}:${p.adapter}`))
+      .map((p) => (p.mode === "mock" ? `  Mock         ${p.detail.replace(/^Mock /, "")}` : `  Live         ${p.detail}`))
       .join("\n") || "               Freshworks adapters are off (sandbox); switch them on in .env.",
     `  Tokens       admin ${config.adminToken ? "set" : "not set (open, local demo)"}, approver ${config.approverToken ? "set" : "not set (open, local demo)"}`,
     `  Workflows    LangGraph; traces at ${base}/#/traces${config.langsmith ? ` and in LangSmith project "${config.langsmith.project}"` : ""}`,
     `  Guardrails   prompt guard: ${config.lakera ? "Lakera + built-in rules" : "built-in rules"}; classifier: ${config.laya ? `Laya at ${config.laya.baseUrl}` : "built-in"}${config.egress.length ? `; egress allow-list: ${config.egress.join(", ")}` : ""}`,
   ];
   if (config.freshdesk?.ingest === "webhook") lines.push(`  Freshdesk    webhook: POST ${base}/api/webhooks/freshdesk with header X-CrisisCrew-Secret`);
-  if (config.vobiz) lines.push(`  Vobiz        callbacks: ${base}/api/webhooks/vobiz/:callId/:kind (signed); test call: POST ${base}/api/telephony/test-call`);
+  if (config.vobiz) lines.push(`  Vobiz        callbacks: ${config.vobiz.callbackBaseUrl}/api/webhooks/vobiz/:callId/:kind (signed); test call: POST ${base}/api/telephony/test-call`);
+  if (config.mock) lines.push(`  Mock         Freshdesk, Freshservice and Vobiz at http://localhost:${config.mock.freshdesk} (start it with \`pnpm mock\`)`);
   if (config.generatedTokens.length > 0) {
     lines.push("  MCP tokens generated for this run (set MCP_TOKEN_* in .env to keep them):");
     for (const identity of config.generatedTokens) lines.push(`    ${identity.padEnd(13)} ${config.mcpTokens[identity]}`);
