@@ -9,6 +9,8 @@ export type StreamConversationOptions = {
   speech: CallSpeech;
   /** What the call says as soon as the stream opens. */
   opening: string;
+  /** The opening, already synthesized while the phone rang, so it plays the moment the stream opens. */
+  openingAudio?: Promise<Buffer>;
   /** CrisisCrew's answer to one turn of the callee's speech. */
   respond(utterance: string): DialogTurn;
   /** One line of the transcript, as it happens. */
@@ -20,9 +22,9 @@ export type StreamConversationOptions = {
   onError?(error: unknown): void;
 };
 
-/** A spoken turn needs this many 20 ms frames above the noise to start: 80 ms, or 240 ms while the agent is talking. */
+/** A spoken turn needs this many 20 ms frames above the noise to start: 80 ms, or 400 ms to interrupt the agent. */
 const START_FRAMES = 4;
-const BARGE_IN_FRAMES = 12;
+const BARGE_IN_FRAMES = 20;
 /** 700 ms of quiet ends a turn; no turn runs past 15 s. */
 const END_FRAMES = 35;
 const MAX_FRAMES = 750;
@@ -54,9 +56,11 @@ type StreamEvent = {
  * A phone conversation over a bidirectional Vobiz audio stream. Vobiz sends
  * the callee's audio as 16 kHz L16; a simple energy detector finds where each
  * spoken turn starts and ends, the speech port turns it into text, the
- * dialog answers, and the answer is spoken back into the call. Talking over
- * the agent stops it (barge-in), and a newer turn makes an answer still
- * being prepared stale.
+ * dialog answers, and the answer is spoken back into the call. The opening
+ * always plays. Talking over the agent stops it (barge-in); if what
+ * interrupted it had no words, the agent says its line again. Only a newer
+ * turn with words makes an answer still being prepared stale, so noise and
+ * coughs never cost the callee a reply.
  */
 export function streamConversation(options: StreamConversationOptions) {
   const { socket, speech } = options;
@@ -66,6 +70,9 @@ export function streamConversation(options: StreamConversationOptions) {
   let ended = false;
   let turn = 0;
   let checkpoints = 0;
+  /** What the agent was saying when the callee talked over it, until we know whether they said anything. */
+  let lastSaid: { text: string; hangUp: boolean } | null = null;
+  let interrupted: { text: string; hangUp: boolean } | null = null;
 
   let floor = 150;
   let inSpeech = false;
@@ -93,32 +100,44 @@ export function streamConversation(options: StreamConversationOptions) {
     hangUpAfterPlayback = hangUp;
   }
 
-  async function speak(text: string, hangUp = false, at = turn): Promise<void> {
-    const audio = await speech.say(text);
-    if (at !== turn || ended) return; // the callee spoke again while this was being prepared
+  /** Speaks a line. With a turn number, the line is dropped if a newer turn with words arrived while it was being prepared. */
+  async function speak(text: string, hangUp = false, at?: number, audio?: Promise<Buffer>): Promise<void> {
+    const pcm = await (audio ?? speech.say(text));
+    if ((at !== undefined && at !== turn) || ended) return;
     options.onLine("agent", text);
-    play(audio, hangUp);
+    lastSaid = { text, hangUp };
+    play(pcm, hangUp);
   }
 
   async function answer(pcm: Buffer): Promise<void> {
-    const at = ++turn;
+    let at: number | undefined;
     try {
       const heard = await speech.hear(pcm);
-      // Coughs and clicks come back as nothing, or as a stray letter.
-      if (heard.replace(/[^\p{L}\p{N}]/gu, "").length < 2 || at !== turn || ended) return;
+      if (ended) return;
+      // Coughs, clicks and noise come back as nothing, or as a stray letter: they change nothing, except that an
+      // agent line they cut off is said again.
+      if (heard.replace(/[^\p{L}\p{N}]/gu, "").length < 2) {
+        const again = interrupted;
+        interrupted = null;
+        if (again && !speaking) await speak(again.text, again.hangUp);
+        return;
+      }
+      interrupted = null;
+      at = ++turn; // the newest turn with words: any answer still being prepared for an older one is stale
       options.onLine("callee", heard);
       const reply = options.respond(heard);
       if (reply.acknowledge) options.onAcknowledge();
       await speak(reply.say, Boolean(reply.end), at);
     } catch (error) {
       options.onError?.(error);
-      if (at === turn && !ended) await speak("Sorry, I missed that. Could you say it again?", false, at).catch(() => {});
+      if ((at === undefined || at === turn) && !ended) await speak("Sorry, I missed that. Could you say it again?", false, at).catch(() => {});
     }
   }
 
   function bargeIn(): void {
     if (!speaking) return;
     send({ event: "clearAudio", streamId });
+    interrupted = lastSaid;
     speaking = false;
     hangUpAfterPlayback = false;
   }
@@ -140,7 +159,6 @@ export function streamConversation(options: StreamConversationOptions) {
         spoken = pre;
         pre = [];
         bargeIn();
-        turn += 1; // whatever answer is still in flight is now stale
       }
       return;
     }
@@ -167,7 +185,8 @@ export function streamConversation(options: StreamConversationOptions) {
       switch (msg.event) {
         case "start":
           streamId = msg.start?.streamId ?? msg.streamId ?? null;
-          speak(options.opening).catch((error) => options.onError?.(error));
+          // The opening always plays, whatever the callee says while it's being prepared.
+          speak(options.opening, false, undefined, options.openingAudio?.catch(() => speech.say(options.opening))).catch((error) => options.onError?.(error));
           return;
         case "media": {
           if (!msg.media?.payload || ended) return;

@@ -102,8 +102,68 @@ describe("streamed call conversation", () => {
     convo.receive(media(tone(5))); // too short to interrupt
     expect(sent.some((m) => m.event === "clearAudio")).toBe(false);
     convo.receive(media(silence(2)));
-    convo.receive(media(tone(15)));
+    convo.receive(media(tone(25)));
     expect(sent.at(-1)).toEqual({ event: "clearAudio", streamId: "s1" });
+  });
+
+  it("always plays the opening, even when the callee talks while it's being prepared", async () => {
+    let release!: (pcm: Buffer) => void;
+    const speech = fakeSpeech(["hello"]);
+    const lines: [string, string][] = [];
+    const openingAudio = new Promise<Buffer>((resolve) => (release = resolve));
+    const convo = streamConversation({
+      socket: { send: () => {}, close: () => {} },
+      speech,
+      opening: "Hello Neha, CrisisCrew here.",
+      openingAudio,
+      respond: (u) => ({ say: `You said ${u}` }),
+      onLine: (speaker, text) => lines.push([speaker, text]),
+      onAcknowledge: () => {},
+      hangup: async () => {},
+    });
+    convo.receive(JSON.stringify({ event: "start", start: { streamId: "s1" } }));
+    convo.receive(media(Buffer.concat([tone(20), silence(40)]))); // "hello" before the opening is ready
+    await flush();
+    await flush();
+    release(tone(5, 100));
+    await flush();
+    await flush();
+    expect(lines).toContainEqual(["callee", "hello"]);
+    expect(lines).toContainEqual(["agent", "Hello Neha, CrisisCrew here."]);
+    expect(speech.say).not.toHaveBeenCalledWith("Hello Neha, CrisisCrew here."); // it came from the audio made while ringing
+  });
+
+  it("keeps a reply when only noise follows it, and says a line again when noise cut it off", async () => {
+    let finishReply!: (pcm: Buffer) => void;
+    const heard = ["what changed", "", ""];
+    const said: string[] = [];
+    const speech: CallSpeech = {
+      name: "fake",
+      hear: async () => heard.shift() ?? "",
+      say: async (text) => {
+        said.push(text);
+        return text.startsWith("You said") && said.filter((t) => t.startsWith("You said")).length === 1 ? new Promise<Buffer>((r) => (finishReply = r)) : tone(5, 100);
+      },
+    };
+    const { convo, sent, lines } = conversation(speech);
+    convo.receive(JSON.stringify({ event: "start", start: { streamId: "s1" } }));
+    await flush();
+    convo.receive(JSON.stringify({ event: "playedStream", name: "turn-1" }));
+    convo.receive(media(Buffer.concat([tone(20), silence(40)]))); // "what changed"
+    await flush();
+    convo.receive(media(Buffer.concat([tone(10), silence(40)]))); // a cough while the reply is being prepared
+    await flush();
+    finishReply(tone(5, 100));
+    await flush();
+    await flush();
+    expect(lines.at(-1)).toEqual(["agent", "You said what changed"]);
+    // Noise talks over the reply: it stops, and, since nothing was said, plays again.
+    convo.receive(media(tone(25)));
+    expect(sent.at(-1)).toEqual({ event: "clearAudio", streamId: "s1" });
+    convo.receive(media(silence(40)));
+    await flush();
+    await flush();
+    expect(lines.filter(([, t]) => t === "You said what changed")).toHaveLength(2);
   });
 });
 

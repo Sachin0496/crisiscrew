@@ -73,6 +73,8 @@ type Placed = {
   /** A streamed call's secret: the WebSocket must present it. */
   streamToken?: string;
   streamOpened?: boolean;
+  /** The opening, synthesized while the phone rings. */
+  openingAudio?: Promise<Buffer>;
 };
 
 const xmlReply = (text: string) => `<?xml version="1.0" encoding="UTF-8"?><Response><Speak>${xml(text)}</Speak><Hangup/></Response>`;
@@ -119,6 +121,9 @@ export function answerXml(script: string, gather: CallRequest["gather"] | undefi
 function listen(say: string, digitsUrl: string): string {
   return `<Gather action="${xml(digitsUrl)}" method="POST" inputType="dtmf speech" numDigits="1" executionTimeout="15" speechEndTimeout="auto" language="en-IN"><Speak>${xml(say)}</Speak></Gather><Speak>I'll leave it there. Goodbye.</Speak><Hangup/>`;
 }
+
+/** What a streamed call says first: the script, then the question. */
+const openingOf = (script: string, gather: CallRequest["gather"] | undefined) => `${script} ${gather?.prompt ?? ""}`.trim();
 
 /** A streamed call's XML: the audio goes both ways over the WebSocket until the call ends. */
 export function streamXml(wsUrl: string): string {
@@ -197,6 +202,12 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
       const callId = `CALL-${randomUUID()}`;
       const streamed = Boolean(dialog && options.speech);
       placed.set(callId, { script, ...(gather ? { gather } : {}), ...(dialog ? { dialog } : {}), ...(streamed ? { streamToken: randomBytes(24).toString("base64url") } : {}) });
+      if (streamed) {
+        // Synthesize the opening while the phone rings, so it plays the moment the call is answered.
+        const audio = options.speech!.say(openingOf(script, gather));
+        audio.catch(() => {}); // a failure here is retried when the stream opens
+        placed.get(callId)!.openingAudio = audio;
+      }
       book.open(callId, number, purpose, metadata);
       try {
         const created = await request<{ request_uuid?: string; message?: string }>("POST", "/Call/", {
@@ -302,7 +313,8 @@ export function vobizTelephony(options: VobizOptions): VobizTelephony {
       return streamConversation({
         socket,
         speech: options.speech,
-        opening: `${info.script} ${info.gather?.prompt ?? ""}`.trim(),
+        opening: openingOf(info.script, info.gather),
+        ...(info.openingAudio ? { openingAudio: info.openingAudio } : {}),
         respond: (utterance) => dialog.respond(utterance),
         onLine: (speaker, text) => book.line(callId, speaker, text),
         // The same signal as pressing 1: the engine sees the digit and marks the page acknowledged.
