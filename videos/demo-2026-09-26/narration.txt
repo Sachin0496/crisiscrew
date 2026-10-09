@@ -1,0 +1,11 @@
+Imagine a checkout problem that quietly stops customers from paying. A few people contact support, but most do not. CrisisCrew helps the team find everyone affected and follow through on recovery.
+
+Here in the console, I start a replay of a broken checkout release. Tickets arrive in different words, but they point to the same payment failure. After the fourth complaint, CrisisCrew opens an incident. It checks the recent release and service health, then shows the likely cause with the evidence behind it.
+
+The key number is not the number of complaints. Eight customers wrote in, but payment records show twenty-three were affected. That means fifteen people were silent. CrisisCrew finds them from the failed payments in the incident window, even though they never opened a ticket.
+
+Open one of those customers, Ananya. Her evidence chain shows the failed payment, the checkout service, and why she belongs in this incident. Her recovery plan includes a proactive update and a proposed credit. The update can go out, but the larger credit waits for a person to decide.
+
+Back on the incident, recovery coverage is twenty-one out of twenty-three. The routine steps have finished. I approve one priority credit and change the other amount. Now coverage reaches twenty-three out of twenty-three, and the incident moves to recovered. Each decision is tied to one customer and the exact amount approved.
+
+The Traces page shows the workflow behind the screen: detect, investigate, check customer impact, and recover. You can open a run to see what happened at each step. This demo uses a replayed world, while the engine and its decisions run live. The simple goal is to make sure every harmed customer is accounted for, including the ones who never complained.
